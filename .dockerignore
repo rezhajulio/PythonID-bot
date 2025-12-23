@@ -1,0 +1,16 @@
+.git
+.gitignore
+.python-version
+.env
+.env.staging
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+.pytest_cache/
+.env.example
+tests/
+*.db
