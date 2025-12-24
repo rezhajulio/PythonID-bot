@@ -43,3 +43,29 @@ class UserWarning(SQLModel, table=True):
     last_message_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_restricted: bool = Field(default=False)
     restricted_by_bot: bool = Field(default=False)
+
+
+class PhotoVerificationWhitelist(SQLModel, table=True):
+    """
+    Whitelist for users who have verified profile pictures but privacy settings
+    prevent the bot from seeing them.
+
+    This table allows admins to manually verify users whose profile pictures
+    are hidden due to Telegram privacy settings, bypassing the automatic
+    profile photo check.
+
+    Attributes:
+        id: Primary key (auto-generated).
+        user_id: Telegram user ID (indexed, unique).
+        verified_by_admin_id: Telegram user ID of the admin who verified.
+        verified_at: Timestamp when verification was granted.
+        notes: Optional notes about the verification.
+    """
+
+    __tablename__ = "photo_verification_whitelist"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True, unique=True)
+    verified_by_admin_id: int
+    verified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    notes: str | None = Field(default=None)
