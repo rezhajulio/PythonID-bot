@@ -68,7 +68,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Build warning message components
     missing = result.get_missing_items()
     missing_text = MISSING_ITEMS_SEPARATOR.join(missing)
-    user_mention = f"@{user.username}" if user.username else user.full_name
+    user_mention = (
+        f"@{user.username}"
+        if user.username
+        else f"[{user.full_name}](tg://user?id={user.id})"
+    )
 
     # Warning mode: just send warning, don't restrict
     if not settings.restrict_failed_users:
