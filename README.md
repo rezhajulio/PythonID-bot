@@ -99,8 +99,7 @@ uv run pythonid-bot
 BOT_ENV=staging uv run pythonid-bot
 
 # Stop gracefully with Ctrl+C
-# The bot handles SIGINT (Ctrl+C) and SIGTERM (Docker) signals
-# It will properly shut down the JobQueue scheduler before exiting
+# The bot will properly shut down the JobQueue scheduler before exiting
 ```
 
 ## Environment Configuration
@@ -148,7 +147,7 @@ All modules are fully unit tested with:
 - Edge case handling (errors, empty results, boundary conditions)
 - Database initialization and schema validation
 - Background job testing (JobQueue integration, job configuration, auto-restriction logic)
-- **94 total tests** across 9 test modules
+- **104 total tests** across 11 test modules
 
 ## Project Structure
 
@@ -313,31 +312,25 @@ Both message-based and time-based restrictions work together. Users are restrict
 - For testing, set `WARNING_TIME_THRESHOLD_MINUTES=5` to test with 5-minute timeout
 - Check bot logs for scheduler errors
 
-### Graceful Shutdown (Ctrl+C and Docker)
+### Graceful Shutdown
 - The bot uses python-telegram-bot's built-in graceful shutdown handling
-- **SIGINT (Ctrl+C)**: When you press Ctrl+C in the terminal
-- **SIGTERM (Docker)**: When Docker stops or restarts the container (`docker stop`, `docker restart`, etc.)
+- When you press **Ctrl+C** or the process receives a termination signal:
+  1. Polling stops accepting new updates
+  2. JobQueue shuts down and waits for all background jobs to complete
+  3. Application exits cleanly
 
-When either signal is received, python-telegram-bot will:
-1. Stop accepting new updates
-2. Shut down the JobQueue and wait for all background jobs to complete
-3. Exit cleanly
-
-**Docker deployment tip**: The bot will gracefully shut down within the default Docker stop timeout (10 seconds).
+**Docker deployment tip**: Docker will send SIGTERM to the bot, triggering graceful shutdown. The bot will clean up within the default timeout (10 seconds).
 
 Example Docker commands:
 ```bash
 # Start the bot
 docker run -d --name pythonid-bot pythonid-bot
 
-# Stop gracefully (SIGTERM sent, bot has up to 10 seconds to shutdown)
+# Stop gracefully (SIGTERM sent, bot gracefully shuts down)
 docker stop pythonid-bot
 
-# Restart gracefully (sends SIGTERM, waits for exit, then starts new container)
+# Restart (sends SIGTERM, waits for exit, starts new container)
 docker restart pythonid-bot
-
-# Kill forcefully after timeout (not recommended, use docker stop instead)
-docker kill pythonid-bot
 ```
 
 ## License
