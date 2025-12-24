@@ -11,6 +11,7 @@ import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes
+from telegram.helpers import mention_markdown
 
 from bot.config import get_settings
 from bot.constants import (
@@ -71,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_mention = (
         f"@{user.username}"
         if user.username
-        else f"[{user.full_name}](tg://user?id={user.id})"
+        else mention_markdown(user.id, user.full_name)
     )
 
     # Warning mode: just send warning, don't restrict
@@ -91,7 +92,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text=warning_message,
             parse_mode="Markdown",
         )
-        logger.info(f"Warned user {user.id} ({user.full_name}) for missing: {missing_text}")
+        logger.info(
+            f"Warned user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
+        )
         return
 
     # Progressive restriction mode: track messages and restrict at threshold
@@ -117,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown",
         )
         logger.info(
-            f"First warning for user {user.id} ({user.full_name}) for missing: {missing_text}"
+            f"First warning for user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
         )
 
     # Threshold reached: restrict user
@@ -149,7 +152,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown",
         )
         logger.info(
-            f"Restricted user {user.id} ({user.full_name}) after {record.message_count} messages"
+            f"Restricted user {user.id} ({user.full_name}) after {record.message_count} messages (group_id={settings.group_id})"
         )
     else:
         # Not at threshold yet: silently increment count (no spam)

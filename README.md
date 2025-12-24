@@ -16,7 +16,7 @@ A Telegram bot that monitors group messages and warns users who don't have a pub
 
 ## Requirements
 
-- Python 3.14+
+- Python 3.11+
 - [uv](https://docs.astral.sh/uv/) package manager
 
 ## Setup
@@ -100,7 +100,7 @@ BOT_ENV=staging uv run pythonid-bot
 
 # Stop gracefully with Ctrl+C
 # The bot handles SIGINT (Ctrl+C) and SIGTERM (Docker) signals
-# It will properly shut down the scheduler before exiting
+# It will properly shut down the JobQueue scheduler before exiting
 ```
 
 ## Environment Configuration
@@ -136,8 +136,8 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **All modules**: 100% coverage including new scheduler module
-  - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`
+- **All modules**: 100% coverage including JobQueue scheduler integration
+  - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`
   - Handlers: `dm.py`, `message.py`, `topic_guard.py`
   - Database: `service.py`, `models.py`
   - Config: `config.py`
@@ -147,7 +147,7 @@ All modules are fully unit tested with:
 - Mocked async dependencies (telegram bot API calls)
 - Edge case handling (errors, empty results, boundary conditions)
 - Database initialization and schema validation
-- Background job testing (scheduler creation, job configuration, auto-restriction logic)
+- Background job testing (JobQueue integration, job configuration, auto-restriction logic)
 - **94 total tests** across 9 test modules
 
 ## Project Structure
@@ -166,12 +166,12 @@ PythonID/
 │   ├── test_database.py
 │   ├── test_dm_handler.py
 │   ├── test_message_handler.py
-│   ├── test_scheduler.py     # Scheduler job tests
+│   ├── test_scheduler.py     # JobQueue scheduler tests
 │   ├── test_topic_guard.py
 │   └── test_user_checker.py
 └── src/
     └── bot/
-        ├── main.py              # Entry point
+        ├── main.py              # Entry point with JobQueue integration
         ├── config.py            # Pydantic settings
         ├── constants.py         # Shared constants
         ├── handlers/
@@ -183,7 +183,8 @@ PythonID/
         │   └── service.py       # Database operations
         └── services/
             ├── bot_info.py      # Bot info caching
-            ├── scheduler.py     # Background job scheduler
+            ├── scheduler.py     # JobQueue background job
+            ├── telegram_utils.py # Shared telegram utilities
             └── user_checker.py  # Profile validation
 ```
 
@@ -193,15 +194,16 @@ PythonID/
 
 The bot is organized into clear modules for maintainability:
 
-- **main.py**: Entry point with graceful shutdown handling for KeyboardInterrupt
+- **main.py**: Entry point with python-telegram-bot's JobQueue integration and graceful shutdown
 - **handlers/**: Message processing logic
   - `message.py`: Monitors group messages and sends warnings/restrictions
   - `dm.py`: Handles DM unrestriction flow
   - `topic_guard.py`: Protects warning topic from unauthorized messages
 - **services/**: Business logic and utilities
-  - `scheduler.py`: Background job that runs every 5 minutes for time-based auto-restrictions
+  - `scheduler.py`: JobQueue background job that runs every 5 minutes for time-based auto-restrictions
   - `user_checker.py`: Profile validation (photo + username check)
   - `bot_info.py`: Caches bot metadata to avoid repeated API calls
+  - `telegram_utils.py`: Shared telegram utilities (user status checks, etc.)
 - **database/**: Data persistence
   - `service.py`: Database operations with SQLite
   - `models.py`: Data models using SQLModel
@@ -230,7 +232,7 @@ Users are restricted when **either**:
 Whichever happens first triggers the restriction.
 
 ### Time-Based Auto-Restriction
-The bot runs a background scheduler every 5 minutes that:
+The bot runs a JobQueue background job every 5 minutes that:
 1. Queries the database for warnings older than `WARNING_TIME_THRESHOLD_MINUTES`
 2. Restricts those users (applies mute permissions)
 3. Sends notifications to the warning topic with the DM link
@@ -307,22 +309,21 @@ Both message-based and time-based restrictions work together. Users are restrict
 ### Time-based restriction not working
 - Ensure `RESTRICT_FAILED_USERS=true` is set (or time-based restrictions are always active)
 - Check that `WARNING_TIME_THRESHOLD_MINUTES` is set correctly
-- The scheduler runs every 5 minutes; initial restriction may take up to 5 minutes
+- The JobQueue job runs every 5 minutes; initial restriction may take up to 5 minutes
 - For testing, set `WARNING_TIME_THRESHOLD_MINUTES=5` to test with 5-minute timeout
 - Check bot logs for scheduler errors
 
 ### Graceful Shutdown (Ctrl+C and Docker)
-- The bot handles both terminal interrupts and Docker container signals gracefully
+- The bot uses python-telegram-bot's built-in graceful shutdown handling
 - **SIGINT (Ctrl+C)**: When you press Ctrl+C in the terminal
 - **SIGTERM (Docker)**: When Docker stops or restarts the container (`docker stop`, `docker restart`, etc.)
 
-When either signal is received, the bot will:
-1. Log the signal and reason (Docker vs terminal)
-2. Shut down the scheduler and wait for all background jobs to complete
-3. Log the shutdown status
-4. Exit cleanly with code 0
+When either signal is received, python-telegram-bot will:
+1. Stop accepting new updates
+2. Shut down the JobQueue and wait for all background jobs to complete
+3. Exit cleanly
 
-**Docker deployment tip**: The bot will gracefully shut down within the default Docker stop timeout (10 seconds). This prevents the "Event loop is closed" RuntimeError that occurred in previous versions.
+**Docker deployment tip**: The bot will gracefully shut down within the default Docker stop timeout (10 seconds).
 
 Example Docker commands:
 ```bash

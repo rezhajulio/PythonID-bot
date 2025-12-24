@@ -9,9 +9,6 @@ and starts the polling loop. Handler registration order matters:
 """
 
 import logging
-import signal
-import sys
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from telegram.ext import Application, MessageHandler, filters
 
@@ -20,7 +17,7 @@ from bot.database.service import init_database
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
-from bot.services.scheduler import start_scheduler
+from bot.services.scheduler import auto_restrict_expired_warnings
 
 # Configure logging format for the application
 logging.basicConfig(
@@ -38,11 +35,8 @@ def main() -> None:
     1. Loads configuration from environment
     2. Initializes the SQLite database
     3. Registers message handlers in priority order
-    4. Starts the async scheduler for periodic tasks
-    5. Registers signal handlers for graceful shutdown
-    6. Starts the bot polling loop
-    
-    Gracefully handles SIGTERM (Docker) and SIGINT (Ctrl+C) signals.
+    4. Starts JobQueue for periodic tasks
+    5. Starts the bot polling loop
     """
     settings = get_settings()
 
@@ -81,36 +75,16 @@ def main() -> None:
         )
     )
 
-    # Start scheduler for periodic tasks (auto-restriction by time threshold)
-    scheduler = start_scheduler(application)
-
-    def handle_shutdown(signum, frame):
-        """Handle SIGTERM and SIGINT signals for graceful shutdown.
-        
-        Called when:
-        - Docker sends SIGTERM (docker stop, restart, or kill)
-        - User presses Ctrl+C (SIGINT)
-        
-        Args:
-            signum: Signal number
-            frame: Current stack frame
-        """
-        if signum == signal.SIGTERM:
-            logger.info("SIGTERM received (Docker container stop/restart). Shutting down gracefully...")
-        elif signum == signal.SIGINT:
-            logger.info("SIGINT received (Ctrl+C). Shutting down gracefully...")
-        
-        logger.info("Waiting for scheduler jobs to complete...")
-        scheduler.shutdown(wait=True)
-        logger.info("Scheduler shut down successfully.")
-        
-        sys.exit(0)
-
-    signal.signal(signal.SIGTERM, handle_shutdown)
-    signal.signal(signal.SIGINT, handle_shutdown)
+    # Register auto-restriction job to run every 5 minutes
+    application.job_queue.run_repeating(
+        auto_restrict_expired_warnings,
+        interval=300,
+        first=300,
+        name="auto_restrict_job"
+    )
 
     logger.info(f"Bot started. Monitoring group {settings.group_id}")
-    logger.info("Signal handlers registered for graceful shutdown (SIGTERM, SIGINT)")
+    logger.info("JobQueue started with auto-restriction job (every 5 minutes)")
     
     application.run_polling(allowed_updates=["message"])
 

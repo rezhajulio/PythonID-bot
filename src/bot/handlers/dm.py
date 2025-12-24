@@ -11,39 +11,15 @@ unrestriction flow. When a restricted user DMs the bot:
 import logging
 
 from telegram import Update
-from telegram.error import BadRequest, Forbidden
+from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
 
 from bot.config import get_settings
 from bot.database.service import get_database
+from bot.services.telegram_utils import get_user_status
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
-
-
-async def _get_user_status(
-    context: ContextTypes.DEFAULT_TYPE, group_id: int, user_id: int
-) -> str | None:
-    """
-    Get user's membership status in the group.
-
-    Args:
-        context: Bot context.
-        group_id: Telegram group ID.
-        user_id: Telegram user ID.
-
-    Returns:
-        str | None: User status ("member", "restricted", "left", "kicked", etc.)
-            or None if unable to fetch (e.g., bot not in group).
-    """
-    try:
-        user_member = await context.bot.get_chat_member(
-            chat_id=group_id,
-            user_id=user_id,
-        )
-        return user_member.status
-    except (BadRequest, Forbidden):
-        return None
 
 
 async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,10 +48,10 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings = get_settings()
 
     # Check user's status in the group
-    user_status = await _get_user_status(context, settings.group_id, user.id)
+    user_status = await get_user_status(context, settings.group_id, user.id)
 
     # User not in group (or we can't check)
-    if user_status is None or user_status in ("left", "kicked"):
+    if user_status is None or user_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
         await update.message.reply_text(
             "❌ Kamu belum bergabung di grup.\n"
             "Silakan bergabung ke grup terlebih dahulu."
@@ -112,15 +88,21 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "ℹ️ Kamu tidak memiliki pembatasan dari bot ini.\n"
             "Jika kamu dibatasi oleh admin, silakan hubungi admin grup secara langsung."
         )
+        logger.info(
+            f"DM from user {user.id} ({user.full_name}) - no bot restriction (group_id={settings.group_id})"
+        )
         return
 
     # User was restricted by bot but is no longer restricted on Telegram
     # (e.g., admin already unrestricted them) - just clear our record
-    if user_status != "restricted":
+    if user_status != ChatMemberStatus.RESTRICTED:
         db.mark_user_unrestricted(user.id, settings.group_id)
         await update.message.reply_text(
             "ℹ️ Kamu sudah tidak dibatasi di grup.\n"
             "Silakan bergabung kembali!"
+        )
+        logger.info(
+            f"User {user.id} ({user.full_name}) already unrestricted - clearing record (group_id={settings.group_id})"
         )
         return
 
@@ -142,4 +124,6 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "✅ Selamat! Kamu sudah memenuhi persyaratan.\n"
         "Pembatasan kamu di grup telah dicabut. Silakan bergabung kembali!"
     )
-    logger.info(f"Unrestricted user {user.id} ({user.full_name}) via DM")
+    logger.info(
+        f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
+    )

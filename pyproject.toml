@@ -3,13 +3,12 @@ name = "pythonid-bot"
 version = "0.1.0"
 description = "Telegram bot that monitors group messages and warns users without public profile pictures or usernames"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "python-telegram-bot[job-queue]>=22.5",
     "sqlmodel>=0.0.28",
-    "apscheduler>=3.10.4",
 ]
 
 [project.scripts]

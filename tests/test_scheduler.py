@@ -1,21 +1,17 @@
 """
 Tests for the scheduler service.
 
-Tests the auto-restriction job and scheduler initialization.
+Tests the auto-restriction job and JobQueue integration.
 """
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from apscheduler.schedulers.background import BackgroundScheduler
+from telegram.constants import ChatMemberStatus
 
 from bot.database.models import UserWarning
-from bot.services.scheduler import (
-    _auto_restrict_sync_wrapper,
-    auto_restrict_expired_warnings,
-    start_scheduler,
-)
+from bot.services.scheduler import auto_restrict_expired_warnings
 
 
 class TestAutoRestrictExpiredWarnings:
@@ -43,9 +39,9 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.restrict_chat_member = AsyncMock()
         mock_bot.send_message = AsyncMock()
 
-        # Mock application
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        # Mock context (JobQueue context)
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         # Mock settings
         mock_settings = MagicMock()
@@ -61,7 +57,7 @@ class TestAutoRestrictExpiredWarnings:
                     new_callable=AsyncMock,
                     return_value="test_bot",
                 ):
-                    await auto_restrict_expired_warnings(mock_application)
+                    await auto_restrict_expired_warnings(mock_context)
 
         # Verify restriction was applied
         mock_bot.restrict_chat_member.assert_called_once()
@@ -86,15 +82,15 @@ class TestAutoRestrictExpiredWarnings:
         mock_db.get_warnings_past_time_threshold.return_value = []
 
         mock_bot = AsyncMock()
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
         mock_settings.warning_time_threshold_hours = 3
 
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
             with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
-                await auto_restrict_expired_warnings(mock_application)
+                await auto_restrict_expired_warnings(mock_context)
 
         # Should not call restrict or send message
         mock_bot.restrict_chat_member.assert_not_called()
@@ -134,8 +130,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.restrict_chat_member = AsyncMock()
         mock_bot.send_message = AsyncMock()
 
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
         mock_settings.warning_time_threshold_minutes = 180
@@ -150,7 +146,7 @@ class TestAutoRestrictExpiredWarnings:
                     new_callable=AsyncMock,
                     return_value="test_bot",
                 ):
-                    await auto_restrict_expired_warnings(mock_application)
+                    await auto_restrict_expired_warnings(mock_context)
 
         # Verify both users were restricted
         assert mock_bot.restrict_chat_member.call_count == 2
@@ -177,8 +173,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock(side_effect=Exception("API error"))
 
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
         mock_settings.warning_time_threshold_minutes = 180
@@ -187,7 +183,7 @@ class TestAutoRestrictExpiredWarnings:
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
             with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
                 # Should not raise, but log the error
-                await auto_restrict_expired_warnings(mock_application)
+                await auto_restrict_expired_warnings(mock_context)
 
         # Verify restriction was attempted
         mock_bot.restrict_chat_member.assert_called_once()
@@ -199,29 +195,73 @@ class TestAutoRestrictExpiredWarnings:
         mock_db.get_warnings_past_time_threshold.return_value = []
 
         mock_bot = AsyncMock()
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
         mock_settings.warning_time_threshold_minutes = 300  # Different threshold (5 hours)
 
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
             with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
-                await auto_restrict_expired_warnings(mock_application)
+                await auto_restrict_expired_warnings(mock_context)
 
         # Verify correct threshold was passed to database query
         mock_db.get_warnings_past_time_threshold.assert_called_once_with(300)
 
-
-class TestAutoRestrictSyncWrapper:
-    def test_wrapper_executes_async_function(self):
-        """Test that sync wrapper properly executes the async function."""
+    @pytest.mark.asyncio
+    async def test_skips_kicked_user(self):
+        """Test that kicked users are skipped and marked as unrestricted."""
         mock_warning = UserWarning(
             id=1,
             user_id=123,
             group_id=-100999,
             message_count=1,
-            first_warned_at=datetime.now(UTC) - timedelta(minutes=200),
+            first_warned_at=datetime.now(UTC) - timedelta(hours=4),
+            last_message_at=datetime.now(UTC),
+            is_restricted=False,
+            restricted_by_bot=False,
+        )
+
+        mock_db = MagicMock()
+        mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
+        mock_db.mark_user_unrestricted = MagicMock()
+
+        mock_bot = AsyncMock()
+        mock_bot.restrict_chat_member = AsyncMock()
+        mock_bot.send_message = AsyncMock()
+
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+
+        mock_settings = MagicMock()
+        mock_settings.warning_time_threshold_minutes = 180
+        mock_settings.group_id = -100999
+
+        with patch("bot.services.scheduler.get_database", return_value=mock_db):
+            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+                with patch(
+                    "bot.services.scheduler.get_user_status",
+                    new_callable=AsyncMock,
+                    return_value=ChatMemberStatus.BANNED,
+                ):
+                    await auto_restrict_expired_warnings(mock_context)
+
+        # Verify user was marked as unrestricted
+        mock_db.mark_user_unrestricted.assert_called_once_with(123, -100999)
+
+        # Verify restriction was NOT applied
+        mock_bot.restrict_chat_member.assert_not_called()
+        mock_bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_get_chat_member_failure(self):
+        """Test fallback user mention when get_chat_member fails."""
+        mock_warning = UserWarning(
+            id=1,
+            user_id=123,
+            group_id=-100999,
+            message_count=1,
+            first_warned_at=datetime.now(UTC) - timedelta(hours=4),
             last_message_at=datetime.now(UTC),
             is_restricted=False,
             restricted_by_bot=False,
@@ -234,9 +274,11 @@ class TestAutoRestrictSyncWrapper:
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock()
         mock_bot.send_message = AsyncMock()
+        # Make get_chat_member raise an exception
+        mock_bot.get_chat_member = AsyncMock(side_effect=Exception("User not found"))
 
-        mock_application = MagicMock()
-        mock_application.bot = mock_bot
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
         mock_settings.warning_time_threshold_minutes = 180
@@ -247,59 +289,21 @@ class TestAutoRestrictSyncWrapper:
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
             with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
                 with patch(
-                    "bot.services.scheduler.BotInfoCache.get_username",
+                    "bot.services.scheduler.get_user_status",
                     new_callable=AsyncMock,
-                    return_value="test_bot",
+                    return_value=ChatMemberStatus.MEMBER,
                 ):
-                    # Call the sync wrapper
-                    _auto_restrict_sync_wrapper(mock_application)
+                    with patch(
+                        "bot.services.scheduler.BotInfoCache.get_username",
+                        new_callable=AsyncMock,
+                        return_value="test_bot",
+                    ):
+                        await auto_restrict_expired_warnings(mock_context)
 
-        # Verify the async function was executed
+        # Verify restriction was applied
         mock_bot.restrict_chat_member.assert_called_once()
-        mock_db.mark_user_restricted.assert_called_once()
+
+        # Verify notification was sent with fallback user mention
         mock_bot.send_message.assert_called_once()
-
-
-class TestStartScheduler:
-    def test_creates_scheduler(self):
-        """Test that scheduler is created and started."""
-        mock_application = MagicMock()
-
-        scheduler = start_scheduler(mock_application)
-
-        assert scheduler is not None
-        assert isinstance(scheduler, BackgroundScheduler)
-        assert scheduler.running is True
-
-        # Clean up
-        scheduler.shutdown()
-
-    def test_adds_auto_restrict_job(self):
-        """Test that auto-restriction job is registered."""
-        mock_application = MagicMock()
-
-        scheduler = start_scheduler(mock_application)
-
-        # Get the job
-        jobs = scheduler.get_jobs()
-        assert len(jobs) == 1
-
-        job = jobs[0]
-        assert job.id == "auto_restrict_job"
-        assert "auto-restrict" in job.name.lower() or "auto_restrict" in job.name.lower()
-
-        # Clean up
-        scheduler.shutdown()
-
-    def test_scheduler_interval_is_5_minutes(self):
-        """Test that job runs every 5 minutes."""
-        mock_application = MagicMock()
-
-        scheduler = start_scheduler(mock_application)
-
-        job = scheduler.get_jobs()[0]
-        # APScheduler interval trigger should be 5 minutes
-        assert job.trigger.interval.total_seconds() == 300  # 5 minutes * 60 seconds
-
-        # Clean up
-        scheduler.shutdown()
+        call_args = mock_bot.send_message.call_args
+        assert "User 123" in call_args.kwargs["text"]

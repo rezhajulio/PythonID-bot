@@ -6,7 +6,7 @@ Currently tracks user warnings and restrictions for the progressive
 enforcement system.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
@@ -39,7 +39,7 @@ class UserWarning(SQLModel, table=True):
     user_id: int = Field(index=True)
     group_id: int = Field(index=True)
     message_count: int = Field(default=1)
-    first_warned_at: datetime = Field(default_factory=datetime.utcnow)
-    last_message_at: datetime = Field(default_factory=datetime.utcnow)
+    first_warned_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_message_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_restricted: bool = Field(default=False)
     restricted_by_bot: bool = Field(default=False)
