@@ -69,7 +69,7 @@ RESTRICTION_MESSAGE_AFTER_MESSAGES = (
     "🚫 {user_mention} telah dibatasi setelah {message_count} pesan.\n"
     "Mohon lengkapi {missing_text} kamu untuk mematuhi aturan grup.\n\n"
     "📖 [Baca aturan grup]({rules_link})\n"
-    "✉️ [DM bot untuk membuka pembatasan]({dm_link})"
+    "✉️ [Hubungi langsung robot untuk membuka pembatasan (mohon pertimbangkan bahwa percakapan dengan robot saat ini sebagian besar belum direkam)]({dm_link})"
 )
 
 # Restriction message when user reaches time threshold (scheduler)
@@ -77,5 +77,5 @@ RESTRICTION_MESSAGE_AFTER_TIME = (
     "🚫 User {user_id} telah dibatasi karena tidak melengkapi profil "
     "dalam {threshold_display}.\n\n"
     "📖 [Baca aturan grup]({rules_link})\n"
-    "✉️ [DM bot untuk membuka pembatasan]({dm_link})"
+    "✉️ [Hubungi langsung robot untuk membuka pembatasan (mohon pertimbangkan bahwa percakapan dengan robot saat ini sebagian besar belum direkam)]({dm_link})"
 )
