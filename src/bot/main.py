@@ -10,14 +10,16 @@ and starts the polling loop. Handler registration order matters:
 
 import logging
 
-from telegram.ext import Application, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from bot.config import get_settings
 from bot.database.service import init_database
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
+from bot.handlers.verify import handle_verify_command, handle_unverify_command
 from bot.services.scheduler import auto_restrict_expired_warnings
+from bot.services.telegram_utils import fetch_group_admin_ids
 
 # Configure logging format for the application
 logging.basicConfig(
@@ -25,6 +27,26 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+async def post_init(application: Application) -> None:  # type: ignore[type-arg]
+    """
+    Post-initialization callback to fetch and cache group admin IDs.
+
+    This runs once after the bot starts and before polling begins.
+    Fetches admin list from the monitored group and stores it in bot_data.
+
+    Args:
+        application: The Application instance.
+    """
+    settings = get_settings()
+    try:
+        admin_ids = await fetch_group_admin_ids(application.bot, settings.group_id)  # type: ignore[arg-type]
+        application.bot_data["admin_ids"] = admin_ids  # type: ignore[index]
+        logger.info(f"Fetched {len(admin_ids)} admin(s) from group {settings.group_id}")
+    except Exception as e:
+        logger.error(f"Failed to fetch admin IDs: {e}")
+        application.bot_data["admin_ids"] = []  # type: ignore[index]
 
 
 def main() -> None:
@@ -46,6 +68,9 @@ def main() -> None:
     # Build the bot application with the token
     application = Application.builder().token(settings.telegram_bot_token).build()
 
+    # Set post_init callback to fetch admin IDs on startup
+    application.post_init = post_init
+
     # Handler 1: Topic guard - runs first (group -1) to delete unauthorized
     # messages in the warning topic before other handlers process them
     application.add_handler(
@@ -56,7 +81,17 @@ def main() -> None:
         group=-1,
     )
 
-    # Handler 2: DM handler - processes private messages (including /start)
+    # Handler 2: /verify command - allows admins to whitelist users in DM
+    application.add_handler(
+        CommandHandler("verify", handle_verify_command)
+    )
+
+    # Handler 3: /unverify command - allows admins to remove users from whitelist in DM
+    application.add_handler(
+        CommandHandler("unverify", handle_unverify_command)
+    )
+
+    # Handler 4: DM handler - processes private messages (including /start)
     # for the unrestriction flow. Must be registered before group handler
     # to prevent group handler from catching private messages first.
     application.add_handler(
@@ -66,7 +101,7 @@ def main() -> None:
         )
     )
 
-    # Handler 3: Group message handler - monitors messages in the configured
+    # Handler 5: Group message handler - monitors messages in the configured
     # group and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(
@@ -76,12 +111,13 @@ def main() -> None:
     )
 
     # Register auto-restriction job to run every 5 minutes
-    application.job_queue.run_repeating(
-        auto_restrict_expired_warnings,
-        interval=300,
-        first=300,
-        name="auto_restrict_job"
-    )
+    if application.job_queue:
+        application.job_queue.run_repeating(
+            auto_restrict_expired_warnings,
+            interval=300,
+            first=300,
+            name="auto_restrict_job"
+        )
 
     logger.info(f"Bot started. Monitoring group {settings.group_id}")
     logger.info("JobQueue started with auto-restriction job (every 5 minutes)")

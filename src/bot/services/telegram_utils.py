@@ -38,3 +38,24 @@ async def get_user_status(
         return user_member.status
     except (BadRequest, Forbidden):
         return None
+
+
+async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
+    """
+    Fetch all administrator user IDs from a group.
+
+    Args:
+        bot: Telegram bot instance.
+        group_id: Telegram group ID.
+
+    Returns:
+        list[int]: List of admin user IDs (including creator and administrators).
+
+    Raises:
+        Exception: If unable to fetch administrators (bot not in group, etc.).
+    """
+    try:
+        admins = await bot.get_chat_administrators(group_id)
+        return [admin.user.id for admin in admins]
+    except (BadRequest, Forbidden) as e:
+        raise Exception(f"Failed to fetch admins from group {group_id}: {e}")

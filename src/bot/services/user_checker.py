@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 from telegram import Bot, User
 
+from bot.database.service import get_database
+
 
 @dataclass
 class ProfileCheckResult:
@@ -53,11 +55,12 @@ async def check_user_profile(bot: Bot, user: User) -> ProfileCheckResult:
     Check if a user's profile is complete.
 
     A complete profile requires:
-    1. At least one public profile photo
+    1. At least one public profile photo (or whitelisted)
     2. A username set
 
     Note: Profile photos are fetched via API as they're not included
-    in the User object. This makes one API call per check.
+    in the User object. This makes one API call per check unless user
+    is in the whitelist.
 
     Args:
         bot: Telegram bot instance for API calls.
@@ -66,12 +69,14 @@ async def check_user_profile(bot: Bot, user: User) -> ProfileCheckResult:
     Returns:
         ProfileCheckResult: Result containing photo and username status.
     """
-    # Username is available directly on User object
     has_username = user.username is not None
 
-    # Profile photos require an API call
-    photos = await bot.get_user_profile_photos(user.id, limit=1)
-    has_profile_photo = photos.total_count > 0
+    db = get_database()
+    if db.is_user_photo_whitelisted(user.id):
+        has_profile_photo = True
+    else:
+        photos = await bot.get_user_profile_photos(user.id, limit=1)
+        has_profile_photo = photos.total_count > 0
 
     return ProfileCheckResult(
         has_profile_photo=has_profile_photo,

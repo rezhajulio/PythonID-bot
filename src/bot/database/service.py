@@ -11,7 +11,7 @@ from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from bot.database.models import UserWarning
+from bot.database.models import PhotoVerificationWhitelist, UserWarning
 
 
 class DatabaseService:
@@ -199,6 +199,81 @@ class DatabaseService:
                 record.restricted_by_bot = False
                 session.add(record)
                 session.commit()
+
+    def add_photo_verification_whitelist(
+        self, user_id: int, verified_by_admin_id: int, notes: str | None = None
+    ) -> PhotoVerificationWhitelist:
+        """
+        Add user to photo verification whitelist.
+
+        Args:
+            user_id: Telegram user ID.
+            verified_by_admin_id: Telegram user ID of admin performing verification.
+            notes: Optional notes about the verification.
+
+        Returns:
+            PhotoVerificationWhitelist: Created whitelist record.
+
+        Raises:
+            ValueError: If user is already whitelisted.
+        """
+        with Session(self._engine) as session:
+            statement = select(PhotoVerificationWhitelist).where(
+                PhotoVerificationWhitelist.user_id == user_id
+            )
+            existing = session.exec(statement).first()
+
+            if existing:
+                raise ValueError(f"User {user_id} is already whitelisted")
+
+            record = PhotoVerificationWhitelist(
+                user_id=user_id,
+                verified_by_admin_id=verified_by_admin_id,
+                notes=notes,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def is_user_photo_whitelisted(self, user_id: int) -> bool:
+        """
+        Check if user is in photo verification whitelist.
+
+        Args:
+            user_id: Telegram user ID.
+
+        Returns:
+            bool: True if user is whitelisted.
+        """
+        with Session(self._engine) as session:
+            statement = select(PhotoVerificationWhitelist).where(
+                PhotoVerificationWhitelist.user_id == user_id
+            )
+            record = session.exec(statement).first()
+            return record is not None
+
+    def remove_photo_verification_whitelist(self, user_id: int) -> None:
+        """
+        Remove user from photo verification whitelist.
+
+        Args:
+            user_id: Telegram user ID.
+
+        Raises:
+            ValueError: If user is not in whitelist.
+        """
+        with Session(self._engine) as session:
+            statement = select(PhotoVerificationWhitelist).where(
+                PhotoVerificationWhitelist.user_id == user_id
+            )
+            record = session.exec(statement).first()
+
+            if not record:
+                raise ValueError(f"User {user_id} is not in whitelist")
+
+            session.delete(record)
+            session.commit()
 
     def get_warnings_past_time_threshold(
         self, minutes_threshold: int

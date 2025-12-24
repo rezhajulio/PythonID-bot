@@ -41,64 +41,130 @@ class TestProfileCheckResult:
 
 class TestCheckUserProfile:
     async def test_user_with_photo_and_username(self):
-        bot = AsyncMock()
-        user = MagicMock()
-        user.id = 12345
-        user.username = "testuser"
+        from bot.database.service import init_database, reset_database
+        import tempfile
+        from pathlib import Path
 
-        photos = MagicMock()
-        photos.total_count = 1
-        bot.get_user_profile_photos.return_value = photos
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
 
-        result = await check_user_profile(bot, user)
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = "testuser"
 
-        assert result.has_profile_photo is True
-        assert result.has_username is True
-        assert result.is_complete is True
-        bot.get_user_profile_photos.assert_called_once_with(12345, limit=1)
+            photos = MagicMock()
+            photos.total_count = 1
+            bot.get_user_profile_photos.return_value = photos
+
+            result = await check_user_profile(bot, user)
+
+            assert result.has_profile_photo is True
+            assert result.has_username is True
+            assert result.is_complete is True
+            bot.get_user_profile_photos.assert_called_once_with(12345, limit=1)
+
+            reset_database()
 
     async def test_user_without_photo(self):
-        bot = AsyncMock()
-        user = MagicMock()
-        user.id = 12345
-        user.username = "testuser"
+        from bot.database.service import init_database, reset_database
+        import tempfile
+        from pathlib import Path
 
-        photos = MagicMock()
-        photos.total_count = 0
-        bot.get_user_profile_photos.return_value = photos
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
 
-        result = await check_user_profile(bot, user)
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = "testuser"
 
-        assert result.has_profile_photo is False
-        assert result.has_username is True
+            photos = MagicMock()
+            photos.total_count = 0
+            bot.get_user_profile_photos.return_value = photos
+
+            result = await check_user_profile(bot, user)
+
+            assert result.has_profile_photo is False
+            assert result.has_username is True
+
+            reset_database()
 
     async def test_user_without_username(self):
-        bot = AsyncMock()
-        user = MagicMock()
-        user.id = 12345
-        user.username = None
+        from bot.database.service import init_database, reset_database
+        import tempfile
+        from pathlib import Path
 
-        photos = MagicMock()
-        photos.total_count = 3
-        bot.get_user_profile_photos.return_value = photos
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
 
-        result = await check_user_profile(bot, user)
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = None
 
-        assert result.has_profile_photo is True
-        assert result.has_username is False
+            photos = MagicMock()
+            photos.total_count = 3
+            bot.get_user_profile_photos.return_value = photos
+
+            result = await check_user_profile(bot, user)
+
+            assert result.has_profile_photo is True
+            assert result.has_username is False
+
+            reset_database()
 
     async def test_user_without_both(self):
-        bot = AsyncMock()
-        user = MagicMock()
-        user.id = 12345
-        user.username = None
+        from bot.database.service import init_database, reset_database
+        import tempfile
+        from pathlib import Path
 
-        photos = MagicMock()
-        photos.total_count = 0
-        bot.get_user_profile_photos.return_value = photos
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
 
-        result = await check_user_profile(bot, user)
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = None
 
-        assert result.has_profile_photo is False
-        assert result.has_username is False
-        assert result.is_complete is False
+            photos = MagicMock()
+            photos.total_count = 0
+            bot.get_user_profile_photos.return_value = photos
+
+            result = await check_user_profile(bot, user)
+
+            assert result.has_profile_photo is False
+            assert result.has_username is False
+            assert result.is_complete is False
+
+            reset_database()
+
+    async def test_whitelisted_user_skips_api_check(self):
+        from bot.database.service import get_database, init_database, reset_database
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
+
+            db = get_database()
+            db.add_photo_verification_whitelist(user_id=12345, verified_by_admin_id=99999)
+
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = "testuser"
+
+            result = await check_user_profile(bot, user)
+
+            assert result.has_profile_photo is True
+            assert result.has_username is True
+            assert result.is_complete is True
+            bot.get_user_profile_photos.assert_not_called()
+
+            reset_database()
