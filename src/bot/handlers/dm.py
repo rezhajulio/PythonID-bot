@@ -48,7 +48,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings = get_settings()
 
     # Check user's status in the group
-    user_status = await get_user_status(context, settings.group_id, user.id)
+    user_status = await get_user_status(context.bot, settings.group_id, user.id)
 
     # User not in group (or we can't check)
     if user_status is None or user_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):

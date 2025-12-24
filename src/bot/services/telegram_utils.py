@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 
 async def get_user_status(
-    bot: Bot | ContextTypes.DEFAULT_TYPE,
+    bot: Bot,
     group_id: int,
     user_id: int,
 ) -> ChatMemberStatus | None:
@@ -20,7 +20,7 @@ async def get_user_status(
     Get user's membership status in the group.
 
     Args:
-        bot: Telegram bot instance or context.
+        bot: Telegram bot instance.
         group_id: Telegram group ID.
         user_id: Telegram user ID.
 
@@ -29,9 +29,7 @@ async def get_user_status(
             or None if unable to fetch (e.g., bot not in group).
     """
     try:
-        # Handle both Bot and ContextTypes
-        actual_bot = bot.bot if hasattr(bot, "bot") else bot
-        user_member = await actual_bot.get_chat_member(
+        user_member = await bot.get_chat_member(
             chat_id=group_id,
             user_id=user_id,
         )

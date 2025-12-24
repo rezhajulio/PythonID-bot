@@ -307,3 +307,5 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.send_message.assert_called_once()
         call_args = mock_bot.send_message.call_args
         assert "User 123" in call_args.kwargs["text"]
+
+
