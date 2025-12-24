@@ -9,6 +9,7 @@ import logging
 from datetime import UTC, datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import Application
 
 from bot.config import get_settings
@@ -21,6 +22,29 @@ from bot.database.service import get_database
 from bot.services.bot_info import BotInfoCache
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_user_status(bot, group_id: int, user_id: int) -> str | None:
+    """
+    Get user's membership status in the group.
+
+    Args:
+        bot: Telegram bot instance.
+        group_id: Telegram group ID.
+        user_id: Telegram user ID.
+
+    Returns:
+        str | None: User status ("member", "restricted", "left", "kicked", etc.)
+            or None if unable to fetch (e.g., bot not in group).
+    """
+    try:
+        user_member = await bot.get_chat_member(
+            chat_id=group_id,
+            user_id=user_id,
+        )
+        return user_member.status
+    except (BadRequest, Forbidden):
+        return None
 
 
 def _auto_restrict_sync_wrapper(application: Application) -> None:
@@ -68,7 +92,18 @@ async def auto_restrict_expired_warnings(application: Application) -> None:
 
     for warning in expired_warnings:
         try:
-            # Apply restriction
+            # Check if user is kicked
+            user_status = await _get_user_status(bot, settings.group_id, warning.user_id)
+            
+            # Skip if user is kicked (can't rejoin without admin re-invite)
+            if user_status == "kicked":
+                db.mark_user_unrestricted(warning.user_id, settings.group_id)
+                logger.info(
+                    f"Skipped auto-restriction for user {warning.user_id} (user kicked)"
+                )
+                continue
+            
+            # Apply restriction (even if user left, they'll be restricted when they rejoin)
             await bot.restrict_chat_member(
                 chat_id=settings.group_id,
                 user_id=warning.user_id,
