@@ -36,33 +36,18 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Check if Python files changed
-      id: python-files
-      run: |
-        if git diff --quiet ${{ github.event.pull_request.base.sha || 'HEAD~1' }} HEAD -- '*.py' src/ tests/; then
-          echo "changed=false" >> $GITHUB_OUTPUT
-        else
-          echo "changed=true" >> $GITHUB_OUTPUT
-        fi
-      continue-on-error: true
     
     - name: Set up Python ${{ matrix.python-version }}
-      if: steps.python-files.outputs.changed == 'true'
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
     
     - name: Install dependencies
-      if: steps.python-files.outputs.changed == 'true'
       run: |
         python -m pip install --upgrade pip
-        python -m pip install pytest
+        python -m pip install pytest-asyncio
         if [ -f pyproject.toml ]; then pip install -e .; fi
     
     - name: Test with pytest
-      if: steps.python-files.outputs.changed == 'true'
       run: |
         pytest
