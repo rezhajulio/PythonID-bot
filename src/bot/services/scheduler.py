@@ -6,10 +6,8 @@ time thresholds for profile completion.
 """
 
 import logging
-from datetime import UTC, datetime
 
 from telegram.constants import ChatMemberStatus
-from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 from telegram.helpers import mention_markdown
 

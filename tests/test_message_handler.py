@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.database.models import UserWarning
 from bot.database.service import init_database, reset_database
 from bot.handlers.message import handle_message
 from bot.services.user_checker import ProfileCheckResult

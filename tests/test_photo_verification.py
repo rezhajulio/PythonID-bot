@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from bot.database.models import PhotoVerificationWhitelist
 from bot.database.service import get_database, init_database, reset_database
 
 

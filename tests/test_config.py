@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import patch
 
 from bot.config import Settings, get_settings, get_env_file
 
