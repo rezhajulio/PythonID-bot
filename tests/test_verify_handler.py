@@ -33,6 +33,23 @@ def mock_update():
 @pytest.fixture
 def mock_context():
     context = MagicMock()
+    context.bot = MagicMock()
+    context.bot.get_chat = AsyncMock()
+    context.bot.restrict_chat_member = AsyncMock()
+    
+    # Mock get_chat to return a chat with default permissions
+    mock_chat = MagicMock()
+    mock_permissions = MagicMock()
+    mock_permissions.can_send_messages = True
+    mock_permissions.can_send_polls = True
+    mock_permissions.can_send_other_messages = True
+    mock_permissions.can_add_web_page_previews = True
+    mock_permissions.can_change_info = False
+    mock_permissions.can_invite_users = True
+    mock_permissions.can_pin_messages = False
+    mock_chat.permissions = mock_permissions
+    context.bot.get_chat.return_value = mock_chat
+    
     context.bot_data = {"admin_ids": [12345]}
     context.args = []
     return context
@@ -103,8 +120,12 @@ class TestHandleVerifyCommand:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "ditambahkan ke whitelist" in call_args.args[0]
-        assert str(target_user_id) in call_args.args[0]
+        response_text = call_args.args[0]
+        assert "diverifikasi" in response_text
+        assert "whitelist foto profil" in response_text
+        assert "Pembatasan dicabut" in response_text
+        assert "Riwayat warning dihapus" in response_text
+        assert str(target_user_id) in response_text
 
         db = get_database()
         assert db.is_user_photo_whitelisted(target_user_id)
@@ -159,7 +180,7 @@ class TestHandleVerifyCommand:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "ditambahkan ke whitelist" in call_args.args[0]
+        assert "diverifikasi" in call_args.args[0]
 
         db = get_database()
         assert db.is_user_photo_whitelisted(555666)
@@ -172,6 +193,67 @@ class TestHandleVerifyCommand:
 
         db = get_database()
         assert db.is_user_photo_whitelisted(large_id)
+
+    async def test_verify_unrestricts_user(self, mock_update, mock_context, temp_db):
+        """Test that verify command unrestricts the user."""
+        target_user_id = 555666
+        mock_context.args = [str(target_user_id)]
+
+        await handle_verify_command(mock_update, mock_context)
+
+        # Should call restrict_chat_member with unrestricted permissions
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        call_args = mock_context.bot.restrict_chat_member.call_args
+        assert call_args.kwargs["user_id"] == target_user_id
+        assert call_args.kwargs["permissions"].can_send_messages is True
+
+    async def test_verify_deletes_warnings(self, mock_update, mock_context, temp_db):
+        """Test that verify command deletes all warning records."""
+        from bot.config import get_settings
+        
+        target_user_id = 555666
+        settings = get_settings()
+        db = get_database()
+
+        # Create some warning records for the user
+        db.get_or_create_user_warning(target_user_id, settings.group_id)
+        db.increment_message_count(target_user_id, settings.group_id)
+        
+        # Verify there's at least one warning
+        warning = db.get_or_create_user_warning(target_user_id, settings.group_id)
+        assert warning.message_count >= 1
+
+        # Now verify the user
+        mock_context.args = [str(target_user_id)]
+        await handle_verify_command(mock_update, mock_context)
+
+        # Warnings should be deleted - trying to get warnings should create a new one
+        new_warning = db.get_or_create_user_warning(target_user_id, settings.group_id)
+        assert new_warning.message_count == 1  # Fresh start
+
+    async def test_verify_handles_non_restricted_user_gracefully(
+        self, mock_update, mock_context, temp_db
+    ):
+        """Test that verify doesn't fail if user is not restricted."""
+        from telegram.error import BadRequest
+        
+        target_user_id = 555666
+        mock_context.args = [str(target_user_id)]
+        
+        # Simulate BadRequest when trying to unrestrict a non-restricted user
+        mock_context.bot.restrict_chat_member.side_effect = BadRequest("User not restricted")
+
+        # Should not raise exception
+        await handle_verify_command(mock_update, mock_context)
+
+        # User should still be whitelisted
+        db = get_database()
+        assert db.is_user_photo_whitelisted(target_user_id)
+        
+        # Should still send success message
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "diverifikasi" in call_args.args[0]
 
 
 class TestHandleUnverifyCommand:

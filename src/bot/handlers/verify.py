@@ -9,9 +9,12 @@ hidden due to Telegram privacy settings.
 import logging
 
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from bot.config import get_settings
 from bot.database.service import get_database
+from bot.services.telegram_utils import unrestrict_user
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +71,28 @@ async def handle_verify_command(
             user_id=target_user_id,
             verified_by_admin_id=admin_user_id,
         )
+        
+        # Get settings for group_id
+        settings = get_settings()
+
+        # Unrestrict user if they are restricted
+        try:
+            await unrestrict_user(context.bot, settings.group_id, target_user_id)
+            logger.info(f"Unrestricted user {target_user_id} during verification")
+        except BadRequest as e:
+            # User might not be restricted or not in group - that's okay
+            logger.debug(f"Could not unrestrict user {target_user_id}: {e}")
+
+        # Delete all warning records for this user
+        deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} warning record(s) for user {target_user_id}")
+        
         await update.message.reply_text(
-            f"✅ User dengan ID {target_user_id} telah ditambahkan ke whitelist verifikasi foto.\n"
+            f"✅ User dengan ID {target_user_id} telah diverifikasi:\n"
+            f"• Ditambahkan ke whitelist foto profil\n"
+            f"• Pembatasan dicabut (jika ada)\n"
+            f"• Riwayat warning dihapus\n\n"
             f"User ini tidak akan dicek foto profil lagi."
         )
         logger.info(

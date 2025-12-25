@@ -206,6 +206,27 @@ class TestGetWarningsPastTimeThreshold:
         assert len(expired) == 3
 
 
+class TestDeleteUserWarnings:
+    def test_delete_user_warnings(self, db_service):
+        # Create multiple warnings for same user
+        db_service.get_or_create_user_warning(user_id=12345, group_id=-100111)
+        db_service.increment_message_count(user_id=12345, group_id=-100111)
+        db_service.mark_user_restricted(user_id=12345, group_id=-100111)
+
+        # Verify warning exists
+        assert db_service.is_user_restricted_by_bot(12345, -100111) is True
+
+        # Delete warnings
+        deleted_count = db_service.delete_user_warnings(user_id=12345, group_id=-100111)
+
+        assert deleted_count == 1
+        assert db_service.is_user_restricted_by_bot(12345, -100111) is False
+
+    def test_delete_user_warnings_returns_zero_if_no_warnings(self, db_service):
+        deleted_count = db_service.delete_user_warnings(user_id=99999, group_id=-100111)
+        assert deleted_count == 0
+
+
 class TestModuleLevelFunctions:
     def test_get_database_raises_error_before_init(self):
         """Test that get_database raises RuntimeError if init_database not called."""

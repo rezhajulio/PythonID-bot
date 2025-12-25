@@ -16,7 +16,7 @@ from telegram.ext import ContextTypes
 
 from bot.config import get_settings
 from bot.database.service import get_database
-from bot.services.telegram_utils import get_user_status
+from bot.services.telegram_utils import get_user_status, unrestrict_user
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -106,16 +106,8 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Get group's default permissions to restore user to normal state
-    chat = await context.bot.get_chat(settings.group_id)
-    default_permissions = chat.permissions
-
-    # Remove restriction by applying group's default permissions
-    await context.bot.restrict_chat_member(
-        chat_id=settings.group_id,
-        user_id=user.id,
-        permissions=default_permissions,
-    )
+    # Remove restriction
+    await unrestrict_user(context.bot, settings.group_id, user.id)
 
     # Clear our database record so we don't try to unrestrict again
     db.mark_user_unrestricted(user.id, settings.group_id)

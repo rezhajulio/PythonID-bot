@@ -9,7 +9,7 @@ with SQLite backend for persistence.
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from bot.database.models import PhotoVerificationWhitelist, UserWarning
 
@@ -199,6 +199,37 @@ class DatabaseService:
                 record.restricted_by_bot = False
                 session.add(record)
                 session.commit()
+
+    def delete_user_warnings(self, user_id: int, group_id: int) -> int:
+        """
+        Delete all warning records for a user in a specific group.
+
+        This completely removes warning history for the user, allowing them
+        to start fresh. Used when admins manually verify/whitelist users.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            int: Number of warning records deleted.
+        """
+        with Session(self._engine) as session:
+            # First count records to be deleted
+            count_statement = select(UserWarning).where(
+                UserWarning.user_id == user_id,
+                UserWarning.group_id == group_id,
+            )
+            count = len(session.exec(count_statement).all())
+
+            # Bulk delete using SQLModel delete statement
+            delete_statement = delete(UserWarning).where(
+                UserWarning.user_id == user_id,
+                UserWarning.group_id == group_id,
+            )
+            session.exec(delete_statement)
+            session.commit()
+            return count
 
     def add_photo_verification_whitelist(
         self, user_id: int, verified_by_admin_id: int, notes: str | None = None
