@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from bot.services.user_checker import ProfileCheckResult, check_user_profile
 

@@ -8,7 +8,6 @@ Telegram's API across different handlers and services.
 from telegram import Bot
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
-from telegram.ext import ContextTypes
 
 
 async def get_user_status(

@@ -137,7 +137,7 @@ uv run pytest -v
 The project maintains comprehensive test coverage:
 - **All modules**: 100% coverage including JobQueue scheduler integration
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`
-  - Handlers: `dm.py`, `message.py`, `topic_guard.py`
+  - Handlers: `dm.py`, `message.py`, `topic_guard.py`, `verify.py`
   - Database: `service.py`, `models.py`
   - Config: `config.py`
   - Constants: `constants.py`
@@ -147,7 +147,7 @@ All modules are fully unit tested with:
 - Edge case handling (errors, empty results, boundary conditions)
 - Database initialization and schema validation
 - Background job testing (JobQueue integration, job configuration, auto-restriction logic)
-- **104 total tests** across 11 test modules
+- **150 total tests** across 12 test modules
 
 ## Project Structure
 
@@ -162,12 +162,16 @@ PythonID/
 ├── tests/
 │   ├── test_bot_info.py
 │   ├── test_config.py
+│   ├── test_constants.py
 │   ├── test_database.py
 │   ├── test_dm_handler.py
 │   ├── test_message_handler.py
+│   ├── test_photo_verification.py
 │   ├── test_scheduler.py     # JobQueue scheduler tests
+│   ├── test_telegram_utils.py
 │   ├── test_topic_guard.py
-│   └── test_user_checker.py
+│   ├── test_user_checker.py
+│   └── test_verify_handler.py
 └── src/
     └── bot/
         ├── main.py              # Entry point with JobQueue integration

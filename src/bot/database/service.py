@@ -55,7 +55,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
-                UserWarning.is_restricted == False,
+                ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
 
@@ -96,7 +96,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
-                UserWarning.is_restricted == False,
+                ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
 
@@ -133,7 +133,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
-                UserWarning.is_restricted == False,
+                ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
 
@@ -169,8 +169,8 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
-                UserWarning.is_restricted == True,
-                UserWarning.restricted_by_bot == True,
+                UserWarning.is_restricted,
+                UserWarning.restricted_by_bot,
             )
             record = session.exec(statement).first()
             return record is not None
@@ -190,8 +190,8 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
-                UserWarning.is_restricted == True,
-                UserWarning.restricted_by_bot == True,
+                UserWarning.is_restricted,
+                UserWarning.restricted_by_bot,
             )
             record = session.exec(statement).first()
 
@@ -295,7 +295,7 @@ class DatabaseService:
         with Session(self._engine) as session:
             cutoff_time = datetime.now(UTC) - timedelta(minutes=minutes_threshold)
             statement = select(UserWarning).where(
-                UserWarning.is_restricted == False,
+                ~UserWarning.is_restricted,
                 UserWarning.first_warned_at <= cutoff_time,
             )
             records = session.exec(statement).all()
