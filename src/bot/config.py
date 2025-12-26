@@ -9,27 +9,37 @@ variables using Pydantic Settings. It supports multiple environments
 import logging
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
 
-def get_env_file() -> str:
+def get_env_file() -> str | None:
     """
     Determine which .env file to load based on BOT_ENV environment variable.
 
     Returns:
-        str: Path to the environment file.
-            - "production" or default -> ".env"
-            - "staging" -> ".env.staging"
+        str | None: Path to the environment file if it exists, None otherwise.
+            - "production" or default -> ".env" (if exists)
+            - "staging" -> ".env.staging" (if exists)
     """
     env = os.getenv("BOT_ENV", "production")
     env_files = {
         "production": ".env",
         "staging": ".env.staging",
     }
-    return env_files.get(env, ".env")
+    env_file = env_files.get(env, ".env")
+    
+    # Return path only if file exists, otherwise return None
+    # Pydantic will load from environment variables if no .env file
+    if Path(env_file).exists():
+        logger.debug(f"Loading configuration from: {env_file}")
+        return env_file
+    else:
+        logger.debug(f"No .env file found at {env_file}, loading from environment variables")
+        return None
 
 
 class Settings(BaseSettings):
