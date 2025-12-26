@@ -208,7 +208,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -234,7 +234,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -265,7 +265,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -293,7 +293,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -341,7 +341,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         mock_job = MagicMock()
         mock_job.schedule_removal = MagicMock()
@@ -370,13 +370,14 @@ class TestCaptchaCallbackHandler:
         )
         mock_job.schedule_removal.assert_called_once()
 
-    async def test_unrestrict_failure_continues_gracefully(
+    async def test_unrestrict_failure_stops_execution(
         self, mock_context, mock_settings, temp_db
     ):
+        """Test that unrestrict failure prevents false verification."""
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -397,8 +398,12 @@ class TestCaptchaCallbackHandler:
             mock_unrestrict.side_effect = Exception("Unrestrict failed")
             await captcha_callback_handler(update, mock_context)
 
-        query.edit_message_text.assert_called_once()
-        assert db.get_pending_captcha(12345, -1001234567890) is None
+        # Should NOT edit message or remove from database
+        query.edit_message_text.assert_not_called()
+        # Database record should still exist for retry
+        assert db.get_pending_captcha(12345, -1001234567890) is not None
+        # Should show error alert
+        query.answer.assert_called_with("Gagal memverifikasi. Silakan coba lagi.", show_alert=True)
 
     async def test_edit_message_failure_in_callback_continues_gracefully(
         self, mock_context, mock_settings, temp_db
@@ -406,7 +411,7 @@ class TestCaptchaCallbackHandler:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         query = MagicMock()
         query.answer = AsyncMock()
@@ -460,7 +465,7 @@ class TestCaptchaTimeoutCallback:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         job = MagicMock()
         job.data = {
@@ -468,7 +473,7 @@ class TestCaptchaTimeoutCallback:
             "group_id": -1001234567890,
             "chat_id": -1001234567890,
             "message_id": 999,
-            "user_mention": "@testuser",
+            "user_full_name": "Test User",
         }
         mock_context.job = job
 
@@ -480,7 +485,7 @@ class TestCaptchaTimeoutCallback:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         job = MagicMock()
         job.data = {
@@ -488,7 +493,7 @@ class TestCaptchaTimeoutCallback:
             "group_id": -1001234567890,
             "chat_id": -1001234567890,
             "message_id": 999,
-            "user_mention": "@testuser",
+            "user_full_name": "Test User",
         }
         mock_context.job = job
 
@@ -500,7 +505,7 @@ class TestCaptchaTimeoutCallback:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         job = MagicMock()
         job.data = {
@@ -508,7 +513,7 @@ class TestCaptchaTimeoutCallback:
             "group_id": -1001234567890,
             "chat_id": -1001234567890,
             "message_id": 999,
-            "user_mention": "@testuser",
+            "user_full_name": "Test User",
         }
         mock_context.job = job
 
@@ -527,7 +532,7 @@ class TestCaptchaTimeoutCallback:
             "group_id": -1001234567890,
             "chat_id": -1001234567890,
             "message_id": 999,
-            "user_mention": "@testuser",
+            "user_full_name": "Test User",
         }
         mock_context.job = job
 
@@ -557,7 +562,7 @@ class TestCaptchaTimeoutCallback:
         from bot.database.service import get_database
 
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999)
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
 
         mock_context.bot.edit_message_text.side_effect = Exception("Edit failed")
 
@@ -567,7 +572,7 @@ class TestCaptchaTimeoutCallback:
             "group_id": -1001234567890,
             "chat_id": -1001234567890,
             "message_id": 999,
-            "user_mention": "@testuser",
+            "user_full_name": "Test User",
         }
         mock_context.job = job
 

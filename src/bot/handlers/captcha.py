@@ -32,6 +32,20 @@ from bot.services.telegram_utils import unrestrict_user
 logger = logging.getLogger(__name__)
 
 
+def get_captcha_job_name(group_id: int, user_id: int) -> str:
+    """
+    Generate consistent job name for captcha timeout.
+
+    Args:
+        group_id: Telegram group ID.
+        user_id: Telegram user ID.
+
+    Returns:
+        str: Standardized job name for captcha timeout.
+    """
+    return f"captcha_timeout_{group_id}_{user_id}"
+
+
 async def new_member_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -106,9 +120,10 @@ async def new_member_handler(
             group_id=settings.group_id,
             chat_id=sent_message.chat_id,
             message_id=sent_message.message_id,
+            user_full_name=new_member.full_name,
         )
 
-        job_name = f"captcha_timeout_{settings.group_id}_{user_id}"
+        job_name = get_captcha_job_name(settings.group_id, user_id)
         context.job_queue.run_once(
             captcha_timeout_callback,
             when=settings.captcha_timeout_seconds,
@@ -118,7 +133,7 @@ async def new_member_handler(
                 "group_id": settings.group_id,
                 "chat_id": sent_message.chat_id,
                 "message_id": sent_message.message_id,
-                "user_mention": user_mention,
+                "user_full_name": new_member.full_name,
             },
         )
 
@@ -156,7 +171,7 @@ async def captcha_callback_handler(
 
     settings = get_settings()
 
-    job_name = f"captcha_timeout_{settings.group_id}_{target_user_id}"
+    job_name = get_captcha_job_name(settings.group_id, target_user_id)
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal()
@@ -167,6 +182,8 @@ async def captcha_callback_handler(
         logger.info(f"Unrestricted verified user {target_user_id}")
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
+        await query.answer("Gagal memverifikasi. Silakan coba lagi.", show_alert=True)
+        return  # Stop execution here so user can retry
 
     db = get_database()
     db.remove_pending_captcha(target_user_id, settings.group_id)
@@ -194,6 +211,8 @@ async def captcha_timeout_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     Args:
         context: Bot context containing job data.
     """
+    from bot.services.captcha_recovery import handle_captcha_expiration
+
     job = context.job
     if not job or not job.data:
         return
@@ -203,33 +222,21 @@ async def captcha_timeout_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     group_id = data["group_id"]
     chat_id = data["chat_id"]
     message_id = data["message_id"]
-    user_mention = data["user_mention"]
+    user_full_name = data.get("user_full_name") or data.get("user_mention", f"User {user_id}")
 
-    db = get_database()
-    pending = db.get_pending_captcha(user_id, group_id)
-    if not pending:
-        logger.debug(f"No pending captcha for user {user_id}, already verified")
-        return
+    # Extract full_name from mention format if needed (legacy support)
+    if user_full_name.startswith("[") and "](" in user_full_name:
+        # Parse "[Name](tg://user?id=123)" to extract "Name"
+        user_full_name = user_full_name.split("]")[0][1:]
 
-    db.remove_pending_captcha(user_id, group_id)
-
-    bot_username = await BotInfoCache.get_username(context.bot)
-    dm_link = f"[hubungi robot](https://t.me/{bot_username})"
-
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=CAPTCHA_TIMEOUT_MESSAGE.format(
-                user_mention=user_mention,
-                dm_link=dm_link,
-            ),
-            parse_mode="Markdown",
-        )
-    except Exception as e:
-        logger.error(f"Failed to edit captcha timeout message: {e}")
-
-    logger.info(f"User {user_id} captcha timeout - kept restricted")
+    await handle_captcha_expiration(
+        bot=context.bot,
+        user_id=user_id,
+        group_id=group_id,
+        chat_id=chat_id,
+        message_id=message_id,
+        user_full_name=user_full_name,
+    )
 
 
 def get_handlers() -> list:

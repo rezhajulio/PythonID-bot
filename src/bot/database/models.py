@@ -85,6 +85,7 @@ class PendingCaptchaValidation(SQLModel, table=True):
         group_id: Telegram group ID where the verification is required.
         chat_id: Telegram chat ID where the challenge was issued.
         message_id: ID of the challenge message to delete later.
+        user_full_name: Full name of the user for constructing mentions.
         created_at: Timestamp when the challenge was issued.
     """
 
@@ -95,4 +96,5 @@ class PendingCaptchaValidation(SQLModel, table=True):
     group_id: int = Field(index=True)
     chat_id: int = Field(index=True)
     message_id: int
+    user_full_name: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

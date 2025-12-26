@@ -6,6 +6,7 @@ plus module-level functions for initialization and access. Uses SQLModel
 with SQLite backend for persistence.
 """
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from bot.database.models import (
     PhotoVerificationWhitelist,
     UserWarning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
@@ -338,7 +341,12 @@ class DatabaseService:
             return [record for record in records]
 
     def add_pending_captcha(
-        self, user_id: int, group_id: int, chat_id: int, message_id: int
+        self,
+        user_id: int,
+        group_id: int,
+        chat_id: int,
+        message_id: int,
+        user_full_name: str,
     ) -> PendingCaptchaValidation:
         """
         Add a pending captcha validation record for a new user.
@@ -348,6 +356,7 @@ class DatabaseService:
             group_id: Telegram group ID.
             chat_id: Chat ID where the challenge message was sent.
             message_id: Message ID of the captcha challenge message.
+            user_full_name: Full name of the user for constructing mentions.
 
         Returns:
             PendingCaptchaValidation: Created pending validation record.
@@ -358,6 +367,7 @@ class DatabaseService:
                 group_id=group_id,
                 chat_id=chat_id,
                 message_id=message_id,
+                user_full_name=user_full_name,
             )
             session.add(record)
             session.commit()
@@ -403,6 +413,19 @@ class DatabaseService:
             result = session.exec(statement)
             session.commit()
             return result.rowcount > 0
+
+    def get_all_pending_captchas(self) -> list[PendingCaptchaValidation]:
+        """
+        Get all pending captcha validations.
+
+        Used on bot startup to recover lost timeout jobs.
+
+        Returns:
+            list[PendingCaptchaValidation]: All pending validation records.
+        """
+        with Session(self._engine) as session:
+            statement = select(PendingCaptchaValidation)
+            return list(session.exec(statement).all())
 
 
 # Module-level singleton for database service

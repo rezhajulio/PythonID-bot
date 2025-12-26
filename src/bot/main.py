@@ -36,6 +36,7 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
 
     This runs once after the bot starts and before polling begins.
     Fetches admin list from the monitored group and stores it in bot_data.
+    Also recovers any pending captcha verifications from database.
 
     Args:
         application: The Application instance.
@@ -48,6 +49,11 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     except Exception as e:
         logger.error(f"Failed to fetch admin IDs: {e}")
         application.bot_data["admin_ids"] = []  # type: ignore[index]
+
+    # Recover pending captcha verifications
+    if settings.captcha_enabled:
+        from bot.services.captcha_recovery import recover_pending_captchas
+        await recover_pending_captchas(application)
 
 
 def main() -> None:
