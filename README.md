@@ -194,6 +194,131 @@ PythonID/
             └── user_checker.py  # Profile validation
 ```
 
+## Bot Workflow
+
+The following diagram illustrates the complete bot workflow including message handling, restriction logic, DM unrestriction, background scheduler jobs, and captcha verification:
+
+```mermaid
+flowchart TD
+    Start([Bot Starts]) --> Init[Initialize Database & Config]
+    Init --> FetchAdmins[Fetch Group Admin IDs]
+    FetchAdmins --> StartJobs[Start JobQueue Scheduler<br/>5-minute interval]
+    StartJobs --> Poll[Poll for Updates]
+    
+    Poll --> UpdateType{Update Type?}
+    
+    %% New Member Flow
+    UpdateType -->|New Member| CheckCaptcha{Captcha<br/>Enabled?}
+    CheckCaptcha -->|Yes| SendCaptcha[Send Captcha to User]
+    SendCaptcha --> WaitCaptcha[Wait for Answer]
+    WaitCaptcha --> CaptchaAnswer{Correct<br/>Answer?}
+    CaptchaAnswer -->|Yes| UnrestrictMember[Unrestrict Member]
+    CaptchaAnswer -->|No| KickMember[Kick Member]
+    CaptchaAnswer -->|Timeout| KickMember
+    CheckCaptcha -->|No| Continue[Continue Monitoring]
+    
+    %% Group Message Flow
+    UpdateType -->|Group Message| TopicGuard{In Warning<br/>Topic?}
+    TopicGuard -->|Yes| IsAdmin{Is Admin<br/>or Bot?}
+    IsAdmin -->|No| DeleteMsg[Delete Message]
+    IsAdmin -->|Yes| ProcessMsg[Process Message]
+    TopicGuard -->|No| CheckBot{From Bot?}
+    
+    CheckBot -->|Yes| End1([Ignore])
+    CheckBot -->|No| CheckWhitelist{User<br/>Whitelisted?}
+    
+    CheckWhitelist -->|Yes| End2([Allow])
+    CheckWhitelist -->|No| CheckProfile[Check User Profile:<br/>Photo + Username]
+    
+    CheckProfile --> ProfileComplete{Profile<br/>Complete?}
+    ProfileComplete -->|Yes| End3([Allow])
+    ProfileComplete -->|No| CheckMode{Restriction<br/>Mode?}
+    
+    %% Warning Mode
+    CheckMode -->|Warning Only| SendWarning[Send Warning to Topic<br/>Time threshold mentioned]
+    SendWarning --> End4([Done])
+    
+    %% Progressive Restriction Mode
+    CheckMode -->|Progressive| CheckCount{Message<br/>Count?}
+    CheckCount -->|First Message| SendFirstWarning[Send Warning with<br/>Message & Time Thresholds]
+    SendFirstWarning --> IncrementDB[(Store Warning in DB<br/>with timestamp)]
+    IncrementDB --> End5([Done])
+    
+    CheckCount -->|2 to N-1| SilentIncrement[(Silent: Increment Count)]
+    SilentIncrement --> End6([Done])
+    
+    CheckCount -->|≥ Threshold| RestrictUser[Apply Restriction<br/>Mute Permissions]
+    RestrictUser --> MarkRestricted[(Mark as Restricted<br/>in Database)]
+    MarkRestricted --> SendRestrictionMsg[Send Restriction Notice<br/>with DM Link]
+    SendRestrictionMsg --> End7([Done])
+    
+    %% DM Flow
+    UpdateType -->|Private Message| CheckInGroup{User in<br/>Group?}
+    CheckInGroup -->|No| SendNotInGroup[Send: Not in Group]
+    CheckInGroup -->|Yes| CheckPendingCaptcha{Has Pending<br/>Captcha?}
+    
+    CheckPendingCaptcha -->|Yes| SendCaptchaRedirect[Send: Complete Captcha<br/>in Group First]
+    CheckPendingCaptcha -->|No| CheckDMProfile[Check Profile]
+    
+    CheckDMProfile --> DMProfileComplete{Profile<br/>Complete?}
+    DMProfileComplete -->|No| SendMissing[Send: Missing Items]
+    DMProfileComplete -->|Yes| CheckBotRestricted{Restricted<br/>by Bot?}
+    
+    CheckBotRestricted -->|No| SendNoRestriction[Send: No Bot Restriction]
+    CheckBotRestricted -->|Yes| CheckCurrentStatus{Currently<br/>Restricted?}
+    
+    CheckCurrentStatus -->|No| ClearRecord[(Clear Database Record)]
+    ClearRecord --> SendAlreadyUnrestricted[Send: Already Unrestricted]
+    
+    CheckCurrentStatus -->|Yes| UnrestrictUser[Remove Restriction]
+    UnrestrictUser --> ClearRecord2[(Clear Database Record)]
+    ClearRecord2 --> SendSuccess[Send: Success Message]
+    
+    %% Scheduler Job (Background)
+    StartJobs -.->|Every 5 min| SchedulerJob[Auto-Restriction Job]
+    SchedulerJob --> QueryDB[(Query Warnings Past<br/>Time Threshold)]
+    QueryDB --> HasExpired{Expired<br/>Warnings?}
+    
+    HasExpired -->|No| EndJob([Wait Next Cycle])
+    HasExpired -->|Yes| CheckKicked{User<br/>Kicked?}
+    
+    CheckKicked -->|Yes| ClearKicked[(Clear Record)]
+    ClearKicked --> NextUser{More<br/>Users?}
+    
+    CheckKicked -->|No| ApplyTimeRestriction[Apply Restriction<br/>Mute Permissions]
+    ApplyTimeRestriction --> MarkTimeRestricted[(Mark as Restricted)]
+    MarkTimeRestricted --> SendTimeNotice[Send Time-Based<br/>Restriction Notice]
+    SendTimeNotice --> NextUser
+    
+    NextUser -->|Yes| CheckKicked
+    NextUser -->|No| EndJob
+    
+    %% Command Handlers
+    UpdateType -->|/verify Command| CheckAdminVerify{Is Admin?}
+    CheckAdminVerify -->|No| DenyVerify[Send: Admin Only]
+    CheckAdminVerify -->|Yes| AddWhitelist[(Add User to<br/>Photo Whitelist)]
+    AddWhitelist --> SendVerifySuccess[Send: User Verified]
+    
+    UpdateType -->|/unverify Command| CheckAdminUnverify{Is Admin?}
+    CheckAdminUnverify -->|No| DenyUnverify[Send: Admin Only]
+    CheckAdminUnverify -->|Yes| RemoveWhitelist[(Remove from Whitelist)]
+    RemoveWhitelist --> SendUnverifySuccess[Send: User Unverified]
+    
+    classDef processNode fill:#1a1a2e,stroke:#16213e,color:#eee
+    classDef decisionNode fill:#0f3460,stroke:#16213e,color:#eee
+    classDef dataNode fill:#16213e,stroke:#0f3460,color:#eee
+    classDef actionNode fill:#533483,stroke:#16213e,color:#eee
+    classDef endNode fill:#e94560,stroke:#16213e,color:#eee
+    classDef startNode fill:#1a5f7a,stroke:#16213e,color:#eee
+    
+    class Init,FetchAdmins,StartJobs,Poll,CheckProfile,CheckDMProfile,ProcessMsg,SendCaptcha,WaitCaptcha processNode
+    class UpdateType,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer decisionNode
+    class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist dataNode
+    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,Continue actionNode
+    class End1,End2,End3,End4,End5,End6,End7,EndJob endNode
+    class Start,StartNode startNode
+```
+
 ## How It Works
 
 ### Architecture
