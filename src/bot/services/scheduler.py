@@ -84,7 +84,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 user_mention = (
                     f"@{user.username}"
                     if user.username
-                    else mention_markdown(user.id, user.full_name)
+                    else mention_markdown(user.id, user.full_name, version=2)
                 )
             except Exception:
                 # Fallback to user ID if we can't get user info

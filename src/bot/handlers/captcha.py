@@ -66,7 +66,7 @@ async def _initiate_captcha_challenge(
         settings: Bot settings.
     """
     user_id = user.id
-    user_mention = mention_markdown(user_id, user.full_name)
+    user_mention = mention_markdown(user_id, user.full_name, version=2)
 
     try:
         await context.bot.restrict_chat_member(
@@ -283,7 +283,7 @@ async def captcha_callback_handler(
     db = get_database()
     db.remove_pending_captcha(target_user_id, settings.group_id)
 
-    user_mention = mention_markdown(target_user_id, query.from_user.full_name)
+    user_mention = mention_markdown(target_user_id, query.from_user.full_name, version=2)
 
     try:
         await query.edit_message_text(

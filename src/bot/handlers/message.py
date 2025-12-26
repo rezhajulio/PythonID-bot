@@ -72,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_mention = (
         f"@{user.username}"
         if user.username
-        else mention_markdown(user.id, user.full_name)
+        else mention_markdown(user.id, user.full_name, version=2)
     )
 
     # Warning mode: just send warning, don't restrict

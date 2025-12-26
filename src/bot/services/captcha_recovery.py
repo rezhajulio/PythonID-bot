@@ -60,7 +60,7 @@ async def handle_captcha_expiration(
 
     bot_username = await BotInfoCache.get_username(bot)
     dm_link = f"[hubungi robot](https://t.me/{bot_username})"
-    user_mention = mention_markdown(user_id, user_full_name)
+    user_mention = mention_markdown(user_id, user_full_name, version=2)
 
     try:
         await bot.edit_message_text(
