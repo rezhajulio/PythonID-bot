@@ -4,8 +4,10 @@ DM (Direct Message) handler for the PythonID bot.
 This module handles private messages to the bot, primarily for the
 unrestriction flow. When a restricted user DMs the bot:
 1. Check if user is in the group
-2. Check if user now has complete profile
-3. If restricted by bot and profile complete, unrestrict them
+2. Check if user was restricted by captcha timeout (priority check)
+3. If captcha-restricted, unrestrict them immediately
+4. Otherwise, check if user now has complete profile
+5. If profile-restricted by bot and profile complete, unrestrict them
 """
 
 import logging
@@ -28,8 +30,10 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     This handler processes DMs (including /start) and:
     1. Checks if user is a member of the monitored group
-    2. Checks if user's profile is complete (photo + username)
-    3. If user was restricted by the bot and now has complete profile,
+    2. Checks if user has a pending captcha (captcha timeout restriction)
+    3. If captcha-restricted, unrestricts them immediately
+    4. Otherwise, checks if user's profile is complete (photo + username)
+    5. If user was restricted by the bot and now has complete profile,
        removes the restriction using the group's default permissions
 
     Args:
@@ -61,6 +65,23 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    db = get_database()
+
+    # Check if user was restricted by captcha timeout
+    pending_captcha = db.get_pending_captcha(user.id, settings.group_id)
+    if pending_captcha:
+        # User failed captcha, unrestrict them now via DM
+        await unrestrict_user(context.bot, settings.group_id, user.id)
+        db.remove_pending_captcha(user.id, settings.group_id)
+        await update.message.reply_text(
+            "✅ Verifikasi captcha berhasil! Pembatasan telah dihapus.\n"
+            "Silakan bergabung kembali!"
+        )
+        logger.info(
+            f"Unrestricted captcha-failed user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
+        )
+        return
+
     # Check if user's profile is complete
     result = await check_user_profile(context.bot, user)
 
@@ -79,8 +100,6 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"DM from user {user.id} ({user.full_name}) - missing: {missing_text}"
         )
         return
-
-    db = get_database()
 
     # Check if user was restricted by this bot (not by admin)
     if not db.is_user_restricted_by_bot(user.id, settings.group_id):

@@ -222,12 +222,7 @@ async def captcha_timeout_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     group_id = data["group_id"]
     chat_id = data["chat_id"]
     message_id = data["message_id"]
-    user_full_name = data.get("user_full_name") or data.get("user_mention", f"User {user_id}")
-
-    # Extract full_name from mention format if needed (legacy support)
-    if user_full_name.startswith("[") and "](" in user_full_name:
-        # Parse "[Name](tg://user?id=123)" to extract "Name"
-        user_full_name = user_full_name.split("]")[0][1:]
+    user_full_name = data.get("user_full_name", f"User {user_id}")
 
     await handle_captcha_expiration(
         bot=context.bot,
