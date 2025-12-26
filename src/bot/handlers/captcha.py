@@ -8,16 +8,19 @@ If they don't verify within the timeout period, they remain restricted.
 
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from sqlalchemy.exc import IntegrityError
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
+from telegram.constants import ChatMemberStatus
 from telegram.ext import (
     CallbackQueryHandler,
+    ChatMemberHandler,
     ContextTypes,
     MessageHandler,
     filters,
 )
 from telegram.helpers import mention_markdown
 
-from bot.config import get_settings
+from bot.config import Settings, get_settings
 from bot.constants import (
     CAPTCHA_FAILED_VERIFICATION_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
@@ -43,6 +46,90 @@ def get_captcha_job_name(group_id: int, user_id: int) -> str:
         str: Standardized job name for captcha timeout.
     """
     return f"captcha_timeout_{group_id}_{user_id}"
+
+
+async def _initiate_captcha_challenge(
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    chat_id: int,
+    settings: Settings,
+) -> None:
+    """
+    Initiate captcha challenge for a new member.
+
+    Sends captcha message with keyboard, stores in database, and schedules timeout job.
+
+    Args:
+        context: Bot context with helper methods and job queue.
+        user: The user to challenge.
+        chat_id: The group chat ID.
+        settings: Bot settings.
+    """
+    user_id = user.id
+    user_mention = mention_markdown(user_id, user.full_name)
+
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=RESTRICTED_PERMISSIONS,
+        )
+        logger.info(f"Restricted new member {user_id} ({user.full_name}) for captcha")
+    except Exception as e:
+        logger.error(f"Failed to restrict new member {user_id}: {e}")
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "✅ Saya bukan robot",
+            callback_data=f"captcha_verify_{user_id}",
+        )]
+    ])
+
+    welcome_message = CAPTCHA_WELCOME_MESSAGE.format(
+        user_mention=user_mention,
+        timeout=settings.captcha_timeout_seconds,
+    )
+
+    sent_message = await context.bot.send_message(
+        chat_id=chat_id,
+        message_thread_id=settings.warning_topic_id,
+        text=welcome_message,
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+    db = get_database()
+    try:
+        db.add_pending_captcha(
+            user_id=user_id,
+            group_id=settings.group_id,
+            chat_id=sent_message.chat_id,
+            message_id=sent_message.message_id,
+            user_full_name=user.full_name,
+        )
+    except IntegrityError:
+        logger.info(f"Captcha already exists for user {user_id} (race condition handled)")
+        return
+
+    job_name = get_captcha_job_name(settings.group_id, user_id)
+    context.job_queue.run_once(
+        captcha_timeout_callback,
+        when=settings.captcha_timeout_seconds,
+        name=job_name,
+        data={
+            "user_id": user_id,
+            "group_id": settings.group_id,
+            "chat_id": sent_message.chat_id,
+            "message_id": sent_message.message_id,
+            "user_full_name": user.full_name,
+        },
+    )
+
+    logger.info(
+        f"Sent captcha challenge to user {user_id} ({user.full_name}), "
+        f"timeout in {settings.captcha_timeout_seconds}s"
+    )
 
 
 async def new_member_handler(
@@ -80,66 +167,75 @@ async def new_member_handler(
             continue
 
         user_id = new_member.id
-        user_mention = mention_markdown(user_id, new_member.full_name)
-
-        try:
-            await context.bot.restrict_chat_member(
-                chat_id=settings.group_id,
-                user_id=user_id,
-                permissions=RESTRICTED_PERMISSIONS,
-            )
-            logger.info(f"Restricted new member {user_id} ({new_member.full_name}) for captcha")
-        except Exception as e:
-            logger.error(f"Failed to restrict new member {user_id}: {e}")
-            continue
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                "✅ Saya bukan robot",
-                callback_data=f"captcha_verify_{user_id}",
-            )]
-        ])
-
-        welcome_message = CAPTCHA_WELCOME_MESSAGE.format(
-            user_mention=user_mention,
-            timeout=settings.captcha_timeout_seconds,
-        )
-
-        sent_message = await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=welcome_message,
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
 
         db = get_database()
-        db.add_pending_captcha(
-            user_id=user_id,
-            group_id=settings.group_id,
-            chat_id=sent_message.chat_id,
-            message_id=sent_message.message_id,
-            user_full_name=new_member.full_name,
-        )
+        if db.get_pending_captcha(user_id, settings.group_id):
+            logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (new_member_handler)")
+            continue
 
-        job_name = get_captcha_job_name(settings.group_id, user_id)
-        context.job_queue.run_once(
-            captcha_timeout_callback,
-            when=settings.captcha_timeout_seconds,
-            name=job_name,
-            data={
-                "user_id": user_id,
-                "group_id": settings.group_id,
-                "chat_id": sent_message.chat_id,
-                "message_id": sent_message.message_id,
-                "user_full_name": new_member.full_name,
-            },
-        )
+        await _initiate_captcha_challenge(context, new_member, settings.group_id, settings)
 
-        logger.info(
-            f"Sent captcha challenge to user {user_id} ({new_member.full_name}), "
-            f"timeout in {settings.captcha_timeout_seconds}s"
-        )
+
+async def chat_member_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle chat member updates to detect new members.
+
+    This handler uses ChatMemberUpdated events to detect when users join,
+    which works even when "Hide Join Messages" is enabled in the group.
+    When a new user joins, restrict their permissions and send a captcha challenge.
+
+    Args:
+        update: Telegram update containing chat member changes.
+        context: Bot context with helper methods and job queue.
+    """
+    if not update.chat_member:
+        logger.debug("No chat_member in update, skipping")
+        return
+
+    settings = get_settings()
+
+    if not settings.captcha_enabled:
+        logger.debug("Captcha is disabled, skipping")
+        return
+
+    if update.effective_chat and update.effective_chat.id != settings.group_id:
+        logger.debug(f"Update from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+        return
+
+    old_status = update.chat_member.old_chat_member.status
+    new_status = update.chat_member.new_chat_member.status
+
+    # Detect if this is a join event: user was not a member and now is a member
+    left_statuses = {ChatMemberStatus.LEFT, ChatMemberStatus.BANNED}
+    member_statuses = {
+        ChatMemberStatus.MEMBER,
+        ChatMemberStatus.RESTRICTED,
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.OWNER,
+    }
+
+    if old_status not in left_statuses or new_status not in member_statuses:
+        logger.debug(f"Not a join event: {old_status} -> {new_status}, skipping")
+        return
+
+    new_member = update.chat_member.new_chat_member.user
+
+    if new_member.is_bot:
+        logger.debug(f"New member {new_member.id} is a bot, skipping captcha")
+        return
+
+    logger.info(f"Detected new member via ChatMemberUpdated: {new_member.id} ({new_member.full_name})")
+
+    user_id = new_member.id
+
+    db = get_database()
+    if db.get_pending_captcha(user_id, settings.group_id):
+        logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (chat_member_handler)")
+        return
+
+    await _initiate_captcha_challenge(context, new_member, settings.group_id, settings)
 
 
 async def captcha_callback_handler(
@@ -238,9 +334,16 @@ def get_handlers() -> list:
     Return list of handlers to register for captcha verification.
 
     Returns:
-        list: List containing the new member handler and callback query handler.
+        list: List containing chat member handler, message handler (fallback), 
+              and callback query handler.
     """
     return [
+        # Primary handler: ChatMemberUpdated - works even with hidden join messages
+        ChatMemberHandler(
+            chat_member_handler,
+            chat_member_types=ChatMemberHandler.CHAT_MEMBER,
+        ),
+        # Fallback handler: StatusUpdate - for groups with visible join messages
         MessageHandler(
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             new_member_handler,

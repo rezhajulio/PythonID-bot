@@ -133,7 +133,7 @@ def main() -> None:
     logger.info(f"Bot started. Monitoring group {settings.group_id}")
     logger.info("JobQueue started with auto-restriction job (every 5 minutes)")
     
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
 
 
 if __name__ == "__main__":

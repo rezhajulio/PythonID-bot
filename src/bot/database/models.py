@@ -8,6 +8,7 @@ enforcement system.
 
 from datetime import UTC, datetime
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -90,6 +91,9 @@ class PendingCaptchaValidation(SQLModel, table=True):
     """
 
     __tablename__ = "pending_validations"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'group_id', name='uix_user_group'),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)

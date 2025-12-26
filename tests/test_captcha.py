@@ -8,6 +8,7 @@ from bot.database.service import init_database, reset_database
 from bot.handlers.captcha import (
     captcha_callback_handler,
     captcha_timeout_callback,
+    chat_member_handler,
     new_member_handler,
 )
 
@@ -198,6 +199,21 @@ class TestNewMemberHandler:
         with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
             await new_member_handler(mock_update_new_member, mock_context)
 
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_duplicate_prevention_new_member_handler(
+        self, mock_update_new_member, mock_context, mock_settings, temp_db
+    ):
+        """Test that duplicate captcha is prevented in new_member_handler."""
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await new_member_handler(mock_update_new_member, mock_context)
+
+        mock_context.bot.restrict_chat_member.assert_not_called()
         mock_context.bot.send_message.assert_not_called()
 
 
@@ -441,7 +457,7 @@ class TestGetHandlers:
 
         handlers = get_handlers()
         assert isinstance(handlers, list)
-        assert len(handlers) == 2
+        assert len(handlers) == 3
 
     def test_get_handlers_contains_message_handler(self):
         from telegram.ext import MessageHandler
@@ -579,3 +595,198 @@ class TestCaptchaTimeoutCallback:
         await captcha_timeout_callback(mock_context)
 
         assert db.get_pending_captcha(12345, -1001234567890) is None
+
+
+class TestChatMemberHandler:
+    """Tests for chat_member_handler that uses ChatMemberUpdated events."""
+
+    def create_chat_member_update(self, old_status, new_status, user_id=12345, group_id=-1001234567890):
+        """Helper to create ChatMemberUpdated update objects."""
+        update = MagicMock()
+        update.chat_member = MagicMock()
+        
+        old_member = MagicMock()
+        old_member.status = old_status
+        update.chat_member.old_chat_member = old_member
+        
+        new_member = MagicMock()
+        new_member.status = new_status
+        new_member.user = MagicMock()
+        new_member.user.id = user_id
+        new_member.user.is_bot = False
+        new_member.user.full_name = "Test User"
+        update.chat_member.new_chat_member = new_member
+        
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = group_id
+        
+        return update
+
+    async def test_left_to_member_triggers_captcha(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test LEFT → MEMBER transition triggers captcha."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER)
+        
+        sent_message = MagicMock()
+        sent_message.chat_id = -1001234567890
+        sent_message.message_id = 999
+        mock_context.bot.send_message.return_value = sent_message
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_banned_to_member_triggers_captcha(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test BANNED → MEMBER transition triggers captcha."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.BANNED, ChatMemberStatus.MEMBER)
+        
+        sent_message = MagicMock()
+        sent_message.chat_id = -1001234567890
+        sent_message.message_id = 999
+        mock_context.bot.send_message.return_value = sent_message
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_member_to_administrator_no_captcha(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test MEMBER → ADMINISTRATOR transition should NOT trigger captcha."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_left_to_restricted_triggers_captcha(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test LEFT → RESTRICTED transition triggers captcha (user joined but auto-restricted)."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.RESTRICTED)
+        
+        sent_message = MagicMock()
+        sent_message.chat_id = -1001234567890
+        sent_message.message_id = 999
+        mock_context.bot.send_message.return_value = sent_message
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_duplicate_prevention_chat_member(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test that duplicate captcha is prevented in chat_member_handler."""
+        from bot.database.service import get_database
+        from telegram.constants import ChatMemberStatus
+        
+        db = get_database()
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+        
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER)
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_race_condition_handling(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test race condition handling when both handlers trigger simultaneously."""
+        from sqlalchemy.exc import IntegrityError
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER)
+        
+        sent_message = MagicMock()
+        sent_message.chat_id = -1001234567890
+        sent_message.message_id = 999
+        mock_context.bot.send_message.return_value = sent_message
+        
+        with (
+            patch("bot.handlers.captcha.get_settings", return_value=mock_settings),
+            patch("bot.database.service.DatabaseService.add_pending_captcha") as mock_add,
+        ):
+            mock_add.side_effect = IntegrityError(None, None, None)
+            await chat_member_handler(update, mock_context)
+        
+        # Should handle gracefully and not schedule timeout job
+        mock_context.job_queue.run_once.assert_not_called()
+
+    async def test_bot_member_skipped_in_chat_member(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test that bot members are skipped in chat_member_handler."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER)
+        update.chat_member.new_chat_member.user.is_bot = True
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_captcha_disabled_skips_in_chat_member(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test captcha disabled skips processing in chat_member_handler."""
+        from telegram.constants import ChatMemberStatus
+        
+        mock_settings.captcha_enabled = False
+        update = self.create_chat_member_update(ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER)
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_wrong_group_skipped_in_chat_member(
+        self, mock_context, mock_settings, temp_db
+    ):
+        """Test wrong group is skipped in chat_member_handler."""
+        from telegram.constants import ChatMemberStatus
+        
+        update = self.create_chat_member_update(
+            ChatMemberStatus.LEFT, ChatMemberStatus.MEMBER, group_id=-9999999999
+        )
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_no_chat_member_does_nothing(self, mock_context, mock_settings):
+        """Test that missing chat_member in update does nothing."""
+        update = MagicMock()
+        update.chat_member = None
+        
+        with patch("bot.handlers.captcha.get_settings", return_value=mock_settings):
+            await chat_member_handler(update, mock_context)
+        
+        mock_context.bot.restrict_chat_member.assert_not_called()
