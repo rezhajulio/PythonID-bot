@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from bot.config import get_settings
 from bot.database.service import init_database
+from bot.handlers import captcha
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
@@ -91,7 +92,11 @@ def main() -> None:
         CommandHandler("unverify", handle_unverify_command)
     )
 
-    # Handler 4: DM handler - processes private messages (including /start)
+    # Handler 4: Captcha handlers - new member verification
+    for handler in captcha.get_handlers():
+        application.add_handler(handler)
+
+    # Handler 5: DM handler - processes private messages (including /start)
     # for the unrestriction flow. Must be registered before group handler
     # to prevent group handler from catching private messages first.
     application.add_handler(
@@ -101,7 +106,7 @@ def main() -> None:
         )
     )
 
-    # Handler 5: Group message handler - monitors messages in the configured
+    # Handler 6: Group message handler - monitors messages in the configured
     # group and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(
@@ -122,7 +127,7 @@ def main() -> None:
     logger.info(f"Bot started. Monitoring group {settings.group_id}")
     logger.info("JobQueue started with auto-restriction job (every 5 minutes)")
     
-    application.run_polling(allowed_updates=["message"])
+    application.run_polling(allowed_updates=["message", "callback_query"])
 
 
 if __name__ == "__main__":

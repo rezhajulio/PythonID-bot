@@ -11,7 +11,11 @@ from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, delete, select
 
-from bot.database.models import PhotoVerificationWhitelist, UserWarning
+from bot.database.models import (
+    PendingCaptchaValidation,
+    PhotoVerificationWhitelist,
+    UserWarning,
+)
 
 
 class DatabaseService:
@@ -332,6 +336,73 @@ class DatabaseService:
             records = session.exec(statement).all()
             # Detach from session before returning
             return [record for record in records]
+
+    def add_pending_captcha(
+        self, user_id: int, group_id: int, chat_id: int, message_id: int
+    ) -> PendingCaptchaValidation:
+        """
+        Add a pending captcha validation record for a new user.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+            chat_id: Chat ID where the challenge message was sent.
+            message_id: Message ID of the captcha challenge message.
+
+        Returns:
+            PendingCaptchaValidation: Created pending validation record.
+        """
+        with Session(self._engine) as session:
+            record = PendingCaptchaValidation(
+                user_id=user_id,
+                group_id=group_id,
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return record
+
+    def get_pending_captcha(
+        self, user_id: int, group_id: int
+    ) -> PendingCaptchaValidation | None:
+        """
+        Get pending captcha validation for a user.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            PendingCaptchaValidation | None: Pending validation record or None.
+        """
+        with Session(self._engine) as session:
+            statement = select(PendingCaptchaValidation).where(
+                PendingCaptchaValidation.user_id == user_id,
+                PendingCaptchaValidation.group_id == group_id,
+            )
+            return session.exec(statement).first()
+
+    def remove_pending_captcha(self, user_id: int, group_id: int) -> bool:
+        """
+        Remove pending captcha validation for a user.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            bool: True if a record was deleted, False if no record existed.
+        """
+        with Session(self._engine) as session:
+            statement = delete(PendingCaptchaValidation).where(
+                PendingCaptchaValidation.user_id == user_id,
+                PendingCaptchaValidation.group_id == group_id,
+            )
+            result = session.exec(statement)
+            session.commit()
+            return result.rowcount > 0
 
 
 # Module-level singleton for database service

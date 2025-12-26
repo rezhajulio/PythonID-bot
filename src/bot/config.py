@@ -42,6 +42,8 @@ class Settings(BaseSettings):
         warning_time_threshold_minutes: Minutes before auto-restricting user.
         database_path: Path to SQLite database file.
         rules_link: URL to group rules message.
+        captcha_enabled: Feature flag to enable/disable captcha verification.
+        captcha_timeout: Seconds before auto-ban if user doesn't verify.
     """
 
     telegram_bot_token: str
@@ -52,6 +54,8 @@ class Settings(BaseSettings):
     warning_time_threshold_minutes: int = 180
     database_path: str = "data/bot.db"
     rules_link: str = "https://t.me/pythonID/290029/321799"
+    captcha_enabled: bool = False
+    captcha_timeout_seconds: int = 120
 
     model_config = SettingsConfigDict(
         env_file=get_env_file(),

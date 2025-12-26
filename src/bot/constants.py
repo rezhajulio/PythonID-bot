@@ -79,3 +79,19 @@ RESTRICTION_MESSAGE_AFTER_TIME = (
     "📖 [Baca aturan grup]({rules_link})\n"
     "✉️ [Hubungi langsung robot untuk membuka pembatasan (mohon pertimbangkan bahwa percakapan dengan robot saat ini sebagian besar belum direkam)]({dm_link})"
 )
+
+# Captcha verification message templates
+CAPTCHA_WELCOME_MESSAGE = (
+    "👋 Selamat datang {user_mention}!\n\n"
+    "Untuk memastikan kamu bukan robot, silakan klik tombol di bawah ini "
+    "dalam waktu {timeout} detik."
+)
+
+CAPTCHA_VERIFIED_MESSAGE = "✅ Terima kasih {user_mention}, verifikasi berhasil! Selamat bergabung."
+
+CAPTCHA_WRONG_USER_MESSAGE = "❌ Tombol ini bukan untukmu."
+
+CAPTCHA_TIMEOUT_MESSAGE = (
+    "🚫 {user_mention} tidak menyelesaikan verifikasi dalam waktu yang ditentukan.\n\n"
+    "Silakan {dm_link} untuk membuka pembatasan."
+)

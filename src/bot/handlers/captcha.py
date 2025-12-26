@@ -1,0 +1,251 @@
+"""
+Captcha verification handler for the PythonID bot.
+
+This module handles captcha verification for new group members. When a user
+joins the group, they are restricted and presented with a captcha button.
+If they don't verify within the timeout period, they remain restricted.
+"""
+
+import logging
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+from telegram.helpers import mention_markdown
+
+from bot.config import get_settings
+from bot.constants import (
+    CAPTCHA_TIMEOUT_MESSAGE,
+    CAPTCHA_VERIFIED_MESSAGE,
+    CAPTCHA_WELCOME_MESSAGE,
+    CAPTCHA_WRONG_USER_MESSAGE,
+    RESTRICTED_PERMISSIONS,
+)
+from bot.database.service import get_database
+from bot.services.bot_info import BotInfoCache
+from bot.services.telegram_utils import unrestrict_user
+
+logger = logging.getLogger(__name__)
+
+
+async def new_member_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle new chat member events.
+
+    When a new user joins the group, restrict their permissions and send
+    a captcha challenge message with an inline button. Schedules a timeout
+    job to ban the user if they don't verify in time.
+
+    Args:
+        update: Telegram update containing the new member info.
+        context: Bot context with helper methods and job queue.
+    """
+    if not update.message or not update.message.new_chat_members:
+        logger.debug("No message or no new chat members, skipping")
+        return
+
+    settings = get_settings()
+
+    if not settings.captcha_enabled:
+        logger.debug("Captcha is disabled, skipping")
+        return
+
+    if update.effective_chat and update.effective_chat.id != settings.group_id:
+        logger.debug(f"Message from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+        return
+    
+    logger.info(f"Processing new members: {len(update.message.new_chat_members)} member(s)")
+
+    for new_member in update.message.new_chat_members:
+        if new_member.is_bot:
+            continue
+
+        user_id = new_member.id
+        user_mention = mention_markdown(user_id, new_member.full_name)
+
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=settings.group_id,
+                user_id=user_id,
+                permissions=RESTRICTED_PERMISSIONS,
+            )
+            logger.info(f"Restricted new member {user_id} ({new_member.full_name}) for captcha")
+        except Exception as e:
+            logger.error(f"Failed to restrict new member {user_id}: {e}")
+            continue
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "✅ Saya bukan robot",
+                callback_data=f"captcha_verify_{user_id}",
+            )]
+        ])
+
+        welcome_message = CAPTCHA_WELCOME_MESSAGE.format(
+            user_mention=user_mention,
+            timeout=settings.captcha_timeout_seconds,
+        )
+
+        sent_message = await context.bot.send_message(
+            chat_id=settings.group_id,
+            message_thread_id=settings.warning_topic_id,
+            text=welcome_message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
+        db = get_database()
+        db.add_pending_captcha(
+            user_id=user_id,
+            group_id=settings.group_id,
+            chat_id=sent_message.chat_id,
+            message_id=sent_message.message_id,
+        )
+
+        job_name = f"captcha_timeout_{settings.group_id}_{user_id}"
+        context.job_queue.run_once(
+            captcha_timeout_callback,
+            when=settings.captcha_timeout_seconds,
+            name=job_name,
+            data={
+                "user_id": user_id,
+                "group_id": settings.group_id,
+                "chat_id": sent_message.chat_id,
+                "message_id": sent_message.message_id,
+                "user_mention": user_mention,
+            },
+        )
+
+        logger.info(
+            f"Sent captcha challenge to user {user_id} ({new_member.full_name}), "
+            f"timeout in {settings.captcha_timeout_seconds}s"
+        )
+
+
+async def captcha_callback_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle captcha verification button press.
+
+    Verifies that the user clicking the button is the same user who needs
+    to verify. If valid, removes restrictions and cleans up.
+
+    Args:
+        update: Telegram update containing the callback query.
+        context: Bot context with helper methods.
+    """
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+
+    callback_user_id = query.from_user.id
+    target_user_id = int(query.data.split("_")[-1])
+
+    if callback_user_id != target_user_id:
+        await query.answer(CAPTCHA_WRONG_USER_MESSAGE, show_alert=True)
+        return
+
+    settings = get_settings()
+
+    job_name = f"captcha_timeout_{settings.group_id}_{target_user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    for job in current_jobs:
+        job.schedule_removal()
+        logger.debug(f"Cancelled timeout job for user {target_user_id}")
+
+    try:
+        await unrestrict_user(context.bot, settings.group_id, target_user_id)
+        logger.info(f"Unrestricted verified user {target_user_id}")
+    except Exception as e:
+        logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
+
+    db = get_database()
+    db.remove_pending_captcha(target_user_id, settings.group_id)
+
+    user_mention = mention_markdown(target_user_id, query.from_user.full_name)
+
+    try:
+        await query.edit_message_text(
+            text=CAPTCHA_VERIFIED_MESSAGE.format(user_mention=user_mention),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.error(f"Failed to edit captcha message: {e}")
+
+    logger.info(f"User {target_user_id} ({query.from_user.full_name}) verified successfully")
+
+
+async def captcha_timeout_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Job callback for captcha timeout.
+
+    Called when the timeout period expires without user verification.
+    Keeps the user restricted and provides a DM link to unrestrict.
+
+    Args:
+        context: Bot context containing job data.
+    """
+    job = context.job
+    if not job or not job.data:
+        return
+
+    data = job.data
+    user_id = data["user_id"]
+    group_id = data["group_id"]
+    chat_id = data["chat_id"]
+    message_id = data["message_id"]
+    user_mention = data["user_mention"]
+
+    db = get_database()
+    pending = db.get_pending_captcha(user_id, group_id)
+    if not pending:
+        logger.debug(f"No pending captcha for user {user_id}, already verified")
+        return
+
+    db.remove_pending_captcha(user_id, group_id)
+
+    bot_username = await BotInfoCache.get_username(context.bot)
+    dm_link = f"[hubungi robot](https://t.me/{bot_username})"
+
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=CAPTCHA_TIMEOUT_MESSAGE.format(
+                user_mention=user_mention,
+                dm_link=dm_link,
+            ),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.error(f"Failed to edit captcha timeout message: {e}")
+
+    logger.info(f"User {user_id} captcha timeout - kept restricted")
+
+
+def get_handlers() -> list:
+    """
+    Return list of handlers to register for captcha verification.
+
+    Returns:
+        list: List containing the new member handler and callback query handler.
+    """
+    return [
+        MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            new_member_handler,
+        ),
+        CallbackQueryHandler(
+            captcha_callback_handler,
+            pattern=r"^captcha_verify_\d+$",
+        ),
+    ]
