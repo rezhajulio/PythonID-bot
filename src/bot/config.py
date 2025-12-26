@@ -6,27 +6,40 @@ variables using Pydantic Settings. It supports multiple environments
 (production, staging) via the BOT_ENV environment variable.
 """
 
+import logging
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
 
-def get_env_file() -> str:
+
+def get_env_file() -> str | None:
     """
     Determine which .env file to load based on BOT_ENV environment variable.
 
     Returns:
-        str: Path to the environment file.
-            - "production" or default -> ".env"
-            - "staging" -> ".env.staging"
+        str | None: Path to the environment file if it exists, None otherwise.
+            - "production" or default -> ".env" (if exists)
+            - "staging" -> ".env.staging" (if exists)
     """
     env = os.getenv("BOT_ENV", "production")
     env_files = {
         "production": ".env",
         "staging": ".env.staging",
     }
-    return env_files.get(env, ".env")
+    env_file = env_files.get(env, ".env")
+    
+    # Return path only if file exists, otherwise return None
+    # Pydantic will load from environment variables if no .env file
+    if Path(env_file).exists():
+        logger.debug(f"Loading configuration from: {env_file}")
+        return env_file
+    else:
+        logger.debug(f"No .env file found at {env_file}, loading from environment variables")
+        return None
 
 
 class Settings(BaseSettings):
@@ -61,6 +74,19 @@ class Settings(BaseSettings):
         env_file=get_env_file(),
         env_file_encoding="utf-8",
     )
+
+    def model_post_init(self, __context):
+        """Log non-sensitive configuration values after initialization."""
+        logger.info("Configuration loaded successfully")
+        logger.debug(f"group_id: {self.group_id}")
+        logger.debug(f"warning_topic_id: {self.warning_topic_id}")
+        logger.debug(f"restrict_failed_users: {self.restrict_failed_users}")
+        logger.debug(f"warning_threshold: {self.warning_threshold}")
+        logger.debug(f"warning_time_threshold_minutes: {self.warning_time_threshold_minutes}")
+        logger.debug(f"database_path: {self.database_path}")
+        logger.debug(f"captcha_enabled: {self.captcha_enabled}")
+        logger.debug(f"captcha_timeout_seconds: {self.captcha_timeout_seconds}")
+        logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
 
 
 @lru_cache
