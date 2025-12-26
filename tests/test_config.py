@@ -4,21 +4,34 @@ from bot.config import Settings, get_settings, get_env_file
 
 
 class TestGetEnvFile:
-    def test_default_production(self, monkeypatch):
+    def test_default_production(self, monkeypatch, tmp_path):
         monkeypatch.delenv("BOT_ENV", raising=False)
+        monkeypatch.chdir(tmp_path)
+        tmp_path.joinpath(".env").touch()
         assert get_env_file() == ".env"
 
-    def test_production_explicit(self, monkeypatch):
+    def test_production_explicit(self, monkeypatch, tmp_path):
         monkeypatch.setenv("BOT_ENV", "production")
+        monkeypatch.chdir(tmp_path)
+        tmp_path.joinpath(".env").touch()
         assert get_env_file() == ".env"
 
-    def test_staging_environment(self, monkeypatch):
+    def test_staging_environment(self, monkeypatch, tmp_path):
         monkeypatch.setenv("BOT_ENV", "staging")
+        monkeypatch.chdir(tmp_path)
+        tmp_path.joinpath(".env.staging").touch()
         assert get_env_file() == ".env.staging"
 
-    def test_unknown_environment_falls_back_to_default(self, monkeypatch):
+    def test_unknown_environment_falls_back_to_default(self, monkeypatch, tmp_path):
         monkeypatch.setenv("BOT_ENV", "unknown")
+        monkeypatch.chdir(tmp_path)
+        tmp_path.joinpath(".env").touch()
         assert get_env_file() == ".env"
+    
+    def test_no_env_file_returns_none(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("BOT_ENV", raising=False)
+        monkeypatch.chdir(tmp_path)
+        assert get_env_file() is None
 
 
 class TestSettings:
