@@ -114,7 +114,7 @@ class TestHandleDM:
         assert "belum bergabung di grup" in call_args.args[0]
 
     async def test_missing_profile_sends_requirements(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, mock_settings, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -136,7 +136,7 @@ class TestHandleDM:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_missing_username_sends_requirements(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, mock_settings, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=True, has_username=False
@@ -276,6 +276,78 @@ class TestHandleDM:
         mock_context.bot.restrict_chat_member.assert_not_called()
         call_args = mock_update.message.reply_text.call_args
         assert "tidak memiliki pembatasan dari bot" in call_args.args[0]
+
+    async def test_unrestricts_captcha_failed_user(
+        self, mock_update, mock_context, mock_settings, temp_db
+    ):
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(
+            user_id=12345,
+            group_id=-1001234567890,
+            chat_id=-1001234567890,
+            message_id=999,
+            user_full_name="Test User",
+        )
+
+        user_member = MagicMock()
+        user_member.status = "restricted"
+        mock_context.bot.get_chat_member.return_value = user_member
+
+        chat = MagicMock()
+        chat.permissions = MagicMock()
+        chat.permissions.can_send_messages = True
+        mock_context.bot.get_chat.return_value = chat
+
+        with patch("bot.handlers.dm.get_settings", return_value=mock_settings):
+            await handle_dm(mock_update, mock_context)
+
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        call_args = mock_context.bot.restrict_chat_member.call_args
+        assert call_args.kwargs["chat_id"] == -1001234567890
+        assert call_args.kwargs["user_id"] == 12345
+
+        reply_args = mock_update.message.reply_text.call_args
+        assert "✅" in reply_args.args[0]
+        assert "Verifikasi captcha berhasil" in reply_args.args[0]
+
+        assert db.get_pending_captcha(12345, -1001234567890) is None
+
+    async def test_captcha_unrestriction_takes_priority_over_profile_check(
+        self, mock_update, mock_context, mock_settings, temp_db
+    ):
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(
+            user_id=12345,
+            group_id=-1001234567890,
+            chat_id=-1001234567890,
+            message_id=999,
+            user_full_name="Test User",
+        )
+
+        user_member = MagicMock()
+        user_member.status = "restricted"
+        mock_context.bot.get_chat_member.return_value = user_member
+
+        chat = MagicMock()
+        chat.permissions = MagicMock()
+        chat.permissions.can_send_messages = True
+        mock_context.bot.get_chat.return_value = chat
+
+        with (
+            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
+            patch("bot.handlers.dm.check_user_profile") as mock_check_profile,
+        ):
+            await handle_dm(mock_update, mock_context)
+
+        mock_check_profile.assert_not_called()
+
+        reply_args = mock_update.message.reply_text.call_args
+        assert "✅" in reply_args.args[0]
+        assert "Verifikasi captcha berhasil" in reply_args.args[0]
 
 
 class TestDatabaseIsUserRestrictedByBot:
