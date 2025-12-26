@@ -4,10 +4,9 @@ DM (Direct Message) handler for the PythonID bot.
 This module handles private messages to the bot, primarily for the
 unrestriction flow. When a restricted user DMs the bot:
 1. Check if user is in the group
-2. Check if user was restricted by captcha timeout (priority check)
-3. If captcha-restricted, unrestrict them immediately
-4. Otherwise, check if user now has complete profile
-5. If profile-restricted by bot and profile complete, unrestrict them
+2. Check if user has an active pending captcha (redirect to group)
+3. Check if user's profile is complete
+4. If profile-restricted by bot and profile complete, unrestrict them
 """
 
 import logging
@@ -17,6 +16,14 @@ from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
 
 from bot.config import get_settings
+from bot.constants import (
+    CAPTCHA_PENDING_DM_MESSAGE,
+    DM_ALREADY_UNRESTRICTED_MESSAGE,
+    DM_INCOMPLETE_PROFILE_MESSAGE,
+    DM_NOT_IN_GROUP_MESSAGE,
+    DM_NO_RESTRICTION_MESSAGE,
+    DM_UNRESTRICTION_SUCCESS_MESSAGE,
+)
 from bot.database.service import get_database
 from bot.services.telegram_utils import get_user_status, unrestrict_user
 from bot.services.user_checker import check_user_profile
@@ -30,10 +37,9 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     This handler processes DMs (including /start) and:
     1. Checks if user is a member of the monitored group
-    2. Checks if user has a pending captcha (captcha timeout restriction)
-    3. If captcha-restricted, unrestricts them immediately
-    4. Otherwise, checks if user's profile is complete (photo + username)
-    5. If user was restricted by the bot and now has complete profile,
+    2. Checks if user has an active pending captcha (redirect to group)
+    3. Checks if user's profile is complete (photo + username)
+    4. If user was restricted by the bot and now has complete profile,
        removes the restriction using the group's default permissions
 
     Args:
@@ -56,10 +62,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # User not in group (or we can't check)
     if user_status is None or user_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
-        await update.message.reply_text(
-            "❌ Kamu belum bergabung di grup.\n"
-            "Silakan bergabung ke grup terlebih dahulu."
-        )
+        await update.message.reply_text(DM_NOT_IN_GROUP_MESSAGE)
         logger.info(
             f"DM from user {user.id} ({user.full_name}) - not in group {settings.group_id}"
         )
@@ -67,18 +70,12 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     db = get_database()
 
-    # Check if user was restricted by captcha timeout
+    # Check if user has an active pending captcha
     pending_captcha = db.get_pending_captcha(user.id, settings.group_id)
     if pending_captcha:
-        # User failed captcha, unrestrict them now via DM
-        await unrestrict_user(context.bot, settings.group_id, user.id)
-        db.remove_pending_captcha(user.id, settings.group_id)
-        await update.message.reply_text(
-            "✅ Verifikasi captcha berhasil! Pembatasan telah dihapus.\n"
-            "Silakan bergabung kembali!"
-        )
+        await update.message.reply_text(CAPTCHA_PENDING_DM_MESSAGE)
         logger.info(
-            f"Unrestricted captcha-failed user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
+            f"DM from user {user.id} ({user.full_name}) - has pending captcha (group_id={settings.group_id})"
         )
         return
 
@@ -89,11 +86,9 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not result.is_complete:
         missing = result.get_missing_items()
         missing_text = " dan ".join(missing)
-        reply_message = (
-            f"❌ Kamu belum memenuhi persyaratan.\n\n"
-            f"Mohon lengkapi {missing_text} kamu terlebih dahulu, "
-            f"lalu kirim pesan lagi ke bot ini.\n\n"
-            f"📖 [Baca aturan grup]({settings.rules_link})"
+        reply_message = DM_INCOMPLETE_PROFILE_MESSAGE.format(
+            missing_text=missing_text,
+            rules_link=settings.rules_link,
         )
         await update.message.reply_text(reply_message, parse_mode="Markdown")
         logger.info(
@@ -103,10 +98,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Check if user was restricted by this bot (not by admin)
     if not db.is_user_restricted_by_bot(user.id, settings.group_id):
-        await update.message.reply_text(
-            "ℹ️ Kamu tidak memiliki pembatasan dari bot ini.\n"
-            "Jika kamu dibatasi oleh admin, silakan hubungi admin grup secara langsung."
-        )
+        await update.message.reply_text(DM_NO_RESTRICTION_MESSAGE)
         logger.info(
             f"DM from user {user.id} ({user.full_name}) - no bot restriction (group_id={settings.group_id})"
         )
@@ -116,10 +108,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # (e.g., admin already unrestricted them) - just clear our record
     if user_status != ChatMemberStatus.RESTRICTED:
         db.mark_user_unrestricted(user.id, settings.group_id)
-        await update.message.reply_text(
-            "ℹ️ Kamu sudah tidak dibatasi di grup.\n"
-            "Silakan bergabung kembali!"
-        )
+        await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
         logger.info(
             f"User {user.id} ({user.full_name}) already unrestricted - clearing record (group_id={settings.group_id})"
         )
@@ -131,10 +120,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Clear our database record so we don't try to unrestrict again
     db.mark_user_unrestricted(user.id, settings.group_id)
 
-    await update.message.reply_text(
-        "✅ Selamat! Kamu sudah memenuhi persyaratan.\n"
-        "Pembatasan kamu di grup telah dicabut. Silakan bergabung kembali!"
-    )
+    await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
     logger.info(
         f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
     )

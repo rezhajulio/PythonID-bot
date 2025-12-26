@@ -277,7 +277,7 @@ class TestHandleDM:
         call_args = mock_update.message.reply_text.call_args
         assert "tidak memiliki pembatasan dari bot" in call_args.args[0]
 
-    async def test_unrestricts_captcha_failed_user(
+    async def test_redirects_user_with_pending_captcha_to_group(
         self, mock_update, mock_context, mock_settings, temp_db
     ):
         from bot.database.service import get_database
@@ -294,27 +294,23 @@ class TestHandleDM:
         user_member = MagicMock()
         user_member.status = "restricted"
         mock_context.bot.get_chat_member.return_value = user_member
-
-        chat = MagicMock()
-        chat.permissions = MagicMock()
-        chat.permissions.can_send_messages = True
-        mock_context.bot.get_chat.return_value = chat
 
         with patch("bot.handlers.dm.get_settings", return_value=mock_settings):
             await handle_dm(mock_update, mock_context)
 
-        mock_context.bot.restrict_chat_member.assert_called_once()
-        call_args = mock_context.bot.restrict_chat_member.call_args
-        assert call_args.kwargs["chat_id"] == -1001234567890
-        assert call_args.kwargs["user_id"] == 12345
-
+        # Should not unrestrict user
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        
+        # Should tell user to check group and verify
         reply_args = mock_update.message.reply_text.call_args
-        assert "✅" in reply_args.args[0]
-        assert "Verifikasi captcha berhasil" in reply_args.args[0]
+        assert "⏳" in reply_args.args[0]
+        assert "verifikasi captcha yang tertunda" in reply_args.args[0]
+        assert "tekan tombol verifikasi" in reply_args.args[0]
 
-        assert db.get_pending_captcha(12345, -1001234567890) is None
+        # Pending captcha should still exist (not removed)
+        assert db.get_pending_captcha(12345, -1001234567890) is not None
 
-    async def test_captcha_unrestriction_takes_priority_over_profile_check(
+    async def test_pending_captcha_check_takes_priority_over_profile_check(
         self, mock_update, mock_context, mock_settings, temp_db
     ):
         from bot.database.service import get_database
@@ -331,11 +327,6 @@ class TestHandleDM:
         user_member = MagicMock()
         user_member.status = "restricted"
         mock_context.bot.get_chat_member.return_value = user_member
-
-        chat = MagicMock()
-        chat.permissions = MagicMock()
-        chat.permissions.can_send_messages = True
-        mock_context.bot.get_chat.return_value = chat
 
         with (
             patch("bot.handlers.dm.get_settings", return_value=mock_settings),
@@ -343,11 +334,13 @@ class TestHandleDM:
         ):
             await handle_dm(mock_update, mock_context)
 
+        # Should skip profile check entirely
         mock_check_profile.assert_not_called()
 
+        # Should redirect to group
         reply_args = mock_update.message.reply_text.call_args
-        assert "✅" in reply_args.args[0]
-        assert "Verifikasi captcha berhasil" in reply_args.args[0]
+        assert "⏳" in reply_args.args[0]
+        assert "verifikasi captcha yang tertunda" in reply_args.args[0]
 
 
 class TestDatabaseIsUserRestrictedByBot:

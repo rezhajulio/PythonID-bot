@@ -19,14 +19,13 @@ from telegram.helpers import mention_markdown
 
 from bot.config import get_settings
 from bot.constants import (
-    CAPTCHA_TIMEOUT_MESSAGE,
+    CAPTCHA_FAILED_VERIFICATION_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
     CAPTCHA_WELCOME_MESSAGE,
     CAPTCHA_WRONG_USER_MESSAGE,
     RESTRICTED_PERMISSIONS,
 )
 from bot.database.service import get_database
-from bot.services.bot_info import BotInfoCache
 from bot.services.telegram_utils import unrestrict_user
 
 logger = logging.getLogger(__name__)
@@ -182,7 +181,7 @@ async def captcha_callback_handler(
         logger.info(f"Unrestricted verified user {target_user_id}")
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
-        await query.answer("Gagal memverifikasi. Silakan coba lagi.", show_alert=True)
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return  # Stop execution here so user can retry
 
     db = get_database()

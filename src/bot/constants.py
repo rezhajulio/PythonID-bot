@@ -95,3 +95,38 @@ CAPTCHA_TIMEOUT_MESSAGE = (
     "🚫 {user_mention} tidak menyelesaikan verifikasi dalam waktu yang ditentukan.\n\n"
     "Silakan {dm_link} untuk membuka pembatasan."
 )
+
+CAPTCHA_PENDING_DM_MESSAGE = (
+    "⏳ Kamu memiliki verifikasi captcha yang tertunda.\n"
+    "Silakan cek grup dan tekan tombol verifikasi."
+)
+
+CAPTCHA_FAILED_VERIFICATION_MESSAGE = "Gagal memverifikasi. Silakan coba lagi."
+
+# DM handler message templates
+DM_NOT_IN_GROUP_MESSAGE = (
+    "❌ Kamu belum bergabung di grup.\n"
+    "Silakan bergabung ke grup terlebih dahulu."
+)
+
+DM_INCOMPLETE_PROFILE_MESSAGE = (
+    "❌ Kamu belum memenuhi persyaratan.\n\n"
+    "Mohon lengkapi {missing_text} kamu terlebih dahulu, "
+    "lalu kirim pesan lagi ke bot ini.\n\n"
+    "📖 [Baca aturan grup]({rules_link})"
+)
+
+DM_NO_RESTRICTION_MESSAGE = (
+    "ℹ️ Kamu tidak memiliki pembatasan dari bot ini.\n"
+    "Jika kamu dibatasi oleh admin, silakan hubungi admin grup secara langsung."
+)
+
+DM_ALREADY_UNRESTRICTED_MESSAGE = (
+    "ℹ️ Kamu sudah tidak dibatasi di grup.\n"
+    "Silakan bergabung kembali!"
+)
+
+DM_UNRESTRICTION_SUCCESS_MESSAGE = (
+    "✅ Selamat! Kamu sudah memenuhi persyaratan.\n"
+    "Pembatasan kamu di grup telah dicabut. Silakan bergabung kembali!"
+)

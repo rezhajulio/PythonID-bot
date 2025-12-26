@@ -52,6 +52,12 @@ async def handle_captcha_expiration(
 
     db.remove_pending_captcha(user_id, group_id)
 
+    # Create UserWarning to track this bot-applied restriction
+    # Allows DM handler to unrestrict user later when profile is complete
+    warning = db.get_or_create_user_warning(user_id, group_id)
+    if not warning.is_restricted:
+        db.mark_user_restricted(user_id, group_id)
+
     bot_username = await BotInfoCache.get_username(bot)
     dm_link = f"[hubungi robot](https://t.me/{bot_username})"
     user_mention = mention_markdown(user_id, user_full_name)

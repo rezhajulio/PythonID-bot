@@ -266,7 +266,7 @@ class TestRecoverPendingCaptchas:
         with (
             patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings),
             patch("bot.services.captcha_recovery.handle_captcha_expiration") as mock_expire,
-            patch("bot.services.captcha_recovery.captcha_timeout_callback") as mock_callback,
+            patch("bot.services.captcha_recovery.captcha_timeout_callback"),
         ):
             mock_expire.return_value = AsyncMock()
             await recover_pending_captchas(mock_application)
