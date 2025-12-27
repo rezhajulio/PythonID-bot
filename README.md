@@ -135,9 +135,9 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 100% across all modules (692 statements, 0 missed)
-- **Tests**: 206 total
-- **Pass Rate**: 100% (206/206 passed)
+- **Coverage**: 100% across all modules (700 statements, 0 missed)
+- **Tests**: 208 total
+- **Pass Rate**: 100% (208/208 passed)
 - **All modules**: 100% coverage including JobQueue scheduler integration and captcha verification
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py`
   - Handlers: `captcha.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`

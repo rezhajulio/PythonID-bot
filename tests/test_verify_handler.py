@@ -8,10 +8,11 @@ from bot.database.service import get_database, init_database, reset_database
 from bot.handlers.verify import handle_unverify_command, handle_verify_command
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def temp_db():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
+        reset_database()  # Reset before init
         init_database(str(db_path))
         yield db_path
         reset_database()
@@ -36,8 +37,9 @@ def mock_context():
     context.bot = MagicMock()
     context.bot.get_chat = AsyncMock()
     context.bot.restrict_chat_member = AsyncMock()
+    context.bot.send_message = AsyncMock()
     
-    # Mock get_chat to return a chat with default permissions
+    # Mock get_chat to return both chat permissions and user info
     mock_chat = MagicMock()
     mock_permissions = MagicMock()
     mock_permissions.can_send_messages = True
@@ -48,6 +50,7 @@ def mock_context():
     mock_permissions.can_invite_users = True
     mock_permissions.can_pin_messages = False
     mock_chat.permissions = mock_permissions
+    mock_chat.full_name = "Test User"
     context.bot.get_chat.return_value = mock_chat
     
     context.bot_data = {"admin_ids": [12345]}
@@ -112,8 +115,16 @@ class TestHandleVerifyCommand:
         call_args = mock_update.message.reply_text.call_args
         assert "angka" in call_args.args[0]
 
-    async def test_successful_verify_new_user(self, mock_update, mock_context, temp_db):
-        target_user_id = 555666
+    async def test_successful_verify_new_user(self, mock_update, mock_context, temp_db, monkeypatch):
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 11111111  # Use unique ID
         mock_context.args = [str(target_user_id)]
 
         await handle_verify_command(mock_update, mock_context)
@@ -173,8 +184,17 @@ class TestHandleVerifyCommand:
         call_args = mock_update.message.reply_text.call_args
         assert "izin" in call_args.args[0]
 
-    async def test_verify_with_extra_args_uses_first(self, mock_update, mock_context, temp_db):
-        mock_context.args = ["555666", "extra", "args"]
+    async def test_verify_with_extra_args_uses_first(self, mock_update, mock_context, temp_db, monkeypatch):
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 22222222  # Use unique ID
+        mock_context.args = [str(target_user_id), "extra", "args"]
 
         await handle_verify_command(mock_update, mock_context)
 
@@ -183,7 +203,7 @@ class TestHandleVerifyCommand:
         assert "diverifikasi" in call_args.args[0]
 
         db = get_database()
-        assert db.is_user_photo_whitelisted(555666)
+        assert db.is_user_photo_whitelisted(target_user_id)
 
     async def test_verify_large_user_id(self, mock_update, mock_context, temp_db):
         large_id = 9999999999
@@ -194,9 +214,17 @@ class TestHandleVerifyCommand:
         db = get_database()
         assert db.is_user_photo_whitelisted(large_id)
 
-    async def test_verify_unrestricts_user(self, mock_update, mock_context, temp_db):
+    async def test_verify_unrestricts_user(self, mock_update, mock_context, temp_db, monkeypatch):
         """Test that verify command unrestricts the user."""
-        target_user_id = 555666
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 33333333  # Use unique ID
         mock_context.args = [str(target_user_id)]
 
         await handle_verify_command(mock_update, mock_context)
@@ -207,20 +235,25 @@ class TestHandleVerifyCommand:
         assert call_args.kwargs["user_id"] == target_user_id
         assert call_args.kwargs["permissions"].can_send_messages is True
 
-    async def test_verify_deletes_warnings(self, mock_update, mock_context, temp_db):
+    async def test_verify_deletes_warnings(self, mock_update, mock_context, temp_db, monkeypatch):
         """Test that verify command deletes all warning records."""
-        from bot.config import get_settings
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
         
-        target_user_id = 555666
-        settings = get_settings()
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 66666666  # Use unique ID
         db = get_database()
 
         # Create some warning records for the user
-        db.get_or_create_user_warning(target_user_id, settings.group_id)
-        db.increment_message_count(target_user_id, settings.group_id)
+        db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
+        db.increment_message_count(target_user_id, MockSettings.group_id)
         
         # Verify there's at least one warning
-        warning = db.get_or_create_user_warning(target_user_id, settings.group_id)
+        warning = db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
         assert warning.message_count >= 1
 
         # Now verify the user
@@ -228,16 +261,24 @@ class TestHandleVerifyCommand:
         await handle_verify_command(mock_update, mock_context)
 
         # Warnings should be deleted - trying to get warnings should create a new one
-        new_warning = db.get_or_create_user_warning(target_user_id, settings.group_id)
+        new_warning = db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
         assert new_warning.message_count == 1  # Fresh start
 
     async def test_verify_handles_non_restricted_user_gracefully(
-        self, mock_update, mock_context, temp_db
+        self, mock_update, mock_context, temp_db, monkeypatch
     ):
         """Test that verify doesn't fail if user is not restricted."""
         from telegram.error import BadRequest
         
-        target_user_id = 555666
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 44444444  # Use unique ID
         mock_context.args = [str(target_user_id)]
         
         # Simulate BadRequest when trying to unrestrict a non-restricted user
@@ -254,6 +295,60 @@ class TestHandleVerifyCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "diverifikasi" in call_args.args[0]
+
+    async def test_verify_with_warnings_sends_notification_to_topic(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """Test that verify sends notification to warning topic when user has warnings."""
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 77777777  # Use unique ID
+        db = get_database()
+
+        # Create warning records for the user
+        db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
+        db.increment_message_count(target_user_id, MockSettings.group_id)
+        db.increment_message_count(target_user_id, MockSettings.group_id)
+
+        # Now verify the user
+        mock_context.args = [str(target_user_id)]
+        await handle_verify_command(mock_update, mock_context)
+
+        # Should send notification to warning topic
+        mock_context.bot.send_message.assert_called_once()
+        call_args = mock_context.bot.send_message.call_args
+        assert call_args.kwargs["chat_id"] == MockSettings.group_id
+        assert call_args.kwargs["message_thread_id"] == MockSettings.warning_topic_id
+        assert call_args.kwargs["parse_mode"] == "Markdown"
+        # Check the message contains user mention
+        assert "Test User" in call_args.kwargs["text"] or str(target_user_id) in call_args.kwargs["text"]
+
+    async def test_verify_without_warnings_no_notification(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """Test that verify doesn't send notification when user has no warnings."""
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        target_user_id = 88888888  # Use unique ID
+        mock_context.args = [str(target_user_id)]
+
+        # Verify user without any warnings
+        await handle_verify_command(mock_update, mock_context)
+
+        # Should NOT send notification to warning topic
+        mock_context.bot.send_message.assert_not_called()
 
 
 class TestHandleUnverifyCommand:

@@ -11,8 +11,10 @@ import logging
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
+from telegram.helpers import mention_markdown
 
 from bot.config import get_settings
+from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import get_database
 from bot.services.telegram_utils import unrestrict_user
 
@@ -85,7 +87,24 @@ async def handle_verify_command(
 
         # Delete all warning records for this user
         deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)
+        
+        # Send notification to warning topic if user had previous warnings
         if deleted_count > 0:
+            # Get user info for proper mention
+            user_info = await context.bot.get_chat(target_user_id)
+            user_mention = mention_markdown(target_user_id, user_info.full_name, version=2)
+            
+            # Send clearance message to warning topic
+            clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
+                user_mention=user_mention
+            )
+            await context.bot.send_message(
+                chat_id=settings.group_id,
+                message_thread_id=settings.warning_topic_id,
+                text=clearance_message,
+                parse_mode="Markdown"
+            )
+            logger.info(f"Sent clearance notification to warning topic for user {target_user_id}")
             logger.info(f"Deleted {deleted_count} warning record(s) for user {target_user_id}")
         
         await update.message.reply_text(
