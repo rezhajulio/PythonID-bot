@@ -5,9 +5,46 @@ This module provides common helper functions for working with
 Telegram's API across different handlers and services.
 """
 
-from telegram import Bot
+from telegram import Bot, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
+from telegram.helpers import mention_markdown
+
+
+def get_user_mention(user: User) -> str:
+    """
+    Get a formatted mention string for a user.
+
+    Returns `@username` if the user has a username, otherwise returns
+    a markdown mention using the user's full name and ID.
+
+    Args:
+        user: Telegram User object.
+
+    Returns:
+        str: Formatted user mention (either @username or markdown mention).
+    """
+    return (
+        f"@{user.username}"
+        if user.username
+        else mention_markdown(user.id, user.full_name, version=2)
+    )
+
+
+def get_user_mention_by_id(user_id: int, user_full_name: str) -> str:
+    """
+    Get a formatted markdown mention for a user by ID and name.
+
+    Used when only user ID and full name are available (not a full User object).
+
+    Args:
+        user_id: Telegram user ID.
+        user_full_name: User's full name.
+
+    Returns:
+        str: Markdown mention string.
+    """
+    return mention_markdown(user_id, user_full_name, version=2)
 
 
 async def get_user_status(

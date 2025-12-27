@@ -1,14 +1,216 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram import User
 from telegram.error import BadRequest, Forbidden
 
-from bot.services.telegram_utils import fetch_group_admin_ids, get_user_status
+from bot.services.telegram_utils import (
+    fetch_group_admin_ids,
+    get_user_mention,
+    get_user_mention_by_id,
+    get_user_status,
+    unrestrict_user,
+)
 
 
 @pytest.fixture
 def mock_bot():
     return AsyncMock()
+
+
+class TestGetUserMention:
+    def test_get_user_mention_with_username(self):
+        """Test getting mention for user with username."""
+        user = MagicMock(spec=User)
+        user.username = "johndoe"
+        user.id = 123456
+        user.full_name = "John Doe"
+
+        result = get_user_mention(user)
+
+        assert result == "@johndoe"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_without_username(self, mock_mention_markdown):
+        """Test getting mention for user without username."""
+        user = MagicMock(spec=User)
+        user.username = None
+        user.id = 123456
+        user.full_name = "John Doe"
+        mock_mention_markdown.return_value = "[John Doe](tg://user?id=123456)"
+
+        result = get_user_mention(user)
+
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=2)
+        assert result == "[John Doe](tg://user?id=123456)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_empty_username(self, mock_mention_markdown):
+        """Test getting mention for user with empty string username."""
+        user = MagicMock(spec=User)
+        user.username = ""
+        user.id = 987654
+        user.full_name = "Jane Smith"
+        mock_mention_markdown.return_value = "[Jane Smith](tg://user?id=987654)"
+
+        result = get_user_mention(user)
+
+        mock_mention_markdown.assert_called_once_with(987654, "Jane Smith", version=2)
+        assert result == "[Jane Smith](tg://user?id=987654)"
+
+    def test_get_user_mention_special_characters_in_username(self):
+        """Test getting mention with special characters in username."""
+        user = MagicMock(spec=User)
+        user.username = "user_name_123"
+        user.id = 111222
+        user.full_name = "User Name"
+
+        result = get_user_mention(user)
+
+        assert result == "@user_name_123"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_special_characters_in_full_name(self, mock_mention_markdown):
+        """Test getting mention with special characters in full name."""
+        user = MagicMock(spec=User)
+        user.username = None
+        user.id = 555666
+        user.full_name = "José María"
+        mock_mention_markdown.return_value = "[José María](tg://user?id=555666)"
+
+        result = get_user_mention(user)
+
+        mock_mention_markdown.assert_called_once_with(555666, "José María", version=2)
+        assert result == "[José María](tg://user?id=555666)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_long_full_name(self, mock_mention_markdown):
+        """Test getting mention with very long full name."""
+        user = MagicMock(spec=User)
+        user.username = None
+        user.id = 777888
+        user.full_name = "A" * 100
+        mock_mention_markdown.return_value = f"[{'A' * 100}](tg://user?id=777888)"
+
+        result = get_user_mention(user)
+
+        mock_mention_markdown.assert_called_once_with(777888, "A" * 100, version=2)
+        assert result == f"[{'A' * 100}](tg://user?id=777888)"
+
+
+class TestGetUserMentionById:
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_basic(self, mock_mention_markdown):
+        """Test basic user mention by ID."""
+        mock_mention_markdown.return_value = "[John Doe](tg://user?id=123456)"
+
+        result = get_user_mention_by_id(123456, "John Doe")
+
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=2)
+        assert result == "[John Doe](tg://user?id=123456)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_large_id(self, mock_mention_markdown):
+        """Test mention by ID with large user ID."""
+        mock_mention_markdown.return_value = "[Jane Smith](tg://user?id=9999999999)"
+
+        result = get_user_mention_by_id(9999999999, "Jane Smith")
+
+        mock_mention_markdown.assert_called_once_with(9999999999, "Jane Smith", version=2)
+        assert result == "[Jane Smith](tg://user?id=9999999999)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_special_characters(self, mock_mention_markdown):
+        """Test mention by ID with special characters in name."""
+        mock_mention_markdown.return_value = "[José María](tg://user?id=111222)"
+
+        result = get_user_mention_by_id(111222, "José María")
+
+        mock_mention_markdown.assert_called_once_with(111222, "José María", version=2)
+        assert result == "[José María](tg://user?id=111222)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_emojis_in_name(self, mock_mention_markdown):
+        """Test mention by ID with emojis in name."""
+        mock_mention_markdown.return_value = "[User 🎉](tg://user?id=333444)"
+
+        result = get_user_mention_by_id(333444, "User 🎉")
+
+        mock_mention_markdown.assert_called_once_with(333444, "User 🎉", version=2)
+        assert result == "[User 🎉](tg://user?id=333444)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_long_name(self, mock_mention_markdown):
+        """Test mention by ID with very long name."""
+        long_name = "A" * 200
+        mock_mention_markdown.return_value = f"[{long_name}](tg://user?id=555666)"
+
+        result = get_user_mention_by_id(555666, long_name)
+
+        mock_mention_markdown.assert_called_once_with(555666, long_name, version=2)
+        assert result == f"[{long_name}](tg://user?id=555666)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_single_character_name(self, mock_mention_markdown):
+        """Test mention by ID with single character name."""
+        mock_mention_markdown.return_value = "[A](tg://user?id=777888)"
+
+        result = get_user_mention_by_id(777888, "A")
+
+        mock_mention_markdown.assert_called_once_with(777888, "A", version=2)
+        assert result == "[A](tg://user?id=777888)"
+
+
+class TestUnrestrictUser:
+    async def test_unrestrict_user_basic(self, mock_bot):
+        """Test basic user unrestriction."""
+        mock_chat = MagicMock()
+        mock_permissions = MagicMock()
+        mock_chat.permissions = mock_permissions
+        mock_bot.get_chat.return_value = mock_chat
+
+        await unrestrict_user(mock_bot, group_id=123, user_id=456)
+
+        mock_bot.get_chat.assert_called_once_with(123)
+        mock_bot.restrict_chat_member.assert_called_once_with(
+            chat_id=123,
+            user_id=456,
+            permissions=mock_permissions,
+        )
+
+    async def test_unrestrict_user_with_negative_group_id(self, mock_bot):
+        """Test unrestricting user in supergroup (negative ID)."""
+        mock_chat = MagicMock()
+        mock_permissions = MagicMock()
+        mock_chat.permissions = mock_permissions
+        mock_bot.get_chat.return_value = mock_chat
+
+        await unrestrict_user(mock_bot, group_id=-1001234567890, user_id=456)
+
+        mock_bot.get_chat.assert_called_once_with(-1001234567890)
+        mock_bot.restrict_chat_member.assert_called_once_with(
+            chat_id=-1001234567890,
+            user_id=456,
+            permissions=mock_permissions,
+        )
+
+    async def test_unrestrict_user_raises_bad_request(self, mock_bot):
+        """Test that BadRequest is raised when user not found."""
+        mock_bot.get_chat.side_effect = BadRequest("User not found")
+
+        with pytest.raises(BadRequest, match="User not found"):
+            await unrestrict_user(mock_bot, group_id=123, user_id=456)
+
+    async def test_unrestrict_user_raises_forbidden(self, mock_bot):
+        """Test that Forbidden is raised when bot lacks permissions."""
+        mock_chat = MagicMock()
+        mock_permissions = MagicMock()
+        mock_chat.permissions = mock_permissions
+        mock_bot.get_chat.return_value = mock_chat
+        mock_bot.restrict_chat_member.side_effect = Forbidden("No permissions")
+
+        with pytest.raises(Forbidden, match="No permissions"):
+            await unrestrict_user(mock_bot, group_id=123, user_id=456)
 
 
 class TestGetUserStatus:

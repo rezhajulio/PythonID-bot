@@ -18,7 +18,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from telegram.helpers import mention_markdown
 
 from bot.config import Settings, get_settings
 from bot.constants import (
@@ -29,7 +28,7 @@ from bot.constants import (
     RESTRICTED_PERMISSIONS,
 )
 from bot.database.service import get_database
-from bot.services.telegram_utils import unrestrict_user
+from bot.services.telegram_utils import get_user_mention, unrestrict_user
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ async def _initiate_captcha_challenge(
         settings: Bot settings.
     """
     user_id = user.id
-    user_mention = mention_markdown(user_id, user.full_name, version=2)
+    user_mention = get_user_mention(user)
 
     try:
         await context.bot.restrict_chat_member(
@@ -283,7 +282,7 @@ async def captcha_callback_handler(
     db = get_database()
     db.remove_pending_captcha(target_user_id, settings.group_id)
 
-    user_mention = mention_markdown(target_user_id, query.from_user.full_name, version=2)
+    user_mention = get_user_mention(query.from_user)
 
     try:
         await query.edit_message_text(

@@ -9,7 +9,7 @@ import logging
 
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
-from telegram.helpers import mention_markdown
+
 
 from bot.config import get_settings
 from bot.constants import (
@@ -19,7 +19,7 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.services.bot_info import BotInfoCache
-from bot.services.telegram_utils import get_user_status
+from bot.services.telegram_utils import get_user_mention, get_user_status
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                     user_id=warning.user_id,
                 )
                 user = user_member.user
-                user_mention = (
-                    f"@{user.username}"
-                    if user.username
-                    else mention_markdown(user.id, user.full_name, version=2)
-                )
+                user_mention = get_user_mention(user)
             except Exception:
                 # Fallback to user ID if we can't get user info
                 user_mention = f"User {warning.user_id}"
