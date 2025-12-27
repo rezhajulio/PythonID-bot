@@ -11,13 +11,13 @@ from datetime import UTC, datetime
 
 from telegram import Bot
 from telegram.ext import Application
-from telegram.helpers import mention_markdown
 
 from bot.config import get_settings
 from bot.constants import CAPTCHA_TIMEOUT_MESSAGE
 from bot.database.service import get_database
 from bot.handlers.captcha import captcha_timeout_callback, get_captcha_job_name
 from bot.services.bot_info import BotInfoCache
+from bot.services.telegram_utils import get_user_mention_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def handle_captcha_expiration(
 
     bot_username = await BotInfoCache.get_username(bot)
     dm_link = f"[hubungi robot](https://t.me/{bot_username})"
-    user_mention = mention_markdown(user_id, user_full_name, version=2)
+    user_mention = get_user_mention_by_id(user_id, user_full_name)
 
     try:
         await bot.edit_message_text(

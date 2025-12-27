@@ -11,12 +11,11 @@ import logging
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
-from telegram.helpers import mention_markdown
 
 from bot.config import get_settings
 from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import get_database
-from bot.services.telegram_utils import unrestrict_user
+from bot.services.telegram_utils import get_user_mention_by_id, unrestrict_user
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +91,7 @@ async def handle_verify_command(
         if deleted_count > 0:
             # Get user info for proper mention
             user_info = await context.bot.get_chat(target_user_id)
-            user_mention = mention_markdown(target_user_id, user_info.full_name, version=2)
+            user_mention = get_user_mention_by_id(target_user_id, user_info.full_name)
             
             # Send clearance message to warning topic
             clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(

@@ -11,7 +11,7 @@ import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from telegram.helpers import mention_markdown
+
 
 from bot.config import get_settings
 from bot.constants import (
@@ -24,6 +24,7 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.services.bot_info import BotInfoCache
+from bot.services.telegram_utils import get_user_mention
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -69,11 +70,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Build warning message components
     missing = result.get_missing_items()
     missing_text = MISSING_ITEMS_SEPARATOR.join(missing)
-    user_mention = (
-        f"@{user.username}"
-        if user.username
-        else mention_markdown(user.id, user.full_name, version=2)
-    )
+    user_mention = get_user_mention(user)
 
     # Warning mode: just send warning, don't restrict
     if not settings.restrict_failed_users:
