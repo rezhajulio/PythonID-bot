@@ -1,11 +1,17 @@
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from bot.database.service import get_database, init_database, reset_database
-from bot.handlers.verify import handle_unverify_command, handle_verify_command
+from bot.handlers.verify import (
+    handle_forwarded_message,
+    handle_unverify_callback,
+    handle_unverify_command,
+    handle_verify_callback,
+    handle_verify_command,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -156,7 +162,15 @@ class TestHandleVerifyCommand:
         call_args = mock_update.message.reply_text.call_args
         assert "sudah ada di whitelist" in call_args.args[0]
 
-    async def test_verify_multiple_users(self, mock_update, mock_context, temp_db):
+    async def test_verify_multiple_users(self, mock_update, mock_context, temp_db, monkeypatch):
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
         db = get_database()
 
         # Verify first user
@@ -205,7 +219,15 @@ class TestHandleVerifyCommand:
         db = get_database()
         assert db.is_user_photo_whitelisted(target_user_id)
 
-    async def test_verify_large_user_id(self, mock_update, mock_context, temp_db):
+    async def test_verify_large_user_id(self, mock_update, mock_context, temp_db, monkeypatch):
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
         large_id = 9999999999
         mock_context.args = [str(large_id)]
 
@@ -489,3 +511,334 @@ class TestHandleUnverifyCommand:
         assert "dihapus dari whitelist" in call_args.args[0]
 
         assert not db.is_user_photo_whitelisted(555666)
+
+
+class TestHandleForwardedMessage:
+    async def test_no_message(self, mock_context):
+        update = MagicMock()
+        update.message = None
+
+        await handle_forwarded_message(update, mock_context)
+
+    async def test_no_from_user(self, mock_context):
+        update = MagicMock()
+        update.message = MagicMock()
+        update.message.from_user = None
+
+        await handle_forwarded_message(update, mock_context)
+
+    async def test_non_admin_rejected(self, mock_update, mock_context):
+        mock_update.message.from_user.id = 99999
+        mock_context.bot_data = {"admin_ids": [12345]}
+        
+        # Mock forwarded message
+        mock_update.message.forward_origin = MagicMock()
+        mock_update.message.forward_origin.sender_user = MagicMock()
+        mock_update.message.forward_origin.sender_user.id = 555666
+
+        await handle_forwarded_message(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "izin" in call_args.args[0]
+
+    async def test_successful_forwarded_message_new_api(self, mock_update, mock_context):
+        # Mock forwarded message with new API (forward_origin)
+        forwarded_user = MagicMock()
+        forwarded_user.id = 555666
+        forwarded_user.full_name = "Test User"
+        
+        mock_update.message.forward_origin = MagicMock()
+        mock_update.message.forward_origin.sender_user = forwarded_user
+        mock_update.message.forward_from = None
+
+        await handle_forwarded_message(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert call_args.kwargs["parse_mode"] == "Markdown"
+        assert call_args.kwargs["reply_markup"] is not None
+        
+        # Check message content
+        message_text = call_args.args[0]
+        assert "555666" in message_text
+        assert "Test User" in message_text or "555666" in message_text
+        
+        # Check keyboard buttons
+        keyboard = call_args.kwargs["reply_markup"].inline_keyboard
+        assert len(keyboard) == 1
+        assert len(keyboard[0]) == 2
+        assert keyboard[0][0].text == "✅ Verify User"
+        assert keyboard[0][0].callback_data == "verify:555666"
+        assert keyboard[0][1].text == "❌ Unverify User"
+        assert keyboard[0][1].callback_data == "unverify:555666"
+
+    async def test_successful_forwarded_message_legacy_api(self, mock_update, mock_context):
+        # Mock forwarded message with legacy API (forward_from)
+        forwarded_user = MagicMock()
+        forwarded_user.id = 777888
+        forwarded_user.first_name = "Legacy User"
+        forwarded_user.full_name = "Legacy User"  # Add full_name attribute
+        
+        mock_update.message.forward_origin = None
+        mock_update.message.forward_from = forwarded_user
+
+        await handle_forwarded_message(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        
+        # Check keyboard buttons
+        keyboard = call_args.kwargs["reply_markup"].inline_keyboard
+        assert keyboard[0][0].callback_data == "verify:777888"
+        assert keyboard[0][1].callback_data == "unverify:777888"
+
+    async def test_forwarded_message_no_user_info(self, mock_update, mock_context):
+        # Mock forwarded message without user info (privacy settings)
+        mock_update.message.forward_origin = None
+        mock_update.message.forward_from = None
+
+        await handle_forwarded_message(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "Tidak dapat mengekstrak" in call_args.args[0]
+
+
+class TestHandleVerifyCallback:
+    async def test_no_query(self, mock_context):
+        update = MagicMock()
+        update.callback_query = None
+
+        await handle_verify_callback(update, mock_context)
+
+    async def test_no_from_user(self, mock_context):
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.callback_query.from_user = None
+
+        await handle_verify_callback(update, mock_context)
+
+    async def test_non_admin_rejected(self, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 99999
+        query.from_user.full_name = "Non Admin"
+        query.data = "verify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        
+        mock_context.bot_data = {"admin_ids": [12345]}
+
+        await handle_verify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "izin" in call_args.args[0]
+
+    async def test_invalid_callback_data_format(self, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "verify:invalid"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_verify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "tidak valid" in call_args.args[0]
+
+    async def test_successful_verify_callback(self, temp_db, mock_context, monkeypatch):
+        # Mock the settings
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+        
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+        
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "verify:999888"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_verify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "diverifikasi" in call_args.args[0]
+        
+        # Verify user was added to whitelist
+        db = get_database()
+        assert db.is_user_photo_whitelisted(999888)
+
+    async def test_verify_callback_already_whitelisted(self, temp_db, mock_context):
+        db = get_database()
+        db.add_photo_verification_whitelist(user_id=555666, verified_by_admin_id=12345)
+        
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "verify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_verify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "sudah ada di whitelist" in call_args.args[0]
+
+    async def test_verify_callback_generic_exception(self, temp_db, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "verify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        
+        # Mock get_settings to raise a generic exception
+        with patch("bot.handlers.verify.get_settings", side_effect=RuntimeError("Settings error")):
+            await handle_verify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "Terjadi kesalahan" in call_args.args[0]
+
+
+class TestHandleUnverifyCallback:
+    async def test_no_query(self, mock_context):
+        update = MagicMock()
+        update.callback_query = None
+
+        await handle_unverify_callback(update, mock_context)
+
+    async def test_no_from_user(self, mock_context):
+        update = MagicMock()
+        update.callback_query = MagicMock()
+        update.callback_query.from_user = None
+
+        await handle_unverify_callback(update, mock_context)
+
+    async def test_non_admin_rejected(self, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 99999
+        query.from_user.full_name = "Non Admin"
+        query.data = "unverify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        
+        mock_context.bot_data = {"admin_ids": [12345]}
+
+        await handle_unverify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "izin" in call_args.args[0]
+
+    async def test_invalid_callback_data_format(self, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "unverify:invalid"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_unverify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "tidak valid" in call_args.args[0]
+
+    async def test_successful_unverify_callback(self, temp_db, mock_context):
+        db = get_database()
+        db.add_photo_verification_whitelist(user_id=555666, verified_by_admin_id=12345)
+        
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "unverify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_unverify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "dihapus dari whitelist" in call_args.args[0]
+        
+        # Verify user was removed from whitelist
+        assert not db.is_user_photo_whitelisted(555666)
+
+    async def test_unverify_callback_not_whitelisted(self, temp_db, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "unverify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_unverify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "tidak ada di whitelist" in call_args.args[0]
+
+    async def test_unverify_callback_generic_exception(self, temp_db, mock_context):
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "unverify:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        
+        # Mock unverify_user to raise a generic exception
+        with patch("bot.handlers.verify.unverify_user", side_effect=RuntimeError("Unverify error")):
+            await handle_unverify_callback(update, mock_context)
+
+        query.answer.assert_called_once()
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "Terjadi kesalahan" in call_args.args[0]

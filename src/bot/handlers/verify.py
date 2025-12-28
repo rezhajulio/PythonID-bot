@@ -8,16 +8,106 @@ hidden due to Telegram privacy settings.
 
 import logging
 
-from telegram import Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from bot.config import get_settings
-from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
-from bot.database.service import get_database
+from bot.config import Settings, get_settings
+from bot.constants import FORWARD_VERIFY_PROMPT, VERIFICATION_CLEARANCE_MESSAGE
+from bot.database.service import DatabaseService, get_database
 from bot.services.telegram_utils import get_user_mention_by_id, unrestrict_user
 
 logger = logging.getLogger(__name__)
+
+
+async def verify_user(
+    bot: Bot, db: DatabaseService, settings: Settings, target_user_id: int, admin_user_id: int
+) -> str:
+    """
+    Verify a user by adding them to the photo verification whitelist.
+
+    This function handles the core verification logic: adds user to whitelist,
+    unrestricts them, deletes warnings, and sends clearance notification if needed.
+
+    Args:
+        bot: Telegram bot instance.
+        db: Database service instance.
+        settings: Bot settings instance.
+        target_user_id: ID of the user to verify.
+        admin_user_id: ID of the admin performing the verification.
+
+    Returns:
+        Success message string.
+
+    Raises:
+        ValueError: If user is already whitelisted.
+    """
+    db.add_photo_verification_whitelist(
+        user_id=target_user_id,
+        verified_by_admin_id=admin_user_id,
+    )
+
+    # Unrestrict user if they are restricted
+    try:
+        await unrestrict_user(bot, settings.group_id, target_user_id)
+        logger.info(f"Unrestricted user {target_user_id} during verification")
+    except BadRequest as e:
+        # User might not be restricted or not in group - that's okay
+        logger.debug(f"Could not unrestrict user {target_user_id}: {e}")
+
+    # Delete all warning records for this user
+    deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)
+
+    # Send notification to warning topic if user had previous warnings
+    if deleted_count > 0:
+        # Get user info for proper mention
+        user_info = await bot.get_chat(target_user_id)
+        user_mention = get_user_mention_by_id(target_user_id, user_info.full_name)
+
+        # Send clearance message to warning topic
+        clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
+            user_mention=user_mention
+        )
+        await bot.send_message(
+            chat_id=settings.group_id,
+            message_thread_id=settings.warning_topic_id,
+            text=clearance_message,
+            parse_mode="Markdown"
+        )
+        logger.info(f"Sent clearance notification to warning topic for user {target_user_id}")
+        logger.info(f"Deleted {deleted_count} warning record(s) for user {target_user_id}")
+
+    return (
+        f"✅ User dengan ID {target_user_id} telah diverifikasi:\n"
+        f"• Ditambahkan ke whitelist foto profil\n"
+        f"• Pembatasan dicabut (jika ada)\n"
+        f"• Riwayat warning dihapus\n\n"
+        f"User ini tidak akan dicek foto profil lagi."
+    )
+
+
+async def unverify_user(
+    db: DatabaseService, target_user_id: int, admin_user_id: int
+) -> str:
+    """
+    Unverify a user by removing them from the photo verification whitelist.
+
+    Args:
+        db: Database service instance.
+        target_user_id: ID of the user to unverify.
+        admin_user_id: ID of the admin performing the unverification.
+
+    Returns:
+        Success message string.
+
+    Raises:
+        ValueError: If user is not in whitelist.
+    """
+    db.remove_photo_verification_whitelist(user_id=target_user_id)
+    logger.info(
+        f"Admin {admin_user_id} removed user {target_user_id} from photo verification whitelist"
+    )
+    return f"✅ User dengan ID {target_user_id} telah dihapus dari whitelist verifikasi foto."
 
 
 async def handle_verify_command(
@@ -68,51 +158,9 @@ async def handle_verify_command(
     db = get_database()
 
     try:
-        db.add_photo_verification_whitelist(
-            user_id=target_user_id,
-            verified_by_admin_id=admin_user_id,
-        )
-        
-        # Get settings for group_id
         settings = get_settings()
-
-        # Unrestrict user if they are restricted
-        try:
-            await unrestrict_user(context.bot, settings.group_id, target_user_id)
-            logger.info(f"Unrestricted user {target_user_id} during verification")
-        except BadRequest as e:
-            # User might not be restricted or not in group - that's okay
-            logger.debug(f"Could not unrestrict user {target_user_id}: {e}")
-
-        # Delete all warning records for this user
-        deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)
-        
-        # Send notification to warning topic if user had previous warnings
-        if deleted_count > 0:
-            # Get user info for proper mention
-            user_info = await context.bot.get_chat(target_user_id)
-            user_mention = get_user_mention_by_id(target_user_id, user_info.full_name)
-            
-            # Send clearance message to warning topic
-            clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
-                user_mention=user_mention
-            )
-            await context.bot.send_message(
-                chat_id=settings.group_id,
-                message_thread_id=settings.warning_topic_id,
-                text=clearance_message,
-                parse_mode="Markdown"
-            )
-            logger.info(f"Sent clearance notification to warning topic for user {target_user_id}")
-            logger.info(f"Deleted {deleted_count} warning record(s) for user {target_user_id}")
-        
-        await update.message.reply_text(
-            f"✅ User dengan ID {target_user_id} telah diverifikasi:\n"
-            f"• Ditambahkan ke whitelist foto profil\n"
-            f"• Pembatasan dicabut (jika ada)\n"
-            f"• Riwayat warning dihapus\n\n"
-            f"User ini tidak akan dicek foto profil lagi."
-        )
+        message = await verify_user(context.bot, db, settings, target_user_id, admin_user_id)
+        await update.message.reply_text(message)
         logger.info(
             f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
             f"whitelisted user {target_user_id} for photo verification"
@@ -172,16 +220,198 @@ async def handle_unverify_command(
     db = get_database()
 
     try:
-        db.remove_photo_verification_whitelist(user_id=target_user_id)
-        await update.message.reply_text(
-            f"✅ User dengan ID {target_user_id} telah dihapus dari whitelist verifikasi foto."
-        )
-        logger.info(
-            f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
-            f"removed user {target_user_id} from photo verification whitelist"
-        )
+        message = await unverify_user(db, target_user_id, admin_user_id)
+        await update.message.reply_text(message)
     except ValueError as e:
         await update.message.reply_text(f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist.")
         logger.info(
             f"Admin {admin_user_id} tried to remove {target_user_id} but not in whitelist: {e}"
         )
+
+
+async def handle_forwarded_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle forwarded messages from admins to create verify/unverify buttons.
+
+    When an admin forwards a user's message to the bot in DM, this handler
+    creates inline buttons to verify or unverify that user.
+
+    Args:
+        update: Telegram update containing the forwarded message.
+        context: Bot context with helper methods.
+    """
+    if not update.message or not update.message.from_user:
+        return
+
+    admin_user_id = update.message.from_user.id
+    admin_ids = context.bot_data.get("admin_ids", [])
+
+    if admin_user_id not in admin_ids:
+        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan fitur ini.")
+        logger.warning(
+            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
+            f"attempted to forward message for verification"
+        )
+        return
+
+    # Extract user info from forwarded message
+    forwarded_user = None
+    if update.message.forward_origin:
+        # New API (MessageOrigin)
+        if hasattr(update.message.forward_origin, 'sender_user'):
+            forwarded_user = update.message.forward_origin.sender_user
+    elif update.message.forward_from:
+        # Legacy API
+        forwarded_user = update.message.forward_from
+
+    if not forwarded_user:
+        await update.message.reply_text(
+            "❌ Tidak dapat mengekstrak informasi user dari pesan yang diteruskan.\n"
+            "Pastikan user tidak menyembunyikan status forward di pengaturan privasi."
+        )
+        return
+
+    user_id = forwarded_user.id
+    user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
+    user_mention = get_user_mention_by_id(user_id, user_name)
+
+    # Create inline keyboard with verify/unverify buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Verify User", callback_data=f"verify:{user_id}"),
+            InlineKeyboardButton("❌ Unverify User", callback_data=f"unverify:{user_id}"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send prompt message with buttons
+    prompt_message = FORWARD_VERIFY_PROMPT.format(
+        user_mention=user_mention,
+        user_id=user_id
+    )
+    await update.message.reply_text(
+        prompt_message,
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    logger.info(
+        f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
+        f"forwarded message from user {user_id} for verification options"
+    )
+
+
+async def handle_verify_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle callback query for verify button.
+
+    Processes the inline button click to verify a user and updates the message
+    with the result.
+
+    Args:
+        update: Telegram update containing the callback query.
+        context: Bot context with helper methods.
+    """
+    query = update.callback_query
+    if not query or not query.from_user or not query.data:
+        return
+
+    await query.answer()
+
+    admin_user_id = query.from_user.id
+    admin_ids = context.bot_data.get("admin_ids", [])
+
+    if admin_user_id not in admin_ids:
+        await query.edit_message_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        logger.warning(
+            f"Non-admin user {admin_user_id} ({query.from_user.full_name}) "
+            f"attempted to use verify callback"
+        )
+        return
+
+    # Extract user_id from callback_data
+    try:
+        target_user_id = int(query.data.split(":")[1])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Data callback tidak valid.")
+        logger.error(f"Invalid callback_data format: {query.data}")
+        return
+
+    db = get_database()
+
+    try:
+        settings = get_settings()
+        message = await verify_user(context.bot, db, settings, target_user_id, admin_user_id)
+        await query.edit_message_text(message)
+        logger.info(
+            f"Admin {admin_user_id} ({query.from_user.full_name}) "
+            f"verified user {target_user_id} via callback"
+        )
+    except ValueError as e:
+        await query.edit_message_text(f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist.")
+        logger.info(
+            f"Admin {admin_user_id} tried to verify {target_user_id} via callback but already exists: {e}"
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Terjadi kesalahan: {str(e)}")
+        logger.error(f"Error during verify callback: {e}", exc_info=True)
+
+
+async def handle_unverify_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle callback query for unverify button.
+
+    Processes the inline button click to unverify a user and updates the message
+    with the result.
+
+    Args:
+        update: Telegram update containing the callback query.
+        context: Bot context with helper methods.
+    """
+    query = update.callback_query
+    if not query or not query.from_user or not query.data:
+        return
+
+    await query.answer()
+
+    admin_user_id = query.from_user.id
+    admin_ids = context.bot_data.get("admin_ids", [])
+
+    if admin_user_id not in admin_ids:
+        await query.edit_message_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        logger.warning(
+            f"Non-admin user {admin_user_id} ({query.from_user.full_name}) "
+            f"attempted to use unverify callback"
+        )
+        return
+
+    # Extract user_id from callback_data
+    try:
+        target_user_id = int(query.data.split(":")[1])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Data callback tidak valid.")
+        logger.error(f"Invalid callback_data format: {query.data}")
+        return
+
+    db = get_database()
+
+    try:
+        message = await unverify_user(db, target_user_id, admin_user_id)
+        await query.edit_message_text(message)
+        logger.info(
+            f"Admin {admin_user_id} ({query.from_user.full_name}) "
+            f"unverified user {target_user_id} via callback"
+        )
+    except ValueError as e:
+        await query.edit_message_text(f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist.")
+        logger.info(
+            f"Admin {admin_user_id} tried to unverify {target_user_id} via callback but not in whitelist: {e}"
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Terjadi kesalahan: {str(e)}")
+        logger.error(f"Error during unverify callback: {e}", exc_info=True)

@@ -134,3 +134,8 @@ DM_UNRESTRICTION_SUCCESS_MESSAGE = (
 VERIFICATION_CLEARANCE_MESSAGE = (
     "✅ {user_mention} telah diverifikasi oleh admin. Silakan berdiskusi kembali."
 )
+
+FORWARD_VERIFY_PROMPT = (
+    "📋 User: {user_mention} (ID: {user_id})\n\n"
+    "Pilih aksi untuk user ini:"
+)

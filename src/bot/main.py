@@ -10,7 +10,7 @@ and starts the polling loop. Handler registration order matters:
 
 import logging
 
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from bot.config import get_settings
 from bot.database.service import init_database
@@ -18,7 +18,13 @@ from bot.handlers import captcha
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
-from bot.handlers.verify import handle_verify_command, handle_unverify_command
+from bot.handlers.verify import (
+    handle_forwarded_message,
+    handle_unverify_callback,
+    handle_unverify_command,
+    handle_verify_callback,
+    handle_verify_command,
+)
 from bot.services.scheduler import auto_restrict_expired_warnings
 from bot.services.telegram_utils import fetch_group_admin_ids
 
@@ -98,11 +104,27 @@ def main() -> None:
         CommandHandler("unverify", handle_unverify_command)
     )
 
-    # Handler 4: Captcha handlers - new member verification
+    # Handler 4: Forwarded message handler - allows admins to verify/unverify via buttons
+    application.add_handler(
+        MessageHandler(
+            filters.FORWARDED & filters.ChatType.PRIVATE,
+            handle_forwarded_message
+        )
+    )
+
+    # Handler 5: Callback handlers for verify/unverify buttons
+    application.add_handler(
+        CallbackQueryHandler(handle_verify_callback, pattern=r"^verify:\d+$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_unverify_callback, pattern=r"^unverify:\d+$")
+    )
+
+    # Handler 6: Captcha handlers - new member verification
     for handler in captcha.get_handlers():
         application.add_handler(handler)
 
-    # Handler 5: DM handler - processes private messages (including /start)
+    # Handler 7: DM handler - processes private messages (including /start)
     # for the unrestriction flow. Must be registered before group handler
     # to prevent group handler from catching private messages first.
     application.add_handler(
@@ -112,7 +134,7 @@ def main() -> None:
         )
     )
 
-    # Handler 6: Group message handler - monitors messages in the configured
+    # Handler 8: Group message handler - monitors messages in the configured
     # group and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(
