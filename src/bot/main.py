@@ -9,7 +9,6 @@ and starts the polling loop. Handler registration order matters:
 """
 
 import logging
-import os
 
 import logfire
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
@@ -39,14 +38,10 @@ def configure_logging() -> None:
     - Only logs INFO level and above (no debug logs)
     - Disables database query tracing
     - Disables auto-instrumentation for less critical operations
-    - Disables HTTP instrumentation to prevent logging Telegram polling requests
+    - Suppresses verbose HTTP request logs from httpx/httpcore libraries
     - In local dev: console output only (send_to_logfire=False)
     - In production: sends to Logfire only if LOGFIRE_TOKEN is set
     """
-    # Disable httpx auto-instrumentation to prevent logging Telegram API polling requests
-    # This must be set BEFORE importing/configuring Logfire
-    os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = "httpx"
-    
     # Configure basic logging FIRST to capture Settings initialization logs
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -83,6 +78,11 @@ def configure_logging() -> None:
         handlers=[logfire.LogfireLoggingHandler()],
         force=True,  # Override previous config
     )
+    
+    # Suppress verbose HTTP logs from httpx/httpcore used by python-telegram-bot
+    # These libraries log every HTTP request at INFO level, flooding logs with Telegram API polling requests
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     
     logger = logging.getLogger(__name__)
     if send_to_logfire:
