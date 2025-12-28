@@ -8,14 +8,17 @@ WORKDIR /app
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# Copy all project files
-COPY . .
+# Copy dependency files only (these change less frequently)
+COPY pyproject.toml uv.lock .python-version README.md ./
+
+# Install dependencies (cached unless pyproject.toml or uv.lock change)
+RUN uv sync --frozen
 
 # Create data directory
 RUN mkdir -p /app/data
 
-# Install dependencies
-RUN uv sync --frozen
+# Copy remaining project files (code changes trigger new layer)
+COPY src/ ./src/
 
 # Create non-root user and set ownership
 RUN useradd -m -u 1000 bot && chown -R bot:bot /app

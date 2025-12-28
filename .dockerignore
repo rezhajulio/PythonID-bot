@@ -1,6 +1,5 @@
 .git
 .gitignore
-.python-version
 .env
 .env.staging
 .venv
