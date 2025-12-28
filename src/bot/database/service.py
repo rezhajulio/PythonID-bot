@@ -7,6 +7,7 @@ with SQLite backend for persistence.
 """
 
 import logging
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,6 +40,10 @@ class DatabaseService:
         """
         path = Path(database_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Register datetime adapters for SQLite to avoid deprecation warnings
+        # in Python 3.12+. SQLAlchemy's default datetime handling is deprecated.
+        sqlite3.register_adapter(datetime, lambda val: val.isoformat())
 
         self._engine = create_engine(f"sqlite:///{database_path}")
         SQLModel.metadata.create_all(self._engine)

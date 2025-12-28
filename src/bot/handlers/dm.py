@@ -22,10 +22,11 @@ from bot.constants import (
     DM_INCOMPLETE_PROFILE_MESSAGE,
     DM_NOT_IN_GROUP_MESSAGE,
     DM_NO_RESTRICTION_MESSAGE,
+    DM_UNRESTRICTION_NOTIFICATION,
     DM_UNRESTRICTION_SUCCESS_MESSAGE,
 )
 from bot.database.service import get_database
-from bot.services.telegram_utils import get_user_status, unrestrict_user
+from bot.services.telegram_utils import get_user_mention, get_user_status, unrestrict_user
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,19 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         db.mark_user_unrestricted(user.id, settings.group_id)
 
         await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
+
+        # Send notification to warning topic
+        user_mention = get_user_mention(user)
+        notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
+            user_mention=user_mention
+        )
+        await context.bot.send_message(
+            chat_id=settings.group_id,
+            message_thread_id=settings.warning_topic_id,
+            text=notification_message,
+            parse_mode="Markdown",
+        )
+
         logger.info(
             f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
         )

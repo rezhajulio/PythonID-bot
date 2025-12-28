@@ -131,6 +131,10 @@ DM_UNRESTRICTION_SUCCESS_MESSAGE = (
     "Pembatasan kamu di grup telah dicabut. Silakan bergabung kembali!"
 )
 
+DM_UNRESTRICTION_NOTIFICATION = (
+    "✅ {user_mention} telah melengkapi profil dan dicabut pembatasannya via DM."
+)
+
 VERIFICATION_CLEARANCE_MESSAGE = (
     "✅ {user_mention} telah diverifikasi oleh admin. Silakan berdiskusi kembali."
 )
