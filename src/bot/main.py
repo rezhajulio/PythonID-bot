@@ -9,7 +9,9 @@ and starts the polling loop. Handler registration order matters:
 """
 
 import logging
+import os
 
+import logfire
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from bot.config import get_settings
@@ -28,11 +30,67 @@ from bot.handlers.verify import (
 from bot.services.scheduler import auto_restrict_expired_warnings
 from bot.services.telegram_utils import fetch_group_admin_ids
 
-# Configure logging format for the application
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+
+def configure_logging() -> None:
+    """
+    Configure logging with Logfire integration.
+    
+    Uses minimal instrumentation to conserve Logfire quota:
+    - Only logs INFO level and above (no debug logs)
+    - Disables database query tracing
+    - Disables auto-instrumentation for less critical operations
+    - Disables HTTP instrumentation to prevent logging Telegram polling requests
+    - In local dev: console output only (send_to_logfire=False)
+    - In production: sends to Logfire only if LOGFIRE_TOKEN is set
+    """
+    # Disable httpx auto-instrumentation to prevent logging Telegram API polling requests
+    # This must be set BEFORE importing/configuring Logfire
+    os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = "httpx"
+    
+    # Configure basic logging FIRST to capture Settings initialization logs
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+        force=True,  # Override any existing config
+    )
+    
+    # Now load settings (this will trigger model_post_init logging)
+    settings = get_settings()
+    
+    # Determine if we should send to Logfire
+    # Only send if enabled AND token is provided
+    send_to_logfire = settings.logfire_enabled and settings.logfire_token is not None
+    
+    # Configure Logfire with minimal instrumentation
+    logfire.configure(
+        token=settings.logfire_token,
+        service_name=settings.logfire_service_name,
+        environment=settings.logfire_environment,
+        send_to_logfire=send_to_logfire,
+        console=logfire.ConsoleOptions(
+            colors="auto",
+            include_timestamps=True,
+            min_log_level="info",
+        ),
+        # Disable auto-instrumentation to save quota
+        inspect_arguments=False,
+    )
+    
+    # Reconfigure logging with Logfire handler
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+        handlers=[logfire.LogfireLoggingHandler()],
+        force=True,  # Override previous config
+    )
+    
+    logger = logging.getLogger(__name__)
+    if send_to_logfire:
+        logger.info(f"Logfire enabled - sending logs to {settings.logfire_environment}")
+    else:
+        logger.info("Logfire disabled - console output only")
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,12 +125,16 @@ def main() -> None:
     Initialize and run the bot.
 
     This function:
-    1. Loads configuration from environment
-    2. Initializes the SQLite database
-    3. Registers message handlers in priority order
-    4. Starts JobQueue for periodic tasks
-    5. Starts the bot polling loop
+    1. Configures logging with Logfire integration
+    2. Loads configuration from environment
+    3. Initializes the SQLite database
+    4. Registers message handlers in priority order
+    5. Starts JobQueue for periodic tasks
+    6. Starts the bot polling loop
     """
+    # Configure logging first
+    configure_logging()
+    
     settings = get_settings()
 
     # Initialize database (creates tables if they don't exist)

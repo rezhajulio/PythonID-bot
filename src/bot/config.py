@@ -57,6 +57,10 @@ class Settings(BaseSettings):
         rules_link: URL to group rules message.
         captcha_enabled: Feature flag to enable/disable captcha verification.
         captcha_timeout: Seconds before auto-ban if user doesn't verify.
+        logfire_token: Logfire API token (optional, required for production logging).
+        logfire_service_name: Service name for Logfire traces.
+        logfire_environment: Environment name (production/staging).
+        logfire_enabled: Enable/disable Logfire logging.
     """
 
     telegram_bot_token: str
@@ -69,6 +73,10 @@ class Settings(BaseSettings):
     rules_link: str = "https://t.me/pythonID/290029/321799"
     captcha_enabled: bool = False
     captcha_timeout_seconds: int = 120
+    logfire_token: str | None = None
+    logfire_service_name: str = "pythonid-bot"
+    logfire_environment: str = "production"
+    logfire_enabled: bool = True
 
     model_config = SettingsConfigDict(
         env_file=get_env_file(),
@@ -77,6 +85,11 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context):
         """Log non-sensitive configuration values after initialization."""
+        # Set logfire_environment based on BOT_ENV if not explicitly set
+        env = os.getenv("BOT_ENV", "production")
+        if self.logfire_environment == "production" and env == "staging":
+            self.logfire_environment = "staging"
+        
         logger.info("Configuration loaded successfully")
         logger.debug(f"group_id: {self.group_id}")
         logger.debug(f"warning_topic_id: {self.warning_topic_id}")
@@ -87,6 +100,8 @@ class Settings(BaseSettings):
         logger.debug(f"captcha_enabled: {self.captcha_enabled}")
         logger.debug(f"captcha_timeout_seconds: {self.captcha_timeout_seconds}")
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
+        logger.debug(f"logfire_enabled: {self.logfire_enabled}")
+        logger.debug(f"logfire_environment: {self.logfire_environment}")
 
 
 @lru_cache

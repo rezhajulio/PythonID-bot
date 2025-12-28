@@ -65,3 +65,25 @@ class TestSettings:
         settings2 = get_settings()
 
         assert settings1 is settings2
+
+    def test_logfire_environment_auto_detection_staging(self, monkeypatch):
+        """Test that logfire_environment is set to 'staging' when BOT_ENV=staging."""
+        monkeypatch.setenv("BOT_ENV", "staging")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.logfire_environment == "staging"
+
+    def test_logfire_environment_defaults_to_production(self, monkeypatch):
+        """Test that logfire_environment defaults to production when BOT_ENV is not set."""
+        monkeypatch.delenv("BOT_ENV", raising=False)
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.logfire_environment == "production"
