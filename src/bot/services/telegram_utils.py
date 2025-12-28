@@ -5,10 +5,14 @@ This module provides common helper functions for working with
 Telegram's API across different handlers and services.
 """
 
+import logging
+
 from telegram import Bot, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
 from telegram.helpers import mention_markdown
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_mention(user: User) -> str:
@@ -64,13 +68,18 @@ async def get_user_status(
         ChatMemberStatus | None: User status (MEMBER, RESTRICTED, LEFT, BANNED, etc.)
             or None if unable to fetch (e.g., bot not in group).
     """
+    logger.info(f"Getting user status for user_id={user_id}, group_id={group_id}")
     try:
         user_member = await bot.get_chat_member(
             chat_id=group_id,
             user_id=user_id,
         )
         return user_member.status
-    except (BadRequest, Forbidden):
+    except (BadRequest, Forbidden) as e:
+        logger.error(
+            f"Failed to get user status for user_id={user_id}, group_id={group_id}: {e}",
+            exc_info=True,
+        )
         return None
 
 
@@ -93,16 +102,24 @@ async def unrestrict_user(
     Raises:
         BadRequest: If user not found or bot lacks permissions.
     """
-    # Get group's default permissions
-    chat = await bot.get_chat(group_id)
-    default_permissions = chat.permissions
-    
-    # Apply default permissions to remove restrictions
-    await bot.restrict_chat_member(
-        chat_id=group_id,
-        user_id=user_id,
-        permissions=default_permissions,
-    )
+    logger.info(f"Unrestricting user_id={user_id} in group_id={group_id}")
+    try:
+        # Get group's default permissions
+        chat = await bot.get_chat(group_id)
+        default_permissions = chat.permissions
+        
+        # Apply default permissions to remove restrictions
+        await bot.restrict_chat_member(
+            chat_id=group_id,
+            user_id=user_id,
+            permissions=default_permissions,
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to unrestrict user_id={user_id} in group_id={group_id}: {e}",
+            exc_info=True,
+        )
+        raise
 
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
@@ -121,6 +138,12 @@ async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
     """
     try:
         admins = await bot.get_chat_administrators(group_id)
-        return [admin.user.id for admin in admins]
+        admin_ids = [admin.user.id for admin in admins]
+        logger.info(f"Fetched {len(admin_ids)} admins from group_id={group_id}")
+        return admin_ids
     except (BadRequest, Forbidden) as e:
+        logger.error(
+            f"Failed to fetch admins from group_id={group_id}: {e}",
+            exc_info=True,
+        )
         raise Exception(f"Failed to fetch admins from group {group_id}: {e}")

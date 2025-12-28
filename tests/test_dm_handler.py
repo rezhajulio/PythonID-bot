@@ -366,3 +366,38 @@ class TestDatabaseIsUserRestrictedByBot:
         db.increment_message_count(12345, -1001234567890)
         db.mark_user_restricted(12345, -1001234567890)
         assert db.is_user_restricted_by_bot(12345, -1001234567890) is True
+
+
+class TestUnrestrictUserError:
+    async def test_unrestrict_user_exception_logged_and_raised(
+        self, mock_update, mock_context, mock_settings, temp_db
+    ):
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.get_or_create_user_warning(12345, -1001234567890)
+        db.increment_message_count(12345, -1001234567890)
+        db.increment_message_count(12345, -1001234567890)
+        db.mark_user_restricted(12345, -1001234567890)
+
+        user_member = MagicMock()
+        user_member.status = "restricted"
+        mock_context.bot.get_chat_member.return_value = user_member
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        with (
+            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.dm.check_user_profile",
+                return_value=complete_result,
+            ),
+            patch(
+                "bot.handlers.dm.unrestrict_user",
+                side_effect=Exception("test error"),
+            ),
+        ):
+            with pytest.raises(Exception, match="test error"):
+                await handle_dm(mock_update, mock_context)

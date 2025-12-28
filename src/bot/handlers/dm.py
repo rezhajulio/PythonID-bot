@@ -48,16 +48,21 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     # Skip if no message or sender
     if not update.message or not update.message.from_user:
+        logger.info("Skipping DM handler - no message or sender")
         return
 
     # Only handle private chats
     if update.effective_chat and update.effective_chat.type != "private":
+        logger.info(f"Skipping non-private chat type: {update.effective_chat.type}")
         return
 
     user = update.message.from_user
     settings = get_settings()
+    
+    logger.info(f"DM handler called for user_id={user.id} ({user.full_name})")
 
     # Check user's status in the group
+    logger.info(f"Checking user status in group_id={settings.group_id} for user_id={user.id}")
     user_status = await get_user_status(context.bot, settings.group_id, user.id)
 
     # User not in group (or we can't check)
@@ -71,6 +76,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db = get_database()
 
     # Check if user has an active pending captcha
+    logger.info(f"Checking for pending captcha for user_id={user.id} in group_id={settings.group_id}")
     pending_captcha = db.get_pending_captcha(user.id, settings.group_id)
     if pending_captcha:
         await update.message.reply_text(CAPTCHA_PENDING_DM_MESSAGE)
@@ -80,6 +86,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Check if user's profile is complete
+    logger.info(f"Checking user profile completeness for user_id={user.id} ({user.full_name})")
     result = await check_user_profile(context.bot, user)
 
     # Profile still incomplete - tell them what's missing
@@ -97,6 +104,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Check if user was restricted by this bot (not by admin)
+    logger.info(f"Checking bot restriction status for user_id={user.id} in group_id={settings.group_id}")
     if not db.is_user_restricted_by_bot(user.id, settings.group_id):
         await update.message.reply_text(DM_NO_RESTRICTION_MESSAGE)
         logger.info(
@@ -115,12 +123,20 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Remove restriction
-    await unrestrict_user(context.bot, settings.group_id, user.id)
+    logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={settings.group_id}")
+    try:
+        await unrestrict_user(context.bot, settings.group_id, user.id)
 
-    # Clear our database record so we don't try to unrestrict again
-    db.mark_user_unrestricted(user.id, settings.group_id)
+        # Clear our database record so we don't try to unrestrict again
+        db.mark_user_unrestricted(user.id, settings.group_id)
 
-    await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
-    logger.info(
-        f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
-    )
+        await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
+        logger.info(
+            f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
+        )
+    except Exception:
+        logger.error(
+            f"Failed to unrestrict user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})",
+            exc_info=True,
+        )
+        raise

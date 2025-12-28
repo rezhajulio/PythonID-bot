@@ -46,18 +46,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """
     # Skip if no message or sender
     if not update.message or not update.message.from_user:
+        logger.info("Skipping message: no message or sender")
         return
 
     settings = get_settings()
 
     # Only process messages from the configured group
     if update.effective_chat and update.effective_chat.id != settings.group_id:
+        logger.info(
+            f"Skipping message: wrong group (chat_id={update.effective_chat.id}, expected={settings.group_id})"
+        )
         return
 
     user = update.message.from_user
+    logger.info(
+        f"Handler called: user_id={user.id}, user={user.full_name}, chat_id={update.effective_chat.id}"
+    )
 
     # Ignore messages from bots
     if user.is_bot:
+        logger.info(f"Skipping message: user is bot (user_id={user.id})")
         return
 
     # Check if user has complete profile (photo + username)
@@ -65,33 +73,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # User has complete profile, nothing to do
     if result.is_complete:
+        logger.info(
+            f"User has complete profile: user_id={user.id}, user={user.full_name}"
+        )
         return
 
     # Build warning message components
     missing = result.get_missing_items()
     missing_text = MISSING_ITEMS_SEPARATOR.join(missing)
     user_mention = get_user_mention(user)
+    logger.info(
+        f"Building warning message: user_id={user.id}, user={user.full_name}, missing={missing_text}"
+    )
 
     # Warning mode: just send warning, don't restrict
     if not settings.restrict_failed_users:
-        threshold_display = format_threshold_display(
-            settings.warning_time_threshold_minutes
-        )
-        warning_message = WARNING_MESSAGE_NO_RESTRICTION.format(
-            user_mention=user_mention,
-            missing_text=missing_text,
-            threshold_display=threshold_display,
-            rules_link=settings.rules_link,
-        )
-        await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=warning_message,
-            parse_mode="Markdown",
-        )
-        logger.info(
-            f"Warned user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
-        )
+        try:
+            threshold_display = format_threshold_display(
+                settings.warning_time_threshold_minutes
+            )
+            warning_message = WARNING_MESSAGE_NO_RESTRICTION.format(
+                user_mention=user_mention,
+                missing_text=missing_text,
+                threshold_display=threshold_display,
+                rules_link=settings.rules_link,
+            )
+            await context.bot.send_message(
+                chat_id=settings.group_id,
+                message_thread_id=settings.warning_topic_id,
+                text=warning_message,
+                parse_mode="Markdown",
+            )
+            logger.info(
+                f"Warned user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to send warning message: user_id={user.id}, user={user.full_name}",
+                exc_info=True,
+            )
         return
 
     # Progressive restriction mode: track messages and restrict at threshold
@@ -100,61 +120,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # First message: send warning with threshold info
     if record.message_count == 1:
-        threshold_display = format_threshold_display(
-            settings.warning_time_threshold_minutes
-        )
-        warning_message = WARNING_MESSAGE_WITH_THRESHOLD.format(
-            user_mention=user_mention,
-            missing_text=missing_text,
-            warning_threshold=settings.warning_threshold,
-            threshold_display=threshold_display,
-            rules_link=settings.rules_link,
-        )
-        await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=warning_message,
-            parse_mode="Markdown",
-        )
-        logger.info(
-            f"First warning for user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
-        )
+        try:
+            threshold_display = format_threshold_display(
+                settings.warning_time_threshold_minutes
+            )
+            warning_message = WARNING_MESSAGE_WITH_THRESHOLD.format(
+                user_mention=user_mention,
+                missing_text=missing_text,
+                warning_threshold=settings.warning_threshold,
+                threshold_display=threshold_display,
+                rules_link=settings.rules_link,
+            )
+            logger.info(
+                f"Sending first warning: user_id={user.id}, user={user.full_name}, threshold={settings.warning_threshold}"
+            )
+            await context.bot.send_message(
+                chat_id=settings.group_id,
+                message_thread_id=settings.warning_topic_id,
+                text=warning_message,
+                parse_mode="Markdown",
+            )
+            logger.info(
+                f"First warning for user {user.id} ({user.full_name}) for missing: {missing_text} (group_id={settings.group_id})"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to send first warning: user_id={user.id}, user={user.full_name}",
+                exc_info=True,
+            )
 
     # Threshold reached: restrict user
     if record.message_count >= settings.warning_threshold:
-        # Apply restriction (mute user)
-        await context.bot.restrict_chat_member(
-            chat_id=settings.group_id,
-            user_id=user.id,
-            permissions=RESTRICTED_PERMISSIONS,
-        )
-        db.mark_user_restricted(user.id, settings.group_id)
+        try:
+            # Apply restriction (mute user)
+            logger.info(
+                f"Restricting user: user_id={user.id}, user={user.full_name}, message_count={record.message_count}"
+            )
+            await context.bot.restrict_chat_member(
+                chat_id=settings.group_id,
+                user_id=user.id,
+                permissions=RESTRICTED_PERMISSIONS,
+            )
+            logger.info(
+                f"Restriction applied: user_id={user.id}, user={user.full_name}, group_id={settings.group_id}"
+            )
+            db.mark_user_restricted(user.id, settings.group_id)
 
-        # Get bot username for DM link (cached to avoid repeated API calls)
-        bot_username = await BotInfoCache.get_username(context.bot)
-        dm_link = f"https://t.me/{bot_username}"
+            # Get bot username for DM link (cached to avoid repeated API calls)
+            bot_username = await BotInfoCache.get_username(context.bot)
+            dm_link = f"https://t.me/{bot_username}"
 
-        # Send restriction notice with DM link for appeal
-        restriction_message = RESTRICTION_MESSAGE_AFTER_MESSAGES.format(
-            user_mention=user_mention,
-            message_count=record.message_count,
-            missing_text=missing_text,
-            rules_link=settings.rules_link,
-            dm_link=dm_link,
-        )
-        await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=restriction_message,
-            parse_mode="Markdown",
-        )
-        logger.info(
-            f"Restricted user {user.id} ({user.full_name}) after {record.message_count} messages (group_id={settings.group_id})"
-        )
+            # Send restriction notice with DM link for appeal
+            restriction_message = RESTRICTION_MESSAGE_AFTER_MESSAGES.format(
+                user_mention=user_mention,
+                message_count=record.message_count,
+                missing_text=missing_text,
+                rules_link=settings.rules_link,
+                dm_link=dm_link,
+            )
+            logger.info(
+                f"Sending restriction notice: user_id={user.id}, user={user.full_name}, message_count={record.message_count}"
+            )
+            await context.bot.send_message(
+                chat_id=settings.group_id,
+                message_thread_id=settings.warning_topic_id,
+                text=restriction_message,
+                parse_mode="Markdown",
+            )
+            logger.info(
+                f"Restricted user {user.id} ({user.full_name}) after {record.message_count} messages (group_id={settings.group_id})"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to restrict user: user_id={user.id}, user={user.full_name}, message_count={record.message_count}",
+                exc_info=True,
+            )
     else:
         # Not at threshold yet: silently increment count (no spam)
         db.increment_message_count(user.id, settings.group_id)
-        logger.debug(
+        logger.info(
             f"Silent increment for user {user.id} ({user.full_name}), "
-            f"count: {record.message_count + 1}"
+            f"count: {record.message_count + 1}/{settings.warning_threshold}"
         )

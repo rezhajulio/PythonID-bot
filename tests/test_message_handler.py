@@ -333,3 +333,88 @@ class TestHandleMessageWithProgressiveRestriction:
         # User 2 should have received first warning
         mock_context.bot.send_message.assert_called_once()
         assert "⚠️" in mock_context.bot.send_message.call_args.kwargs["text"]
+
+
+class TestHandleMessageErrorHandling:
+    async def test_send_warning_message_fails(self, mock_update, mock_context, mock_settings):
+        """Test when sending warning message fails (lines 110-111)."""
+        incomplete_result = ProfileCheckResult(
+            has_profile_photo=False, has_username=True
+        )
+        mock_context.bot.send_message.side_effect = Exception("test error")
+
+        with (
+            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.message.check_user_profile",
+                return_value=incomplete_result,
+            ),
+        ):
+            # Should not raise, error is caught and logged
+            await handle_message(mock_update, mock_context)
+
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_send_first_warning_fails(
+        self, mock_update, mock_context, temp_db
+    ):
+        """Test when sending first warning fails (lines 146-147)."""
+        settings = MagicMock()
+        settings.group_id = -1001234567890
+        settings.warning_topic_id = 42
+        settings.restrict_failed_users = True
+        settings.warning_threshold = 3
+        settings.warning_time_threshold_minutes = 180
+        settings.rules_link = "https://example.com/rules"
+
+        incomplete_result = ProfileCheckResult(
+            has_profile_photo=False, has_username=True
+        )
+        mock_context.bot.send_message.side_effect = Exception("test error")
+
+        with (
+            patch("bot.handlers.message.get_settings", return_value=settings),
+            patch(
+                "bot.handlers.message.check_user_profile",
+                return_value=incomplete_result,
+            ),
+        ):
+            # Should not raise, error is caught and logged
+            await handle_message(mock_update, mock_context)
+
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_restrict_user_fails(
+        self, mock_update, mock_context, temp_db
+    ):
+        """Test when restricting user fails (lines 193-194)."""
+        settings = MagicMock()
+        settings.group_id = -1001234567890
+        settings.warning_topic_id = 42
+        settings.restrict_failed_users = True
+        settings.warning_threshold = 3
+        settings.warning_time_threshold_minutes = 180
+        settings.rules_link = "https://example.com/rules"
+
+        incomplete_result = ProfileCheckResult(
+            has_profile_photo=False, has_username=True
+        )
+        mock_context.bot.restrict_chat_member.side_effect = Exception("test error")
+
+        with (
+            patch("bot.handlers.message.get_settings", return_value=settings),
+            patch(
+                "bot.handlers.message.check_user_profile",
+                return_value=incomplete_result,
+            ),
+        ):
+            # First two messages increment count
+            await handle_message(mock_update, mock_context)
+            await handle_message(mock_update, mock_context)
+            mock_context.bot.send_message.reset_mock()
+
+            # Third message triggers restriction which fails
+            await handle_message(mock_update, mock_context)
+
+        # restrict_chat_member should have been called and failed
+        mock_context.bot.restrict_chat_member.assert_called_once()

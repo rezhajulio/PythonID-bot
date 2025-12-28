@@ -167,3 +167,30 @@ class TestCheckUserProfile:
             bot.get_user_profile_photos.assert_not_called()
 
             reset_database()
+
+
+class TestCheckUserProfileErrorHandling:
+    async def test_get_profile_photos_exception_logged_and_raised(self):
+        """Test when bot.get_user_profile_photos() raises an exception (lines 88-90)."""
+        from bot.database.service import init_database, reset_database
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            init_database(str(db_path))
+
+            bot = AsyncMock()
+            user = MagicMock()
+            user.id = 12345
+            user.username = "testuser"
+
+            bot.get_user_profile_photos.side_effect = Exception("test error")
+
+            import pytest
+            with pytest.raises(Exception, match="test error"):
+                await check_user_profile(bot, user)
+
+            bot.get_user_profile_photos.assert_called_once_with(12345, limit=1)
+
+            reset_database()

@@ -61,6 +61,7 @@ class Settings(BaseSettings):
         logfire_service_name: Service name for Logfire traces.
         logfire_environment: Environment name (production/staging).
         logfire_enabled: Enable/disable Logfire logging.
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
     """
 
     telegram_bot_token: str
@@ -77,6 +78,7 @@ class Settings(BaseSettings):
     logfire_service_name: str = "pythonid-bot"
     logfire_environment: str = "production"
     logfire_enabled: bool = True
+    log_level: str = "INFO"
 
     model_config = SettingsConfigDict(
         env_file=get_env_file(),

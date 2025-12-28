@@ -146,17 +146,17 @@ async def new_member_handler(
         context: Bot context with helper methods and job queue.
     """
     if not update.message or not update.message.new_chat_members:
-        logger.debug("No message or no new chat members, skipping")
+        logger.info("No message or no new chat members, skipping")
         return
 
     settings = get_settings()
 
     if not settings.captcha_enabled:
-        logger.debug("Captcha is disabled, skipping")
+        logger.info("Captcha is disabled, skipping")
         return
 
     if update.effective_chat and update.effective_chat.id != settings.group_id:
-        logger.debug(f"Message from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+        logger.info(f"Message from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
         return
     
     logger.info(f"Processing new members: {len(update.message.new_chat_members)} member(s)")
@@ -190,17 +190,17 @@ async def chat_member_handler(
         context: Bot context with helper methods and job queue.
     """
     if not update.chat_member:
-        logger.debug("No chat_member in update, skipping")
+        logger.info("No chat_member in update, skipping")
         return
 
     settings = get_settings()
 
     if not settings.captcha_enabled:
-        logger.debug("Captcha is disabled, skipping")
+        logger.info("Captcha is disabled, skipping")
         return
 
     if update.effective_chat and update.effective_chat.id != settings.group_id:
-        logger.debug(f"Update from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+        logger.info(f"Update from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
         return
 
     old_status = update.chat_member.old_chat_member.status
@@ -216,13 +216,13 @@ async def chat_member_handler(
     }
 
     if old_status not in left_statuses or new_status not in member_statuses:
-        logger.debug(f"Not a join event: {old_status} -> {new_status}, skipping")
+        logger.info(f"Not a join event: {old_status} -> {new_status}, skipping")
         return
 
     new_member = update.chat_member.new_chat_member.user
 
     if new_member.is_bot:
-        logger.debug(f"New member {new_member.id} is a bot, skipping captcha")
+        logger.info(f"New member {new_member.id} is a bot, skipping captcha")
         return
 
     logger.info(f"Detected new member via ChatMemberUpdated: {new_member.id} ({new_member.full_name})")
@@ -269,7 +269,7 @@ async def captcha_callback_handler(
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal()
-        logger.debug(f"Cancelled timeout job for user {target_user_id}")
+        logger.info(f"Cancelled timeout job for user {target_user_id}")
 
     try:
         await unrestrict_user(context.bot, settings.group_id, target_user_id)

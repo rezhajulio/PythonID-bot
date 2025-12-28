@@ -67,6 +67,9 @@ class DatabaseService:
             record = session.exec(statement).first()
 
             if record:
+                logger.info(
+                    f"Returning existing warning for user_id={user_id}, group_id={group_id}"
+                )
                 return record
 
             # Create new warning record
@@ -80,6 +83,9 @@ class DatabaseService:
             session.add(new_record)
             session.commit()
             session.refresh(new_record)
+            logger.info(
+                f"Created new warning for user_id={user_id}, group_id={group_id}"
+            )
             return new_record
 
     def increment_message_count(self, user_id: int, group_id: int) -> UserWarning:
@@ -113,6 +119,9 @@ class DatabaseService:
                 session.add(record)
                 session.commit()
                 session.refresh(record)
+                logger.info(
+                    f"Incremented message count for user_id={user_id}, group_id={group_id}, new_count={record.message_count}"
+                )
                 return record
 
             raise ValueError(
@@ -151,6 +160,9 @@ class DatabaseService:
                 session.add(record)
                 session.commit()
                 session.refresh(record)
+                logger.info(
+                    f"Marked user as restricted: user_id={user_id}, group_id={group_id}"
+                )
                 return record
 
             raise ValueError(
@@ -206,6 +218,9 @@ class DatabaseService:
                 record.restricted_by_bot = False
                 session.add(record)
                 session.commit()
+                logger.info(
+                    f"Cleared restriction flag: user_id={user_id}, group_id={group_id}"
+                )
 
     def delete_user_warnings(self, user_id: int, group_id: int) -> int:
         """
@@ -236,6 +251,9 @@ class DatabaseService:
             )
             session.exec(delete_statement)
             session.commit()
+            logger.info(
+                f"Deleted warnings: user_id={user_id}, group_id={group_id}, count={count}"
+            )
             return count
 
     def add_photo_verification_whitelist(
@@ -272,6 +290,9 @@ class DatabaseService:
             session.add(record)
             session.commit()
             session.refresh(record)
+            logger.info(
+                f"Added to photo whitelist: user_id={user_id}, admin_id={verified_by_admin_id}"
+            )
             return record
 
     def is_user_photo_whitelisted(self, user_id: int) -> bool:
@@ -312,6 +333,7 @@ class DatabaseService:
 
             session.delete(record)
             session.commit()
+            logger.info(f"Removed from photo whitelist: user_id={user_id}")
 
     def get_warnings_past_time_threshold(
         self, minutes_threshold: int
@@ -337,6 +359,9 @@ class DatabaseService:
                 UserWarning.first_warned_at <= cutoff_time,
             )
             records = session.exec(statement).all()
+            logger.info(
+                f"Found {len(records)} warnings past {minutes_threshold}min threshold"
+            )
             # Detach from session before returning
             return [record for record in records]
 
@@ -372,6 +397,7 @@ class DatabaseService:
             session.add(record)
             session.commit()
             session.refresh(record)
+            logger.info(f"Added pending captcha: user_id={user_id}, group_id={group_id}")
             return record
 
     def get_pending_captcha(
@@ -412,7 +438,11 @@ class DatabaseService:
             )
             result = session.exec(statement)
             session.commit()
-            return result.rowcount > 0
+            success = result.rowcount > 0
+            logger.info(
+                f"Removed pending captcha: user_id={user_id}, group_id={group_id}, success={success}"
+            )
+            return success
 
     def get_all_pending_captchas(self) -> list[PendingCaptchaValidation]:
         """

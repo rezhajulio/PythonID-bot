@@ -133,3 +133,20 @@ class TestGuardWarningTopic:
             await guard_warning_topic(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
+
+
+class TestGuardWarningTopicErrorHandling:
+    async def test_delete_message_exception_logged(
+        self, mock_update, mock_context, mock_settings
+    ):
+        """Test when update.message.delete() raises an exception (lines 91-92)."""
+        chat_member = MagicMock()
+        chat_member.status = "member"
+        mock_context.bot.get_chat_member.return_value = chat_member
+        mock_update.message.delete.side_effect = Exception("test error")
+
+        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+            # Should not raise, error is caught and logged
+            await guard_warning_topic(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()

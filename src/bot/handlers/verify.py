@@ -53,7 +53,7 @@ async def verify_user(
         logger.info(f"Unrestricted user {target_user_id} during verification")
     except BadRequest as e:
         # User might not be restricted or not in group - that's okay
-        logger.debug(f"Could not unrestrict user {target_user_id}: {e}")
+        logger.info(f"Could not unrestrict user {target_user_id}: {e}")
 
     # Delete all warning records for this user
     deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)

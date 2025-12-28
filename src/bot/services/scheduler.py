@@ -34,6 +34,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     Args:
         context: Telegram job context for sending messages.
     """
+    logger.info("Starting auto-restriction job")
     settings = get_settings()
     db = get_database()
 
@@ -43,7 +44,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     if not expired_warnings:
-        logger.debug("No expired warnings to process")
+        logger.info("No expired warnings to process")
         return
 
     logger.info(f"Processing {len(expired_warnings)} expired warnings")
@@ -55,6 +56,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
 
     for warning in expired_warnings:
         try:
+            logger.info(f"Checking status for user_id={warning.user_id}")
             # Check if user is kicked
             user_status = await get_user_status(bot, settings.group_id, warning.user_id)
             
@@ -66,6 +68,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 continue
             
+            logger.info(f"Applying restriction to user_id={warning.user_id}")
             # Apply restriction (even if user left, they'll be restricted when they rejoin)
             await bot.restrict_chat_member(
                 chat_id=settings.group_id,

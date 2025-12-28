@@ -47,7 +47,7 @@ async def handle_captcha_expiration(
     db = get_database()
     pending = db.get_pending_captcha(user_id, group_id)
     if not pending:
-        logger.debug(f"No pending captcha for user {user_id}, already verified")
+        logger.info(f"No pending captcha for user {user_id}, already verified")
         return
 
     db.remove_pending_captcha(user_id, group_id)

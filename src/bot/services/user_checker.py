@@ -5,11 +5,14 @@ This module provides utilities for checking if a Telegram user has
 a complete profile (public photo and username set).
 """
 
+import logging
 from dataclasses import dataclass
 
 from telegram import Bot, User
 
 from bot.database.service import get_database
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,16 +72,29 @@ async def check_user_profile(bot: Bot, user: User) -> ProfileCheckResult:
     Returns:
         ProfileCheckResult: Result containing photo and username status.
     """
+    logger.info(f"Checking profile for user_id={user.id}")
+    
     has_username = user.username is not None
 
     db = get_database()
-    if db.is_user_photo_whitelisted(user.id):
-        has_profile_photo = True
-    else:
-        photos = await bot.get_user_profile_photos(user.id, limit=1)
-        has_profile_photo = photos.total_count > 0
+    try:
+        if db.is_user_photo_whitelisted(user.id):
+            logger.info(f"User {user.id} is photo whitelisted")
+            has_profile_photo = True
+        else:
+            logger.info(f"Fetching profile photos for user_id={user.id}")
+            photos = await bot.get_user_profile_photos(user.id, limit=1)
+            has_profile_photo = photos.total_count > 0
+    except Exception:
+        logger.error(f"Error checking profile for user_id={user.id}", exc_info=True)
+        raise
 
-    return ProfileCheckResult(
+    result = ProfileCheckResult(
         has_profile_photo=has_profile_photo,
         has_username=has_username,
     )
+    logger.info(
+        f"Profile check for user_id={user.id}: has_photo={has_profile_photo}, has_username={has_username}"
+    )
+    
+    return result

@@ -35,7 +35,7 @@ def configure_logging() -> None:
     Configure logging with Logfire integration.
     
     Uses minimal instrumentation to conserve Logfire quota:
-    - Only logs INFO level and above (no debug logs)
+    - Configurable log level via LOG_LEVEL environment variable
     - Disables database query tracing
     - Disables auto-instrumentation for less critical operations
     - Suppresses verbose HTTP request logs from httpx/httpcore libraries
@@ -52,9 +52,16 @@ def configure_logging() -> None:
     # Now load settings (this will trigger model_post_init logging)
     settings = get_settings()
     
+    # Get log level from settings and convert to logging constant
+    log_level_str = settings.log_level.upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    
     # Determine if we should send to Logfire
     # Only send if enabled AND token is provided
     send_to_logfire = settings.logfire_enabled and settings.logfire_token is not None
+    
+    # Map log level to Logfire console min_log_level
+    logfire_min_level = log_level_str.lower()
     
     # Configure Logfire with minimal instrumentation
     logfire.configure(
@@ -65,16 +72,16 @@ def configure_logging() -> None:
         console=logfire.ConsoleOptions(
             colors="auto",
             include_timestamps=True,
-            min_log_level="info",
+            min_log_level=logfire_min_level,
         ),
         # Disable auto-instrumentation to save quota
         inspect_arguments=False,
     )
     
-    # Reconfigure logging with Logfire handler
+    # Reconfigure logging with Logfire handler and configured level
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO,
+        level=log_level,
         handlers=[logfire.LogfireLoggingHandler()],
         force=True,  # Override previous config
     )
@@ -85,6 +92,7 @@ def configure_logging() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     
     logger = logging.getLogger(__name__)
+    logger.info(f"Logging level set to {log_level_str}")
     if send_to_logfire:
         logger.info(f"Logfire enabled - sending logs to {settings.logfire_environment}")
     else:
@@ -105,7 +113,10 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     Args:
         application: The Application instance.
     """
+    logger.info("Starting post_init: fetching admin IDs and recovering captcha state")
     settings = get_settings()
+    
+    logger.info(f"Fetching admin IDs for group {settings.group_id}")
     try:
         admin_ids = await fetch_group_admin_ids(application.bot, settings.group_id)  # type: ignore[arg-type]
         application.bot_data["admin_ids"] = admin_ids  # type: ignore[index]
@@ -116,6 +127,7 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
 
     # Recover pending captcha verifications
     if settings.captcha_enabled:
+        logger.info("Recovering pending captcha verifications from database")
         from bot.services.captcha_recovery import recover_pending_captchas
         await recover_pending_captchas(application)
 
@@ -136,12 +148,15 @@ def main() -> None:
     configure_logging()
     
     settings = get_settings()
+    logger.info(f"Starting PythonID bot (environment: {settings.bot_env}, group_id: {settings.group_id})")
 
     # Initialize database (creates tables if they don't exist)
     init_database(settings.database_path)
+    logger.info(f"Database initialized at {settings.database_path}")
 
     # Build the bot application with the token
     application = Application.builder().token(settings.telegram_bot_token).build()
+    logger.info("Application built successfully")
 
     # Set post_init callback to fetch admin IDs on startup
     application.post_init = post_init
@@ -155,16 +170,19 @@ def main() -> None:
         ),
         group=-1,
     )
+    logger.info("Registered handler: topic_guard (group=-1)")
 
     # Handler 2: /verify command - allows admins to whitelist users in DM
     application.add_handler(
         CommandHandler("verify", handle_verify_command)
     )
+    logger.info("Registered handler: verify_command (group=0)")
 
     # Handler 3: /unverify command - allows admins to remove users from whitelist in DM
     application.add_handler(
         CommandHandler("unverify", handle_unverify_command)
     )
+    logger.info("Registered handler: unverify_command (group=0)")
 
     # Handler 4: Forwarded message handler - allows admins to verify/unverify via buttons
     application.add_handler(
@@ -173,18 +191,22 @@ def main() -> None:
             handle_forwarded_message
         )
     )
+    logger.info("Registered handler: forwarded_message (group=0)")
 
     # Handler 5: Callback handlers for verify/unverify buttons
     application.add_handler(
         CallbackQueryHandler(handle_verify_callback, pattern=r"^verify:\d+$")
     )
+    logger.info("Registered handler: verify_callback (group=0)")
     application.add_handler(
         CallbackQueryHandler(handle_unverify_callback, pattern=r"^unverify:\d+$")
     )
+    logger.info("Registered handler: unverify_callback (group=0)")
 
     # Handler 6: Captcha handlers - new member verification
     for handler in captcha.get_handlers():
         application.add_handler(handler)
+    logger.info("Registered handler: captcha_handlers (group=0)")
 
     # Handler 7: DM handler - processes private messages (including /start)
     # for the unrestriction flow. Must be registered before group handler
@@ -195,6 +217,7 @@ def main() -> None:
             handle_dm,
         )
     )
+    logger.info("Registered handler: dm_handler (group=0)")
 
     # Handler 8: Group message handler - monitors messages in the configured
     # group and warns/restricts users with incomplete profiles
@@ -204,6 +227,7 @@ def main() -> None:
             handle_message,
         )
     )
+    logger.info("Registered handler: message_handler (group=0)")
 
     # Register auto-restriction job to run every 5 minutes
     if application.job_queue:
@@ -213,9 +237,10 @@ def main() -> None:
             first=300,
             name="auto_restrict_job"
         )
+        logger.info("JobQueue registered: auto_restrict_job (every 5 minutes, first run in 5 minutes)")
 
-    logger.info(f"Bot started. Monitoring group {settings.group_id}")
-    logger.info("JobQueue started with auto-restriction job (every 5 minutes)")
+    logger.info(f"Starting bot polling for group {settings.group_id}")
+    logger.info("All handlers registered successfully")
     
     application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
 
