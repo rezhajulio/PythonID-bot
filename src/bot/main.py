@@ -148,7 +148,7 @@ def main() -> None:
     configure_logging()
     
     settings = get_settings()
-    logger.info(f"Starting PythonID bot (environment: {settings.bot_env}, group_id: {settings.group_id})")
+    logger.info(f"Starting PythonID bot (environment: {settings.logfire_environment}, group_id: {settings.group_id})")
 
     # Initialize database (creates tables if they don't exist)
     init_database(settings.database_path)
