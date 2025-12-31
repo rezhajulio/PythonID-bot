@@ -135,12 +135,12 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 100% across all modules (887 statements, 0 missed)
-- **Tests**: 252 total
-- **Pass Rate**: 100% (252/252 passed)
-- **All modules**: 100% coverage including JobQueue scheduler integration and captcha verification
+- **Coverage**: 99% across all modules (1,057 statements, 2 missed)
+- **Tests**: 309 total
+- **Pass Rate**: 100% (309/309 passed)
+- **All modules**: 99% coverage including JobQueue scheduler integration, captcha verification, and anti-spam enforcement
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py`
-  - Handlers: `captcha.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`
+  - Handlers: `anti_spam.py`, `captcha.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`
   - Database: `service.py`, `models.py`
   - Config: `config.py`
   - Constants: `constants.py`
@@ -151,6 +151,7 @@ All modules are fully unit tested with:
 - Database initialization and schema validation
 - Background job testing (JobQueue integration, job configuration, auto-restriction logic)
 - Captcha verification flow (new member handling, callback verification, timeout handling)
+- Anti-spam protection (forwarded messages, URL whitelisting, external replies)
 
 ## Project Structure
 
@@ -163,7 +164,10 @@ PythonID/
 ├── data/
 │   └── bot.db            # SQLite database (auto-created)
 ├── tests/
+│   ├── test_anti_spam.py
 │   ├── test_bot_info.py
+│   ├── test_captcha.py
+│   ├── test_captcha_recovery.py
 │   ├── test_config.py
 │   ├── test_constants.py
 │   ├── test_database.py
@@ -181,17 +185,21 @@ PythonID/
         ├── config.py            # Pydantic settings
         ├── constants.py         # Shared constants
         ├── handlers/
+        │   ├── anti_spam.py     # Anti-spam handler for probation users
+        │   ├── captcha.py       # Captcha verification handler
         │   ├── dm.py            # DM unrestriction handler
         │   ├── message.py       # Group message handler
-        │   └── topic_guard.py   # Warning topic protection
+        │   ├── topic_guard.py   # Warning topic protection
+        │   └── verify.py        # /verify and /unverify command handlers
         ├── database/
         │   ├── models.py        # SQLModel schemas
         │   └── service.py       # Database operations
         └── services/
-            ├── bot_info.py      # Bot info caching
-            ├── scheduler.py     # JobQueue background job
-            ├── telegram_utils.py # Shared telegram utilities
-            └── user_checker.py  # Profile validation
+            ├── bot_info.py           # Bot info caching
+            ├── captcha_recovery.py   # Captcha timeout recovery
+            ├── scheduler.py          # JobQueue background job
+            ├── telegram_utils.py     # Shared telegram utilities
+            └── user_checker.py       # Profile validation
 ```
 
 ## Bot Workflow

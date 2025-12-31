@@ -47,6 +47,24 @@ def format_threshold_display(threshold_minutes: int) -> str:
     return f"{threshold_minutes} menit"
 
 
+def format_hours_display(hours: int) -> str:
+    """
+    Format hours to human-readable Indonesian text.
+    
+    Converts hours to "X hari" for values >= 24, or "Y jam" for smaller values.
+    
+    Args:
+        hours: Time in hours.
+        
+    Returns:
+        Formatted string like "7 hari" or "12 jam".
+    """
+    if hours >= 24:
+        days = hours // 24
+        return f"{days} hari"
+    return f"{hours} jam"
+
+
 # Message templates used in warning and restriction scenarios
 # Warning mode (default): No restrictions, just warnings
 WARNING_MESSAGE_NO_RESTRICTION = (
@@ -143,3 +161,96 @@ FORWARD_VERIFY_PROMPT = (
     "📋 User: {user_mention} (ID: {user_id})\n\n"
     "Pilih aksi untuk user ini:"
 )
+
+# Anti-spam probation warning for new users
+NEW_USER_SPAM_WARNING = (
+    "⚠️ {user_mention} baru bergabung dan sedang dalam masa percobaan.\n"
+    "Selama {probation_display}, kamu tidak boleh meneruskan pesan atau mengirim tautan.\n"
+    "Pesan yang melanggar akan dihapus dan kamu bisa dibatasi jika terus mengulang.\n"
+    "Hubungi admin jika kamu membutuhkan bantuan.\n\n"
+    "📖 [Baca aturan grup]({rules_link})"
+)
+
+# Anti-spam restriction message when user exceeds violation threshold
+NEW_USER_SPAM_RESTRICTION = (
+    "🚫 {user_mention} telah dibatasi karena mengirim pesan terlarang "
+    "(forward/link/quote eksternal) sebanyak {violation_count} kali selama masa percobaan.\n\n"
+    "📖 [Baca aturan grup]({rules_link})"
+)
+
+# Whitelisted URL domains for new user probation
+# These domains are allowed even during probation period
+# Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")
+WHITELISTED_URL_DOMAINS = frozenset([
+    # Documentation & References
+    "docs.python.org",
+    "docs.djangoproject.com",
+    "flask.palletsprojects.com",
+    "fastapi.tiangolo.com",
+    "pydantic-docs.helpmanual.io",
+    "pydantic.dev",
+    "sqlalchemy.org",
+    "docs.sqlalchemy.org",
+    "pandas.pydata.org",
+    "numpy.org",
+    "scipy.org",
+    "matplotlib.org",
+    "scikit-learn.org",
+    "pytorch.org",
+    "tensorflow.org",
+    "keras.io",
+    "huggingface.co",
+    "openai.com",
+    "anthropic.com",
+    "langchain.com",
+    "docs.aws.amazon.com",
+    "cloud.google.com",
+    "docs.microsoft.com",
+    "learn.microsoft.com",
+    
+    # Code Hosting & Collaboration
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
+    "gist.github.com",
+    "raw.githubusercontent.com",
+    
+    # Package Repositories
+    "pypi.org",
+    "anaconda.org",
+    "conda.io",
+    "hub.docker.com",
+    
+    # Community & Learning
+    "stackoverflow.com",
+    "stackexchange.com",
+    "reddit.com",
+    "medium.com",
+    "towardsdatascience.com",
+    "dev.to",
+    "realpython.com",
+    "pythonweekly.com",
+    "kaggle.com",
+    "colab.research.google.com",
+    
+    # Data Science & ML Resources
+    "arxiv.org",
+    "paperswithcode.com",
+    "wandb.ai",
+    "mlflow.org",
+    "streamlit.io",
+    "gradio.app",
+    "jupyter.org",
+    "nbviewer.jupyter.org",
+    
+    # API Documentation
+    "developers.google.com",
+    "developer.twitter.com",
+    "developer.github.com",
+    "api.telegram.org",
+    "core.telegram.org",
+    
+    # Indonesian Tech Communities
+    "t.me",
+    "dicoding.com",
+])

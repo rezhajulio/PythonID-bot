@@ -1,10 +1,10 @@
 """
 Tests for the constants module.
 
-Tests utility functions like format_threshold_display.
+Tests utility functions like format_threshold_display and format_hours_display.
 """
 
-from bot.constants import format_threshold_display
+from bot.constants import format_hours_display, format_threshold_display
 
 
 class TestFormatThresholdDisplay:
@@ -21,3 +21,18 @@ class TestFormatThresholdDisplay:
         assert format_threshold_display(45) == "45 menit"
         assert format_threshold_display(1) == "1 menit"
         assert format_threshold_display(59) == "59 menit"
+
+
+class TestFormatHoursDisplay:
+    def test_formats_days_when_hours_is_24_or_more(self):
+        """Test that hours >= 24 is formatted as days."""
+        assert format_hours_display(24) == "1 hari"
+        assert format_hours_display(48) == "2 hari"
+        assert format_hours_display(72) == "3 hari"
+        assert format_hours_display(168) == "7 hari"
+
+    def test_formats_hours_when_hours_is_less_than_24(self):
+        """Test that hours < 24 is formatted as hours."""
+        assert format_hours_display(1) == "1 jam"
+        assert format_hours_display(12) == "12 jam"
+        assert format_hours_display(23) == "23 jam"

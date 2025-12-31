@@ -16,6 +16,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 from bot.config import get_settings
 from bot.database.service import init_database
 from bot.handlers import captcha
+from bot.handlers.anti_spam import handle_new_user_spam
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
@@ -219,7 +220,16 @@ def main() -> None:
     )
     logger.info("Registered handler: dm_handler (group=0)")
 
-    # Handler 8: Group message handler - monitors messages in the configured
+    # Handler 8: New-user anti-spam handler - checks for forwards/links from users on probation
+    application.add_handler(
+        MessageHandler(
+            filters.ALL & ~filters.COMMAND,
+            handle_new_user_spam,
+        )
+    )
+    logger.info("Registered handler: anti_spam_handler (group=0)")
+
+    # Handler 9: Group message handler - monitors messages in the configured
     # group and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(

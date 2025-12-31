@@ -102,3 +102,32 @@ class PendingCaptchaValidation(SQLModel, table=True):
     message_id: int
     user_full_name: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class NewUserProbation(SQLModel, table=True):
+    """
+    Tracks anti-spam probation for new users.
+
+    Users under probation cannot send links or forwarded messages
+    for a configurable period after joining. Violations are tracked
+    and users are restricted after exceeding the threshold.
+
+    Attributes:
+        id: Primary key (auto-generated).
+        user_id: Telegram user ID (indexed for fast lookups).
+        group_id: Telegram group ID where probation applies.
+        joined_at: Timestamp when probation started (after captcha verification).
+        violation_count: Number of spam violations (forward/link messages).
+        first_violation_at: Timestamp of first violation (for warnings).
+        last_violation_at: Timestamp of most recent violation.
+    """
+
+    __tablename__ = "new_user_probation"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    group_id: int = Field(index=True)
+    joined_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    violation_count: int = Field(default=0)
+    first_violation_at: datetime | None = Field(default=None)
+    last_violation_at: datetime | None = Field(default=None)

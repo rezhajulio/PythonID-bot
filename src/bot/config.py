@@ -57,6 +57,8 @@ class Settings(BaseSettings):
         rules_link: URL to group rules message.
         captcha_enabled: Feature flag to enable/disable captcha verification.
         captcha_timeout: Seconds before auto-ban if user doesn't verify.
+        new_user_probation_hours: Hours new users are on probation (no links/forwards).
+        new_user_violation_threshold: Violations before restricting user.
         logfire_token: Logfire API token (optional, required for production logging).
         logfire_service_name: Service name for Logfire traces.
         logfire_environment: Environment name (production/staging).
@@ -74,6 +76,8 @@ class Settings(BaseSettings):
     rules_link: str = "https://t.me/pythonID/290029/321799"
     captcha_enabled: bool = False
     captcha_timeout_seconds: int = 120
+    new_user_probation_hours: int = 168  # 7 days default
+    new_user_violation_threshold: int = 3  # restrict after this many violations
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
     logfire_environment: str = "production"
@@ -101,6 +105,8 @@ class Settings(BaseSettings):
         logger.debug(f"database_path: {self.database_path}")
         logger.debug(f"captcha_enabled: {self.captcha_enabled}")
         logger.debug(f"captcha_timeout_seconds: {self.captcha_timeout_seconds}")
+        logger.debug(f"new_user_probation_hours: {self.new_user_probation_hours}")
+        logger.debug(f"new_user_violation_threshold: {self.new_user_violation_threshold}")
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
         logger.debug(f"logfire_enabled: {self.logfire_enabled}")
         logger.debug(f"logfire_environment: {self.logfire_environment}")

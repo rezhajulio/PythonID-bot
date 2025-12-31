@@ -14,6 +14,7 @@ from pathlib import Path
 from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from bot.database.models import (
+    NewUserProbation,
     PendingCaptchaValidation,
     PhotoVerificationWhitelist,
     UserWarning,
@@ -461,6 +462,135 @@ class DatabaseService:
         with Session(self._engine) as session:
             statement = select(PendingCaptchaValidation)
             return list(session.exec(statement).all())
+
+    def start_new_user_probation(self, user_id: int, group_id: int) -> NewUserProbation:
+        """
+        Start or refresh probation for a new user.
+
+        Called when a user joins or passes captcha verification.
+        If a record exists, refreshes joined_at to current time.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            NewUserProbation: Created or updated probation record.
+        """
+        with Session(self._engine) as session:
+            statement = select(NewUserProbation).where(
+                NewUserProbation.user_id == user_id,
+                NewUserProbation.group_id == group_id,
+            )
+            record = session.exec(statement).first()
+
+            if record:
+                record.joined_at = datetime.now(UTC)
+                record.violation_count = 0
+                record.first_violation_at = None
+                record.last_violation_at = None
+            else:
+                record = NewUserProbation(
+                    user_id=user_id,
+                    group_id=group_id,
+                )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            logger.info(f"Started probation for user_id={user_id}, group_id={group_id}")
+            return record
+
+    def get_new_user_probation(
+        self, user_id: int, group_id: int
+    ) -> NewUserProbation | None:
+        """
+        Get probation record for a user.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            NewUserProbation | None: Probation record or None if not found.
+        """
+        with Session(self._engine) as session:
+            statement = select(NewUserProbation).where(
+                NewUserProbation.user_id == user_id,
+                NewUserProbation.group_id == group_id,
+            )
+            return session.exec(statement).first()
+
+    def increment_new_user_violation(
+        self, user_id: int, group_id: int
+    ) -> NewUserProbation:
+        """
+        Increment violation count for a user on probation atomically.
+
+        Uses atomic SQL update to prevent race conditions when multiple
+        violations occur simultaneously.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            NewUserProbation: Updated probation record.
+
+        Raises:
+            ValueError: If no probation record exists.
+        """
+        from sqlalchemy import update as sql_update
+        
+        with Session(self._engine) as session:
+            # First check if record exists
+            select_stmt = select(NewUserProbation).where(
+                NewUserProbation.user_id == user_id,
+                NewUserProbation.group_id == group_id,
+            )
+            record = session.exec(select_stmt).first()
+
+            if not record:
+                raise ValueError(f"No probation record for user {user_id} in group {group_id}")
+
+            now = datetime.now(UTC)
+            
+            # Atomic update - increment directly in SQL
+            update_stmt = (
+                sql_update(NewUserProbation)
+                .where(NewUserProbation.id == record.id)
+                .values(
+                    violation_count=NewUserProbation.violation_count + 1,
+                    first_violation_at=now if record.first_violation_at is None else record.first_violation_at,
+                    last_violation_at=now,
+                )
+            )
+            session.exec(update_stmt)
+            session.commit()
+            
+            # Refresh to get updated values
+            session.refresh(record)
+            logger.info(
+                f"Incremented violation for user_id={user_id}, group_id={group_id}, "
+                f"count={record.violation_count}"
+            )
+            return record
+
+    def clear_new_user_probation(self, user_id: int, group_id: int) -> None:
+        """
+        Remove probation record for a user (when probation expires).
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+        """
+        with Session(self._engine) as session:
+            statement = delete(NewUserProbation).where(
+                NewUserProbation.user_id == user_id,
+                NewUserProbation.group_id == group_id,
+            )
+            session.exec(statement)
+            session.commit()
+            logger.info(f"Cleared probation for user_id={user_id}, group_id={group_id}")
 
 
 # Module-level singleton for database service

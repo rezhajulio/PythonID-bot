@@ -151,23 +151,27 @@ async def new_member_handler(
 
     settings = get_settings()
 
-    if not settings.captcha_enabled:
-        logger.info("Captcha is disabled, skipping")
-        return
-
     if update.effective_chat and update.effective_chat.id != settings.group_id:
         logger.info(f"Message from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
         return
     
     logger.info(f"Processing new members: {len(update.message.new_chat_members)} member(s)")
 
+    db = get_database()
     for new_member in update.message.new_chat_members:
         if new_member.is_bot:
             continue
 
         user_id = new_member.id
 
-        db = get_database()
+        # Start probation for all new users (regardless of captcha setting)
+        db.start_new_user_probation(user_id, settings.group_id)
+
+        # If captcha is disabled, we're done - user just gets probation
+        if not settings.captcha_enabled:
+            logger.info(f"Captcha disabled, probation started for user {user_id}")
+            continue
+
         if db.get_pending_captcha(user_id, settings.group_id):
             logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (new_member_handler)")
             continue
@@ -195,10 +199,6 @@ async def chat_member_handler(
 
     settings = get_settings()
 
-    if not settings.captcha_enabled:
-        logger.info("Captcha is disabled, skipping")
-        return
-
     if update.effective_chat and update.effective_chat.id != settings.group_id:
         logger.info(f"Update from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
         return
@@ -222,14 +222,22 @@ async def chat_member_handler(
     new_member = update.chat_member.new_chat_member.user
 
     if new_member.is_bot:
-        logger.info(f"New member {new_member.id} is a bot, skipping captcha")
+        logger.info(f"New member {new_member.id} is a bot, skipping")
         return
 
     logger.info(f"Detected new member via ChatMemberUpdated: {new_member.id} ({new_member.full_name})")
 
+    # Start probation for all new users (regardless of captcha setting)
+    db = get_database()
+    db.start_new_user_probation(new_member.id, settings.group_id)
+
+    # If captcha is disabled, we're done - user just gets probation
+    if not settings.captcha_enabled:
+        logger.info(f"Captcha disabled, probation started for user {new_member.id}")
+        return
+
     user_id = new_member.id
 
-    db = get_database()
     if db.get_pending_captcha(user_id, settings.group_id):
         logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (chat_member_handler)")
         return
@@ -281,6 +289,9 @@ async def captcha_callback_handler(
 
     db = get_database()
     db.remove_pending_captcha(target_user_id, settings.group_id)
+
+    # Start anti-spam probation for verified user
+    db.start_new_user_probation(target_user_id, settings.group_id)
 
     user_mention = get_user_mention(query.from_user)
 

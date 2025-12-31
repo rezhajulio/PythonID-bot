@@ -254,3 +254,82 @@ class TestModuleLevelFunctions:
 
             assert service1 is service2
             reset_database()
+
+
+class TestNewUserProbation:
+    """Tests for new user probation CRUD operations."""
+
+    def test_start_new_user_probation_creates_record(self, db_service: DatabaseService):
+        """Test that start_new_user_probation creates a new record."""
+        record = db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        assert record is not None
+        assert record.user_id == 1001
+        assert record.group_id == -100
+        assert record.violation_count == 0
+        assert record.first_violation_at is None
+        assert record.last_violation_at is None
+
+    def test_start_new_user_probation_resets_existing(self, db_service: DatabaseService):
+        """Test that start_new_user_probation resets an existing record."""
+        db_service.start_new_user_probation(user_id=1001, group_id=-100)
+        db_service.increment_new_user_violation(user_id=1001, group_id=-100)
+
+        record = db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        assert record.violation_count == 0
+        assert record.first_violation_at is None
+
+    def test_get_new_user_probation_returns_record(self, db_service: DatabaseService):
+        """Test that get_new_user_probation returns existing record."""
+        db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        record = db_service.get_new_user_probation(user_id=1001, group_id=-100)
+
+        assert record is not None
+        assert record.user_id == 1001
+
+    def test_get_new_user_probation_returns_none_if_not_exists(
+        self, db_service: DatabaseService
+    ):
+        """Test that get_new_user_probation returns None for non-existent user."""
+        record = db_service.get_new_user_probation(user_id=9999, group_id=-100)
+
+        assert record is None
+
+    def test_increment_new_user_violation(self, db_service: DatabaseService):
+        """Test that increment_new_user_violation updates count and timestamps."""
+        db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        record = db_service.increment_new_user_violation(user_id=1001, group_id=-100)
+
+        assert record.violation_count == 1
+        assert record.first_violation_at is not None
+        assert record.last_violation_at is not None
+
+    def test_increment_new_user_violation_multiple_times(
+        self, db_service: DatabaseService
+    ):
+        """Test that violations accumulate correctly."""
+        db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        db_service.increment_new_user_violation(user_id=1001, group_id=-100)
+        record = db_service.increment_new_user_violation(user_id=1001, group_id=-100)
+
+        assert record.violation_count == 2
+
+    def test_increment_new_user_violation_raises_if_no_record(
+        self, db_service: DatabaseService
+    ):
+        """Test that increment raises ValueError if no probation record exists."""
+        with pytest.raises(ValueError):
+            db_service.increment_new_user_violation(user_id=9999, group_id=-100)
+
+    def test_clear_new_user_probation(self, db_service: DatabaseService):
+        """Test that clear_new_user_probation removes the record."""
+        db_service.start_new_user_probation(user_id=1001, group_id=-100)
+
+        db_service.clear_new_user_probation(user_id=1001, group_id=-100)
+
+        record = db_service.get_new_user_probation(user_id=1001, group_id=-100)
+        assert record is None
