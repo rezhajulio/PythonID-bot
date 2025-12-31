@@ -1,18 +1,33 @@
 # PythonID Group Management Bot
 
-A Telegram bot that monitors group messages and warns users who don't have a public profile picture or username set.
+A comprehensive Telegram bot for managing group members with profile verification, captcha challenges, and anti-spam protection.
 
 ## Features
 
-- Monitors all text messages in a configured group
+### Core Monitoring
+- Monitors all messages in a configured group
 - Checks if users have a public profile picture
 - Checks if users have a username set
 - Sends warnings to a dedicated topic (thread) for non-compliant users
 - **Warning topic protection**: Only admins and the bot can post in the warning topic
-- **DM unrestriction flow**: Restricted users can DM the bot to get unrestricted after completing their profile
+
+### Restriction & Unrestriction
 - **Progressive restriction**: Optional mode to restrict users after multiple warnings (message-based)
 - **Time-based auto-restriction**: Automatically restricts users after X hours from first warning
 - **Scheduled job**: Background scheduler checks and enforces time-based restrictions every 5 minutes
+- **DM unrestriction flow**: Restricted users can DM the bot to get unrestricted after completing their profile
+
+### New Member Protection
+- **Captcha verification**: New members must verify they're human before joining (optional)
+- **Captcha timeout recovery**: Automatically recovers pending verifications after bot restart
+- **New user probation**: New members restricted from sending links/forwarded messages for 3 days (configurable)
+- **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
+
+### Admin Tools
+- **/verify command**: Whitelist users with hidden profile pictures (DM only)
+- **/unverify command**: Remove users from verification whitelist (DM only)
+- **Inline verification**: Forward messages to bot for quick verify/unverify buttons
+- **Automatic clearance**: Sends notification when verified users' warnings are cleared
 
 ## Requirements
 
@@ -204,61 +219,89 @@ PythonID/
 
 ## Bot Workflow
 
-The following diagram illustrates the complete bot workflow including message handling, restriction logic, DM unrestriction, background scheduler jobs, and captcha verification:
+The following diagram illustrates the complete bot workflow including captcha verification, anti-spam protection, profile monitoring, restriction logic, DM unrestriction, admin verification, and background scheduler jobs:
 
 ```mermaid
 flowchart TD
     Start([Bot Starts]) --> Init[Initialize Database & Config]
     Init --> FetchAdmins[Fetch Group Admin IDs]
-    FetchAdmins --> StartJobs[Start JobQueue Scheduler<br/>5-minute interval]
+    FetchAdmins --> RecoverCaptcha{Captcha<br/>Enabled?}
+    RecoverCaptcha -->|Yes| RecoverPending[Recover Pending Captchas]
+    RecoverCaptcha -->|No| StartJobs
+    RecoverPending --> StartJobs[Start JobQueue Scheduler<br/>5-minute interval]
     StartJobs --> Poll[Poll for Updates]
     
     Poll --> UpdateType{Update Type?}
     
     %% New Member Flow
-    UpdateType -->|New Member| CheckCaptcha{Captcha<br/>Enabled?}
-    CheckCaptcha -->|Yes| SendCaptcha[Send Captcha to User]
-    SendCaptcha --> WaitCaptcha[Wait for Answer]
-    WaitCaptcha --> CaptchaAnswer{Correct<br/>Answer?}
-    CaptchaAnswer -->|Yes| UnrestrictMember[Unrestrict Member]
-    CaptchaAnswer -->|No| KickMember[Kick Member]
-    CaptchaAnswer -->|Timeout| KickMember
-    CheckCaptcha -->|No| Continue[Continue Monitoring]
+    UpdateType -->|New Member| CheckCaptchaEnabled{Captcha<br/>Enabled?}
+    CheckCaptchaEnabled -->|No| StartProbation[Start Probation Only]
+    CheckCaptchaEnabled -->|Yes| RestrictAndChallenge[Restrict & Send Captcha]
+    RestrictAndChallenge --> StorePending[(Store Pending Validation)]
+    StorePending --> ScheduleTimeout[Schedule Timeout Job]
+    ScheduleTimeout --> WaitCaptcha[Wait for Verification]
     
-    %% Group Message Flow
-    UpdateType -->|Group Message| TopicGuard{In Warning<br/>Topic?}
+    WaitCaptcha --> CaptchaAnswer{User<br/>Action?}
+    CaptchaAnswer -->|Correct Button| CancelTimeout[Cancel Timeout Job]
+    CancelTimeout --> UnrestrictMember[Unrestrict Member]
+    UnrestrictMember --> StartProbationAfter[Start Probation]
+    CaptchaAnswer -->|Wrong User| ShowError[Show Error Message]
+    CaptchaAnswer -->|Timeout| KickMember[Keep Restricted]
+    KickMember --> UpdateMessage[Update Challenge Message]
+    
+    %% Anti-Spam Flow (New User Probation)
+    UpdateType -->|Group Message| CheckProbation{User On<br/>Probation?}
+    CheckProbation -->|No| CheckBot
+    CheckProbation -->|Yes| CheckExpired{Probation<br/>Expired?}
+    CheckExpired -->|Yes| ClearProbation[(Clear Probation)]
+    CheckExpired -->|No| CheckViolation{Forward/Link/<br/>External Reply?}
+    
+    CheckViolation -->|No| End1([Continue])
+    CheckViolation -->|Yes| CheckWhitelisted{URL<br/>Whitelisted?}
+    CheckWhitelisted -->|Yes| End1
+    CheckWhitelisted -->|No| DeleteSpam[Delete Message]
+    DeleteSpam --> IncrementViolation[(Increment Violation)]
+    IncrementViolation --> ViolationCount{Violation<br/>Count?}
+    
+    ViolationCount -->|First| SendSpamWarning[Send Probation Warning]
+    ViolationCount -->|< Threshold| End2([Done])
+    ViolationCount -->|>= Threshold| RestrictSpammer[Restrict User]
+    RestrictSpammer --> SendSpamRestriction[Send Restriction Notice]
+    
+    %% Group Message Flow - Topic Guard
+    CheckBot{From Bot?}
+    CheckBot -->|Yes| End3([Ignore])
+    CheckBot -->|No| TopicGuard{In Warning<br/>Topic?}
     TopicGuard -->|Yes| IsAdmin{Is Admin<br/>or Bot?}
     IsAdmin -->|No| DeleteMsg[Delete Message]
-    IsAdmin -->|Yes| ProcessMsg[Process Message]
-    TopicGuard -->|No| CheckBot{From Bot?}
+    IsAdmin -->|Yes| End4([Allow])
     
-    CheckBot -->|Yes| End1([Ignore])
-    CheckBot -->|No| CheckWhitelist{User<br/>Whitelisted?}
-    
-    CheckWhitelist -->|Yes| End2([Allow])
+    %% Group Message Flow - Profile Check
+    TopicGuard -->|No| CheckWhitelist{User<br/>Whitelisted?}
+    CheckWhitelist -->|Yes| End5([Allow])
     CheckWhitelist -->|No| CheckProfile[Check User Profile:<br/>Photo + Username]
     
     CheckProfile --> ProfileComplete{Profile<br/>Complete?}
-    ProfileComplete -->|Yes| End3([Allow])
+    ProfileComplete -->|Yes| End6([Allow])
     ProfileComplete -->|No| CheckMode{Restriction<br/>Mode?}
     
     %% Warning Mode
     CheckMode -->|Warning Only| SendWarning[Send Warning to Topic<br/>Time threshold mentioned]
-    SendWarning --> End4([Done])
+    SendWarning --> End7([Done])
     
     %% Progressive Restriction Mode
     CheckMode -->|Progressive| CheckCount{Message<br/>Count?}
     CheckCount -->|First Message| SendFirstWarning[Send Warning with<br/>Message & Time Thresholds]
     SendFirstWarning --> IncrementDB[(Store Warning in DB<br/>with timestamp)]
-    IncrementDB --> End5([Done])
+    IncrementDB --> End8([Done])
     
     CheckCount -->|2 to N-1| SilentIncrement[(Silent: Increment Count)]
-    SilentIncrement --> End6([Done])
+    SilentIncrement --> End9([Done])
     
-    CheckCount -->|≥ Threshold| RestrictUser[Apply Restriction<br/>Mute Permissions]
+    CheckCount -->|>= Threshold| RestrictUser[Apply Restriction<br/>Mute Permissions]
     RestrictUser --> MarkRestricted[(Mark as Restricted<br/>in Database)]
     MarkRestricted --> SendRestrictionMsg[Send Restriction Notice<br/>with DM Link]
-    SendRestrictionMsg --> End7([Done])
+    SendRestrictionMsg --> End10([Done])
     
     %% DM Flow
     UpdateType -->|Private Message| CheckInGroup{User in<br/>Group?}
@@ -301,16 +344,34 @@ flowchart TD
     NextUser -->|Yes| CheckKicked
     NextUser -->|No| EndJob
     
-    %% Command Handlers
+    %% Command Handlers - Verify/Unverify
     UpdateType -->|/verify Command| CheckAdminVerify{Is Admin?}
     CheckAdminVerify -->|No| DenyVerify[Send: Admin Only]
     CheckAdminVerify -->|Yes| AddWhitelist[(Add User to<br/>Photo Whitelist)]
-    AddWhitelist --> SendVerifySuccess[Send: User Verified]
+    AddWhitelist --> UnrestrictVerified[Unrestrict User]
+    UnrestrictVerified --> DeleteWarnings[(Delete Warning Records)]
+    DeleteWarnings --> CheckWarningsExist{Had<br/>Warnings?}
+    CheckWarningsExist -->|Yes| SendClearance[Send Clearance Notification<br/>to Warning Topic]
+    CheckWarningsExist -->|No| SendVerifySuccess[Send: User Verified]
+    SendClearance --> SendVerifySuccess
     
     UpdateType -->|/unverify Command| CheckAdminUnverify{Is Admin?}
     CheckAdminUnverify -->|No| DenyUnverify[Send: Admin Only]
     CheckAdminUnverify -->|Yes| RemoveWhitelist[(Remove from Whitelist)]
     RemoveWhitelist --> SendUnverifySuccess[Send: User Unverified]
+    
+    %% Forwarded Message Handler
+    UpdateType -->|Forwarded Message<br/>in DM| CheckAdminForward{Is Admin?}
+    CheckAdminForward -->|No| DenyForward[Send: Admin Only]
+    CheckAdminForward -->|Yes| ExtractUser{Extract<br/>User Info?}
+    ExtractUser -->|Success| SendButtons[Send Verify/Unverify Buttons]
+    ExtractUser -->|Failed| SendExtractError[Send: Cannot Extract User]
+    
+    %% Callback Handlers
+    UpdateType -->|Verify Button| ProcessVerify[Process Verify Callback]
+    ProcessVerify --> AddWhitelist
+    UpdateType -->|Unverify Button| ProcessUnverify[Process Unverify Callback]
+    ProcessUnverify --> RemoveWhitelist
     
     classDef processNode fill:#1a1a2e,stroke:#16213e,color:#eee
     classDef decisionNode fill:#0f3460,stroke:#16213e,color:#eee
@@ -319,12 +380,12 @@ flowchart TD
     classDef endNode fill:#e94560,stroke:#16213e,color:#eee
     classDef startNode fill:#1a5f7a,stroke:#16213e,color:#eee
     
-    class Init,FetchAdmins,StartJobs,Poll,CheckProfile,CheckDMProfile,ProcessMsg,SendCaptcha,WaitCaptcha processNode
-    class UpdateType,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer decisionNode
-    class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist dataNode
-    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,Continue actionNode
-    class End1,End2,End3,End4,End5,End6,End7,EndJob endNode
-    class Start,StartNode startNode
+    class Init,FetchAdmins,RecoverPending,StartJobs,Poll,CheckProfile,CheckDMProfile,RestrictAndChallenge,StorePending,ScheduleTimeout,WaitCaptcha,StartProbation,StartProbationAfter processNode
+    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser decisionNode
+    class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist,IncrementViolation,ClearProbation,DeleteWarnings dataNode
+    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify actionNode
+    class End1,End2,End3,End4,End5,End6,End7,End8,End9,End10,EndJob,StartProbation endNode
+    class Start startNode
 ```
 
 ## How It Works
@@ -338,14 +399,18 @@ The bot is organized into clear modules for maintainability:
   - `message.py`: Monitors group messages and sends warnings/restrictions
   - `dm.py`: Handles DM unrestriction flow
   - `topic_guard.py`: Protects warning topic from unauthorized messages
+  - `captcha.py`: Captcha verification for new members
+  - `anti_spam.py`: Anti-spam enforcement for users on probation
+  - `verify.py`: /verify and /unverify command handlers
 - **services/**: Business logic and utilities
   - `scheduler.py`: JobQueue background job that runs every 5 minutes for time-based auto-restrictions
   - `user_checker.py`: Profile validation (photo + username check)
   - `bot_info.py`: Caches bot metadata to avoid repeated API calls
   - `telegram_utils.py`: Shared telegram utilities (user status checks, etc.)
+  - `captcha_recovery.py`: Captcha timeout recovery on bot restart
 - **database/**: Data persistence
   - `service.py`: Database operations with SQLite
-  - `models.py`: Data models using SQLModel
+  - `models.py`: Data models using SQLModel (UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation)
 - **config.py**: Environment configuration using Pydantic
 - **constants.py**: Centralized message templates and utilities for consistent formatting across handlers
 
@@ -410,8 +475,15 @@ When a restricted user DMs the bot (or sends `/start`):
 | `RESTRICT_FAILED_USERS` | Enable progressive restriction mode | `false` |
 | `WARNING_THRESHOLD` | Messages before restriction (message-based) | `3` |
 | `WARNING_TIME_THRESHOLD_MINUTES` | Minutes before auto-restriction (time-based) | `180` (3 hours) |
+| `CAPTCHA_ENABLED` | Enable captcha verification for new members | `false` |
+| `CAPTCHA_TIMEOUT_SECONDS` | Seconds before kicking unverified members | `120` (2 minutes) |
+| `NEW_USER_PROBATION_HOURS` | Hours new users can't send links/forwards | `72` (3 days) |
+| `NEW_USER_VIOLATION_THRESHOLD` | Spam violations before restriction | `3` |
 | `DATABASE_PATH` | SQLite database path | `data/bot.db` |
 | `RULES_LINK` | Link to group rules message | `https://t.me/pythonID/290029/321799` |
+| `LOGFIRE_ENABLED` | Enable Logfire logging integration | `true` |
+| `LOGFIRE_TOKEN` | Logfire API token (optional) | None |
+| `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
 
 ### Restriction Modes
 
