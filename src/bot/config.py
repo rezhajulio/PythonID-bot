@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     rules_link: str = "https://t.me/pythonID/290029/321799"
     captcha_enabled: bool = False
     captcha_timeout_seconds: int = 120
-    new_user_probation_hours: int = 168  # 7 days default
+    new_user_probation_hours: int = 72  # 3 days default
     new_user_violation_threshold: int = 3  # restrict after this many violations
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
