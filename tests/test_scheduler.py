@@ -209,8 +209,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_db.get_warnings_past_time_threshold.assert_called_once_with(300)
 
     @pytest.mark.asyncio
-    async def test_skips_kicked_user(self):
-        """Test that kicked users are skipped and marked as unrestricted."""
+    async def test_skips_kicked_user_and_deletes_warning(self):
+        """Test that kicked users have their warning deleted so they don't reappear."""
         mock_warning = UserWarning(
             id=1,
             user_id=123,
@@ -224,7 +224,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
-        mock_db.mark_user_unrestricted = MagicMock()
+        mock_db.delete_user_warnings = MagicMock()
 
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock()
@@ -246,12 +246,70 @@ class TestAutoRestrictExpiredWarnings:
                 ):
                     await auto_restrict_expired_warnings(mock_context)
 
-        # Verify user was marked as unrestricted
-        mock_db.mark_user_unrestricted.assert_called_once_with(123, -100999)
+        # Verify warning was deleted (not just marked unrestricted)
+        mock_db.delete_user_warnings.assert_called_once_with(123, -100999)
 
         # Verify restriction was NOT applied
         mock_bot.restrict_chat_member.assert_not_called()
         mock_bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_kicked_user_not_in_subsequent_queries(self):
+        """Test that deleted warnings don't appear in subsequent threshold queries."""
+        mock_warning = UserWarning(
+            id=1,
+            user_id=123,
+            group_id=-100999,
+            message_count=1,
+            first_warned_at=datetime.now(UTC) - timedelta(hours=4),
+            last_message_at=datetime.now(UTC),
+            is_restricted=False,
+            restricted_by_bot=False,
+        )
+
+        # Track calls to simulate deletion effect
+        call_count = 0
+
+        def get_warnings_side_effect(threshold):
+            nonlocal call_count
+            call_count += 1
+            # First call returns the warning, subsequent calls return empty
+            # (simulating that delete_user_warnings removed it)
+            if call_count == 1:
+                return [mock_warning]
+            return []
+
+        mock_db = MagicMock()
+        mock_db.get_warnings_past_time_threshold.side_effect = get_warnings_side_effect
+        mock_db.delete_user_warnings = MagicMock()
+
+        mock_bot = AsyncMock()
+        mock_bot.restrict_chat_member = AsyncMock()
+        mock_bot.send_message = AsyncMock()
+
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+
+        mock_settings = MagicMock()
+        mock_settings.warning_time_threshold_minutes = 180
+        mock_settings.group_id = -100999
+
+        with patch("bot.services.scheduler.get_database", return_value=mock_db):
+            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+                with patch(
+                    "bot.services.scheduler.get_user_status",
+                    new_callable=AsyncMock,
+                    return_value=ChatMemberStatus.BANNED,
+                ):
+                    # First run - should process and delete warning
+                    await auto_restrict_expired_warnings(mock_context)
+                    # Second run - should find no warnings
+                    await auto_restrict_expired_warnings(mock_context)
+
+        # Verify delete was called exactly once (first run only)
+        mock_db.delete_user_warnings.assert_called_once_with(123, -100999)
+        # Verify the query was called twice
+        assert mock_db.get_warnings_past_time_threshold.call_count == 2
 
     @pytest.mark.asyncio
     async def test_handles_get_chat_member_failure(self):

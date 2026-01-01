@@ -62,7 +62,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
             
             # Skip if user is kicked (can't rejoin without admin re-invite)
             if user_status == ChatMemberStatus.BANNED:
-                db.mark_user_unrestricted(warning.user_id, settings.group_id)
+                db.delete_user_warnings(warning.user_id, warning.group_id)
                 logger.info(
                     f"Skipped auto-restriction for user {warning.user_id} - user kicked (group_id={settings.group_id})"
                 )
