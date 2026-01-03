@@ -166,7 +166,7 @@ def main() -> None:
     # messages in the warning topic before other handlers process them
     application.add_handler(
         MessageHandler(
-            filters.ALL & ~filters.COMMAND,
+            filters.ALL,
             guard_warning_topic,
         ),
         group=-1,
@@ -223,7 +223,7 @@ def main() -> None:
     # Handler 8: New-user anti-spam handler - checks for forwards/links from users on probation
     application.add_handler(
         MessageHandler(
-            filters.ALL & ~filters.COMMAND,
+            filters.ChatType.GROUPS,
             handle_new_user_spam,
         )
     )
@@ -233,11 +233,12 @@ def main() -> None:
     # group and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
+            filters.ChatType.GROUPS & ~filters.COMMAND,
             handle_message,
-        )
+        ),
+        group=1,
     )
-    logger.info("Registered handler: message_handler (group=0)")
+    logger.info("Registered handler: message_handler (group=1)")
 
     # Register auto-restriction job to run every 5 minutes
     if application.job_queue:

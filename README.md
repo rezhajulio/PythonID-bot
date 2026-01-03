@@ -150,15 +150,15 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 99% across all modules (1,057 statements, 2 missed)
+- **Coverage**: 99% (1,057 statements, 2 missed)
 - **Tests**: 310 total
 - **Pass Rate**: 100% (310/310 passed)
 - **All modules**: 99% coverage including JobQueue scheduler integration, captcha verification, and anti-spam enforcement
-  - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py`
-  - Handlers: `anti_spam.py`, `captcha.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`
-  - Database: `service.py`, `models.py`
-  - Config: `config.py`
-  - Constants: `constants.py`
+  - Services: `bot_info.py` (100%), `scheduler.py` (100%), `user_checker.py` (100%), `telegram_utils.py` (100%), `captcha_recovery.py` (100%)
+  - Handlers: `anti_spam.py` (98%), `captcha.py` (100%), `dm.py` (100%), `message.py` (100%), `topic_guard.py` (100%), `verify.py` (100%)
+  - Database: `service.py` (100%), `models.py` (100%)
+  - Config: `config.py` (100%)
+  - Constants: `constants.py` (100%)
 
 All modules are fully unit tested with:
 - Mocked async dependencies (telegram bot API calls)
