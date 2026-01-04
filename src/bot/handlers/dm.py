@@ -24,6 +24,7 @@ from bot.constants import (
     DM_NO_RESTRICTION_MESSAGE,
     DM_UNRESTRICTION_NOTIFICATION,
     DM_UNRESTRICTION_SUCCESS_MESSAGE,
+    MISSING_ITEMS_SEPARATOR,
 )
 from bot.database.service import get_database
 from bot.services.telegram_utils import get_user_mention, get_user_status, unrestrict_user
@@ -93,7 +94,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Profile still incomplete - tell them what's missing
     if not result.is_complete:
         missing = result.get_missing_items()
-        missing_text = " dan ".join(missing)
+        missing_text = MISSING_ITEMS_SEPARATOR.join(missing)
         reply_message = DM_INCOMPLETE_PROFILE_MESSAGE.format(
             missing_text=missing_text,
             rules_link=settings.rules_link,

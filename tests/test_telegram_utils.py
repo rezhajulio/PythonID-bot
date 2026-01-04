@@ -41,7 +41,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=2)
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=1)
         assert result == "[John Doe](tg://user?id=123456)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -55,7 +55,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        mock_mention_markdown.assert_called_once_with(987654, "Jane Smith", version=2)
+        mock_mention_markdown.assert_called_once_with(987654, "Jane Smith", version=1)
         assert result == "[Jane Smith](tg://user?id=987654)"
 
     def test_get_user_mention_special_characters_in_username(self):
@@ -80,7 +80,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        mock_mention_markdown.assert_called_once_with(555666, "José María", version=2)
+        mock_mention_markdown.assert_called_once_with(555666, "José María", version=1)
         assert result == "[José María](tg://user?id=555666)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -94,7 +94,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        mock_mention_markdown.assert_called_once_with(777888, "A" * 100, version=2)
+        mock_mention_markdown.assert_called_once_with(777888, "A" * 100, version=1)
         assert result == f"[{'A' * 100}](tg://user?id=777888)"
 
 
@@ -106,7 +106,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(123456, "John Doe")
 
-        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=2)
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=1)
         assert result == "[John Doe](tg://user?id=123456)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -116,7 +116,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(9999999999, "Jane Smith")
 
-        mock_mention_markdown.assert_called_once_with(9999999999, "Jane Smith", version=2)
+        mock_mention_markdown.assert_called_once_with(9999999999, "Jane Smith", version=1)
         assert result == "[Jane Smith](tg://user?id=9999999999)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -126,7 +126,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(111222, "José María")
 
-        mock_mention_markdown.assert_called_once_with(111222, "José María", version=2)
+        mock_mention_markdown.assert_called_once_with(111222, "José María", version=1)
         assert result == "[José María](tg://user?id=111222)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -136,7 +136,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(333444, "User 🎉")
 
-        mock_mention_markdown.assert_called_once_with(333444, "User 🎉", version=2)
+        mock_mention_markdown.assert_called_once_with(333444, "User 🎉", version=1)
         assert result == "[User 🎉](tg://user?id=333444)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -147,7 +147,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(555666, long_name)
 
-        mock_mention_markdown.assert_called_once_with(555666, long_name, version=2)
+        mock_mention_markdown.assert_called_once_with(555666, long_name, version=1)
         assert result == f"[{long_name}](tg://user?id=555666)"
 
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -157,7 +157,7 @@ class TestGetUserMentionById:
 
         result = get_user_mention_by_id(777888, "A")
 
-        mock_mention_markdown.assert_called_once_with(777888, "A", version=2)
+        mock_mention_markdown.assert_called_once_with(777888, "A", version=1)
         assert result == "[A](tg://user?id=777888)"
 
 

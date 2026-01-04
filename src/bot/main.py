@@ -11,7 +11,8 @@ and starts the polling loop. Handler registration order matters:
 import logging
 
 import logfire
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram.error import NetworkError, TimedOut
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from bot.config import get_settings
 from bot.database.service import init_database
@@ -21,11 +22,15 @@ from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
 from bot.handlers.verify import (
-    handle_forwarded_message,
     handle_unverify_callback,
     handle_unverify_command,
     handle_verify_callback,
     handle_verify_command,
+)
+from bot.handlers.check import (
+    handle_check_command,
+    handle_check_forwarded_message,
+    handle_warn_callback,
 )
 from bot.services.scheduler import auto_restrict_expired_warnings
 from bot.services.telegram_utils import fetch_group_admin_ids
@@ -103,6 +108,26 @@ def configure_logging() -> None:
 logger = logging.getLogger(__name__)
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle errors in the bot.
+
+    Logs the error and continues operation. Network timeouts are logged
+    at warning level since they're transient issues.
+    """
+    error = context.error
+
+    if isinstance(error, TimedOut):
+        logger.warning(f"Request timed out: {error}")
+        return
+
+    if isinstance(error, NetworkError):
+        logger.warning(f"Network error: {error}")
+        return
+
+    logger.error("Unhandled exception:", exc_info=context.error)
+
+
 async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     """
     Post-initialization callback to fetch and cache group admin IDs.
@@ -155,12 +180,10 @@ def main() -> None:
     init_database(settings.database_path)
     logger.info(f"Database initialized at {settings.database_path}")
 
-    # Build the bot application with the token
-    application = Application.builder().token(settings.telegram_bot_token).build()
+    # Build the bot application with the token and post_init callback
+    application = Application.builder().token(settings.telegram_bot_token).post_init(post_init).build()
+    application.add_error_handler(error_handler)
     logger.info("Application built successfully")
-
-    # Set post_init callback to fetch admin IDs on startup
-    application.post_init = post_init
 
     # Handler 1: Topic guard - runs first (group -1) to delete unauthorized
     # messages in the warning topic before other handlers process them
@@ -185,14 +208,20 @@ def main() -> None:
     )
     logger.info("Registered handler: unverify_command (group=0)")
 
-    # Handler 4: Forwarded message handler - allows admins to verify/unverify via buttons
+    # Handler: /check command - allows admins to check user profiles in DM
+    application.add_handler(
+        CommandHandler("check", handle_check_command)
+    )
+    logger.info("Registered handler: check_command (group=0)")
+
+    # Handler: Forwarded message handler - allows admins to check profiles via forward
     application.add_handler(
         MessageHandler(
             filters.FORWARDED & filters.ChatType.PRIVATE,
-            handle_forwarded_message
+            handle_check_forwarded_message
         )
     )
-    logger.info("Registered handler: forwarded_message (group=0)")
+    logger.info("Registered handler: check_forwarded_message (group=0)")
 
     # Handler 5: Callback handlers for verify/unverify buttons
     application.add_handler(
@@ -203,6 +232,10 @@ def main() -> None:
         CallbackQueryHandler(handle_unverify_callback, pattern=r"^unverify:\d+$")
     )
     logger.info("Registered handler: unverify_callback (group=0)")
+    application.add_handler(
+        CallbackQueryHandler(handle_warn_callback, pattern=r"^warn:\d+:")
+    )
+    logger.info("Registered handler: warn_callback (group=0)")
 
     # Handler 6: Captcha handlers - new member verification
     for handler in captcha.get_handlers():

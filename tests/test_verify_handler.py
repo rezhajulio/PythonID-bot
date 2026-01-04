@@ -6,7 +6,6 @@ import pytest
 
 from bot.database.service import get_database, init_database, reset_database
 from bot.handlers.verify import (
-    handle_forwarded_message,
     handle_unverify_callback,
     handle_unverify_command,
     handle_verify_callback,
@@ -511,98 +510,6 @@ class TestHandleUnverifyCommand:
         assert "dihapus dari whitelist" in call_args.args[0]
 
         assert not db.is_user_photo_whitelisted(555666)
-
-
-class TestHandleForwardedMessage:
-    async def test_no_message(self, mock_context):
-        update = MagicMock()
-        update.message = None
-
-        await handle_forwarded_message(update, mock_context)
-
-    async def test_no_from_user(self, mock_context):
-        update = MagicMock()
-        update.message = MagicMock()
-        update.message.from_user = None
-
-        await handle_forwarded_message(update, mock_context)
-
-    async def test_non_admin_rejected(self, mock_update, mock_context):
-        mock_update.message.from_user.id = 99999
-        mock_context.bot_data = {"admin_ids": [12345]}
-        
-        # Mock forwarded message
-        mock_update.message.forward_origin = MagicMock()
-        mock_update.message.forward_origin.sender_user = MagicMock()
-        mock_update.message.forward_origin.sender_user.id = 555666
-
-        await handle_forwarded_message(mock_update, mock_context)
-
-        mock_update.message.reply_text.assert_called_once()
-        call_args = mock_update.message.reply_text.call_args
-        assert "izin" in call_args.args[0]
-
-    async def test_successful_forwarded_message_new_api(self, mock_update, mock_context):
-        # Mock forwarded message with new API (forward_origin)
-        forwarded_user = MagicMock()
-        forwarded_user.id = 555666
-        forwarded_user.full_name = "Test User"
-        
-        mock_update.message.forward_origin = MagicMock()
-        mock_update.message.forward_origin.sender_user = forwarded_user
-        mock_update.message.forward_from = None
-
-        await handle_forwarded_message(mock_update, mock_context)
-
-        mock_update.message.reply_text.assert_called_once()
-        call_args = mock_update.message.reply_text.call_args
-        assert call_args.kwargs["parse_mode"] == "Markdown"
-        assert call_args.kwargs["reply_markup"] is not None
-        
-        # Check message content
-        message_text = call_args.args[0]
-        assert "555666" in message_text
-        assert "Test User" in message_text or "555666" in message_text
-        
-        # Check keyboard buttons
-        keyboard = call_args.kwargs["reply_markup"].inline_keyboard
-        assert len(keyboard) == 1
-        assert len(keyboard[0]) == 2
-        assert keyboard[0][0].text == "✅ Verify User"
-        assert keyboard[0][0].callback_data == "verify:555666"
-        assert keyboard[0][1].text == "❌ Unverify User"
-        assert keyboard[0][1].callback_data == "unverify:555666"
-
-    async def test_successful_forwarded_message_legacy_api(self, mock_update, mock_context):
-        # Mock forwarded message with legacy API (forward_from)
-        forwarded_user = MagicMock()
-        forwarded_user.id = 777888
-        forwarded_user.first_name = "Legacy User"
-        forwarded_user.full_name = "Legacy User"  # Add full_name attribute
-        
-        mock_update.message.forward_origin = None
-        mock_update.message.forward_from = forwarded_user
-
-        await handle_forwarded_message(mock_update, mock_context)
-
-        mock_update.message.reply_text.assert_called_once()
-        call_args = mock_update.message.reply_text.call_args
-        
-        # Check keyboard buttons
-        keyboard = call_args.kwargs["reply_markup"].inline_keyboard
-        assert keyboard[0][0].callback_data == "verify:777888"
-        assert keyboard[0][1].callback_data == "unverify:777888"
-
-    async def test_forwarded_message_no_user_info(self, mock_update, mock_context):
-        # Mock forwarded message without user info (privacy settings)
-        mock_update.message.forward_origin = None
-        mock_update.message.forward_from = None
-
-        await handle_forwarded_message(mock_update, mock_context)
-
-        mock_update.message.reply_text.assert_called_once()
-        call_args = mock_update.message.reply_text.call_args
-        assert "Tidak dapat mengekstrak" in call_args.args[0]
 
 
 class TestHandleVerifyCallback:

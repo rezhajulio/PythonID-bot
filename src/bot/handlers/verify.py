@@ -8,12 +8,12 @@ hidden due to Telegram privacy settings.
 
 import logging
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Bot, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.config import Settings, get_settings
-from bot.constants import FORWARD_VERIFY_PROMPT, VERIFICATION_CLEARANCE_MESSAGE
+from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import DatabaseService, get_database
 from bot.services.telegram_utils import get_user_mention_by_id, unrestrict_user
 
@@ -227,79 +227,6 @@ async def handle_unverify_command(
         logger.info(
             f"Admin {admin_user_id} tried to remove {target_user_id} but not in whitelist: {e}"
         )
-
-
-async def handle_forwarded_message(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """
-    Handle forwarded messages from admins to create verify/unverify buttons.
-
-    When an admin forwards a user's message to the bot in DM, this handler
-    creates inline buttons to verify or unverify that user.
-
-    Args:
-        update: Telegram update containing the forwarded message.
-        context: Bot context with helper methods.
-    """
-    if not update.message or not update.message.from_user:
-        return
-
-    admin_user_id = update.message.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-
-    if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan fitur ini.")
-        logger.warning(
-            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
-            f"attempted to forward message for verification"
-        )
-        return
-
-    # Extract user info from forwarded message
-    forwarded_user = None
-    if update.message.forward_origin:
-        # New API (MessageOrigin)
-        if hasattr(update.message.forward_origin, 'sender_user'):
-            forwarded_user = update.message.forward_origin.sender_user
-    elif update.message.forward_from:
-        # Legacy API
-        forwarded_user = update.message.forward_from
-
-    if not forwarded_user:
-        await update.message.reply_text(
-            "❌ Tidak dapat mengekstrak informasi user dari pesan yang diteruskan.\n"
-            "Pastikan user tidak menyembunyikan status forward di pengaturan privasi."
-        )
-        return
-
-    user_id = forwarded_user.id
-    user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
-    user_mention = get_user_mention_by_id(user_id, user_name)
-
-    # Create inline keyboard with verify/unverify buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Verify User", callback_data=f"verify:{user_id}"),
-            InlineKeyboardButton("❌ Unverify User", callback_data=f"unverify:{user_id}"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Send prompt message with buttons
-    prompt_message = FORWARD_VERIFY_PROMPT.format(
-        user_mention=user_mention,
-        user_id=user_id
-    )
-    await update.message.reply_text(
-        prompt_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    logger.info(
-        f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
-        f"forwarded message from user {user_id} for verification options"
-    )
 
 
 async def handle_verify_callback(

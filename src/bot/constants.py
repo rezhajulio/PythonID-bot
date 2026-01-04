@@ -157,10 +157,25 @@ VERIFICATION_CLEARANCE_MESSAGE = (
     "✅ {user_mention} telah diverifikasi oleh admin. Silakan berdiskusi kembali."
 )
 
-FORWARD_VERIFY_PROMPT = (
-    "📋 User: {user_mention} (ID: {user_id})\n\n"
-    "Pilih aksi untuk user ini:"
+ADMIN_CHECK_PROMPT = (
+    "📋 User: {user_mention} (ID: `{user_id}`)\n\n"
+    "Status Profil:\n"
+    "• Foto Profil: {photo_status}\n"
+    "• Username: {username_status}\n\n"
+    "{action_prompt}"
 )
+
+ADMIN_CHECK_ACTION_COMPLETE = "✅ Profil lengkap, tidak ada aksi yang diperlukan."
+
+ADMIN_CHECK_ACTION_INCOMPLETE = "⚠️ Profil tidak lengkap. Pilih aksi:"
+
+ADMIN_WARN_USER_MESSAGE = (
+    "⚠️ Hai {user_mention}, mohon lengkapi {missing_text} kamu "
+    "untuk mematuhi aturan grup.\n\n"
+    "📖 [Baca aturan grup]({rules_link})"
+)
+
+ADMIN_WARN_SENT_MESSAGE = "✅ Peringatan telah dikirim ke {user_mention} di grup."
 
 # Anti-spam probation warning for new users
 NEW_USER_SPAM_WARNING = (

@@ -7,7 +7,7 @@ Telegram's API across different handlers and services.
 
 import logging
 
-from telegram import Bot, User
+from telegram import Bot, Message, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
 from telegram.helpers import mention_markdown
@@ -31,7 +31,7 @@ def get_user_mention(user: User) -> str:
     return (
         f"@{user.username}"
         if user.username
-        else mention_markdown(user.id, user.full_name, version=2)
+        else mention_markdown(user.id, user.full_name, version=1)
     )
 
 
@@ -48,7 +48,7 @@ def get_user_mention_by_id(user_id: int, user_full_name: str) -> str:
     Returns:
         str: Markdown mention string.
     """
-    return mention_markdown(user_id, user_full_name, version=2)
+    return mention_markdown(user_id, user_full_name, version=1)
 
 
 async def get_user_status(
@@ -120,6 +120,31 @@ async def unrestrict_user(
             exc_info=True,
         )
         raise
+
+
+def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
+    """
+    Extract user ID and name from a forwarded message.
+    
+    Args:
+        message: Telegram Message object that was forwarded.
+        
+    Returns:
+        Tuple of (user_id, user_name) if extraction successful, None otherwise.
+    """
+    forwarded_user = None
+    if message.forward_origin:
+        if hasattr(message.forward_origin, 'sender_user'):
+            forwarded_user = message.forward_origin.sender_user
+    elif message.forward_from:
+        forwarded_user = message.forward_from
+
+    if not forwarded_user:
+        return None
+    
+    user_id = forwarded_user.id
+    user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
+    return user_id, user_name
 
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
