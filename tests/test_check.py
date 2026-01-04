@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram.error import TimedOut
 
 from bot.handlers.check import (
     handle_check_command,
@@ -116,6 +117,39 @@ class TestHandleCheckCommand:
         assert "✅" in call_args.args[0]
         assert call_args.kwargs.get("reply_markup") is None
 
+    async def test_check_command_complete_profile_whitelisted(
+        self, mock_update, mock_context, mock_settings
+    ):
+        """Shows complete profile with unverify button when user is whitelisted."""
+        mock_context.args = ["555666"]
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = True
+
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.check_user_profile",
+                return_value=complete_result,
+            ),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_command(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "555666" in call_args.args[0]
+        assert "✅" in call_args.args[0]
+        keyboard = call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+        buttons = keyboard.inline_keyboard[0]
+        assert any("unverify:555666" in btn.callback_data for btn in buttons)
+        assert any("Unverify User" in btn.text for btn in buttons)
+
     async def test_check_command_incomplete_profile(
         self, mock_update, mock_context, mock_settings
     ):
@@ -186,6 +220,17 @@ class TestHandleCheckCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "Gagal memeriksa" in call_args.args[0]
+
+    async def test_check_command_timeout(self, mock_update, mock_context):
+        """Handles TimedOut error gracefully."""
+        mock_context.args = ["555666"]
+        mock_context.bot.get_chat.side_effect = TimedOut()
+
+        await handle_check_command(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "timeout" in call_args.args[0].lower()
 
 
 class TestHandleCheckForwardedMessage:
@@ -307,6 +352,21 @@ class TestHandleCheckForwardedMessage:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "Gagal memeriksa" in call_args.args[0]
+
+    async def test_check_forwarded_timeout(self, mock_update, mock_context):
+        """Handles TimedOut error gracefully."""
+        forwarded_user = MagicMock()
+        forwarded_user.id = 555666
+        forwarded_user.full_name = "Forwarded User"
+        mock_update.message.forward_from = forwarded_user
+
+        mock_context.bot.get_chat.side_effect = TimedOut()
+
+        await handle_check_forwarded_message(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "timeout" in call_args.args[0].lower()
 
 
 class TestHandleWarnCallback:
@@ -453,3 +513,27 @@ class TestHandleWarnCallback:
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
         assert "Gagal mengirim" in call_args.args[0]
+
+    async def test_warn_callback_timeout(self, mock_context, mock_settings):
+        """Handles TimedOut error gracefully."""
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "warn:555666:pu"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        mock_chat = MagicMock()
+        mock_chat.full_name = "Test User"
+        mock_context.bot.get_chat.return_value = mock_chat
+        mock_context.bot.send_message.side_effect = TimedOut()
+
+        with patch("bot.handlers.check.get_settings", return_value=mock_settings):
+            await handle_warn_callback(update, mock_context)
+
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "timeout" in call_args.args[0].lower()

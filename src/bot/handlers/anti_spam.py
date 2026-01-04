@@ -76,6 +76,21 @@ def has_external_reply(message: Message) -> bool:
     return message.external_reply is not None
 
 
+def has_story(message: Message) -> bool:
+    """
+    Check if a message contains a forwarded story.
+
+    Stories can be shared/forwarded into chats and may be used as a spam vector.
+
+    Args:
+        message: Telegram message to check.
+
+    Returns:
+        bool: True if message contains a story.
+    """
+    return message.story is not None
+
+
 def extract_urls(message: Message) -> list[str]:
     """
     Extract all URLs from a message.
@@ -218,13 +233,13 @@ async def handle_new_user_spam(
     user_mention = get_user_mention(user)
 
     # Check for violations (forwarded message or non-whitelisted link or external reply)
-    if not (is_forwarded(msg) or has_non_whitelisted_link(msg) or has_external_reply(msg)):
+    if not (is_forwarded(msg) or has_non_whitelisted_link(msg) or has_external_reply(msg) or has_story(msg)):
         return  # Not a violation
 
     logger.info(
         f"Probation violation detected: user_id={user.id}, "
         f"forwarded={is_forwarded(msg)}, has_non_whitelisted_link={has_non_whitelisted_link(msg)}, "
-        f"external_reply={has_external_reply(msg)}"
+        f"external_reply={has_external_reply(msg)}, has_story={has_story(msg)}"
     )
 
     # 1. Delete the violating message

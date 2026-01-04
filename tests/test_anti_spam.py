@@ -12,6 +12,7 @@ from bot.handlers.anti_spam import (
     has_external_reply,
     has_link,
     has_non_whitelisted_link,
+    has_story,
     is_forwarded,
     is_url_whitelisted,
 )
@@ -109,6 +110,24 @@ class TestHasExternalReply:
         assert has_external_reply(msg) is False
 
 
+class TestHasStory:
+    """Tests for the has_story helper function."""
+
+    def test_story_detected(self):
+        """Test that message with story is detected."""
+        msg = MagicMock(spec=Message)
+        msg.story = MagicMock()  # Any non-None value indicates a shared story
+
+        assert has_story(msg) is True
+
+    def test_no_story_returns_false(self):
+        """Test that message without story returns False."""
+        msg = MagicMock(spec=Message)
+        msg.story = None
+
+        assert has_story(msg) is False
+
+
 class TestUrlWhitelist:
     """Tests for URL whitelist functionality."""
 
@@ -170,6 +189,11 @@ class TestUrlWhitelist:
         """Test that exceptions during URL parsing are handled."""
         # This URL has an invalid character that may cause parsing issues
         assert is_url_whitelisted("\x00invalid") is False
+
+    def test_urlparse_exception_returns_false(self):
+        """Test that exceptions during URL parsing return False."""
+        with patch("bot.handlers.anti_spam.urlparse", side_effect=ValueError("parse error")):
+            assert is_url_whitelisted("https://github.com/user/repo") is False
 
 
 class TestExtractUrls:
@@ -274,9 +298,10 @@ class TestHandleNewUserSpam:
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100123456  # group_id from settings
 
-        # Default: not forwarded, no links, no external reply
+        # Default: not forwarded, no links, no external reply, no story
         update.message.forward_origin = None
         update.message.external_reply = None
+        update.message.story = None
         update.message.entities = None
         update.message.caption_entities = None
         update.message.text = None
@@ -602,6 +627,31 @@ class TestHandleNewUserSpam:
     ):
         """Test that messages with external replies are deleted."""
         mock_update.message.external_reply = MagicMock()  # Any non-None value
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_story(
+        self, mock_update, mock_context, mock_settings
+    ):
+        """Test that messages with shared stories are deleted."""
+        mock_update.message.story = MagicMock()  # Any non-None value
 
         mock_record = MagicMock()
         mock_record.joined_at = datetime.now(UTC)
