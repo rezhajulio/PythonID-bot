@@ -40,7 +40,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Get warnings that exceeded time threshold
     expired_warnings = db.get_warnings_past_time_threshold(
-        settings.warning_time_threshold_minutes
+        settings.warning_time_threshold_timedelta
     )
 
     if not expired_warnings:

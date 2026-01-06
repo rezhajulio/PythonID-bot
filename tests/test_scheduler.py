@@ -199,14 +199,16 @@ class TestAutoRestrictExpiredWarnings:
         mock_context.bot = mock_bot
 
         mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 300  # Different threshold (5 hours)
+        mock_settings.warning_time_threshold_timedelta = timedelta(minutes=300)
 
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
             with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
                 await auto_restrict_expired_warnings(mock_context)
 
         # Verify correct threshold was passed to database query
-        mock_db.get_warnings_past_time_threshold.assert_called_once_with(300)
+        mock_db.get_warnings_past_time_threshold.assert_called_once_with(
+            timedelta(minutes=300)
+        )
 
     @pytest.mark.asyncio
     async def test_skips_kicked_user_and_deletes_warning(self):

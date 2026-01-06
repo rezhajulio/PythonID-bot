@@ -166,7 +166,7 @@ class TestGetWarningsPastTimeThreshold:
             session.commit()
 
         # Should find the expired warning (1440 minutes = 24 hours)
-        expired = db_service.get_warnings_past_time_threshold(minutes_threshold=1440)
+        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
         assert len(expired) == 1
         assert expired[0].user_id == 123
 
@@ -175,7 +175,7 @@ class TestGetWarningsPastTimeThreshold:
         db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
 
         # Should not find recent warnings
-        expired = db_service.get_warnings_past_time_threshold(minutes_threshold=1440)
+        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
         assert len(expired) == 0
 
     def test_ignores_restricted_users(self, db_service):
@@ -184,7 +184,7 @@ class TestGetWarningsPastTimeThreshold:
         db_service.mark_user_restricted(user_id=123, group_id=-100999)
 
         # Should not find restricted users even if old
-        expired = db_service.get_warnings_past_time_threshold(minutes_threshold=0)
+        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=0))
         assert len(expired) == 0
 
     def test_returns_multiple_expired_warnings(self, db_service):
@@ -202,7 +202,7 @@ class TestGetWarningsPastTimeThreshold:
                 session.add(db_record)
                 session.commit()
 
-        expired = db_service.get_warnings_past_time_threshold(minutes_threshold=1440)
+        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
         assert len(expired) == 3
 
 

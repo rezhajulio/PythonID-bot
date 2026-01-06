@@ -19,6 +19,7 @@ def mock_settings():
     settings = MagicMock()
     settings.group_id = -1001234567890
     settings.captcha_timeout_seconds = 300
+    settings.captcha_timeout_timedelta = timedelta(seconds=300)
     return settings
 
 

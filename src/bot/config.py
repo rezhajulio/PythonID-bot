@@ -8,6 +8,7 @@ variables using Pydantic Settings. It supports multiple environments
 
 import logging
 import os
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -90,7 +91,18 @@ class Settings(BaseSettings):
     )
 
     def model_post_init(self, __context):
-        """Log non-sensitive configuration values after initialization."""
+        """Validate and log non-sensitive configuration values after initialization."""
+        if self.group_id >= 0:
+            raise ValueError("group_id must be negative (Telegram supergroup IDs are negative)")
+        if self.warning_threshold <= 0:
+            raise ValueError("warning_threshold must be greater than 0")
+        if self.new_user_probation_hours < 0:
+            raise ValueError("new_user_probation_hours must be >= 0")
+        if not (10 <= self.captcha_timeout_seconds <= 600):
+            raise ValueError("captcha_timeout_seconds must be between 10 and 600 seconds")
+        if self.warning_time_threshold_minutes <= 0:
+            raise ValueError("warning_time_threshold_minutes must be greater than 0")
+
         # Set logfire_environment based on BOT_ENV if not explicitly set
         env = os.getenv("BOT_ENV", "production")
         if self.logfire_environment == "production" and env == "staging":
@@ -110,6 +122,18 @@ class Settings(BaseSettings):
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
         logger.debug(f"logfire_enabled: {self.logfire_enabled}")
         logger.debug(f"logfire_environment: {self.logfire_environment}")
+
+    @property
+    def probation_timedelta(self) -> timedelta:
+        return timedelta(hours=self.new_user_probation_hours)
+
+    @property
+    def warning_time_threshold_timedelta(self) -> timedelta:
+        return timedelta(minutes=self.warning_time_threshold_minutes)
+
+    @property
+    def captcha_timeout_timedelta(self) -> timedelta:
+        return timedelta(seconds=self.captcha_timeout_seconds)
 
 
 @lru_cache

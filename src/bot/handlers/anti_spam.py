@@ -8,7 +8,7 @@ after exceeding the threshold.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from telegram import Message, MessageEntity, Update
@@ -223,7 +223,7 @@ async def handle_new_user_spam(
         joined_at = joined_at.replace(tzinfo=UTC)
 
     now = datetime.now(UTC)
-    probation_end = joined_at + timedelta(hours=settings.new_user_probation_hours)
+    probation_end = joined_at + settings.probation_timedelta
     if now >= probation_end:
         db.clear_new_user_probation(user.id, settings.group_id)
         logger.info(f"Probation expired for user_id={user.id}, cleared record")

@@ -8,7 +8,7 @@ with SQLite backend for persistence.
 
 import logging
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine, delete, select
@@ -47,6 +47,12 @@ class DatabaseService:
         sqlite3.register_adapter(datetime, lambda val: val.isoformat())
 
         self._engine = create_engine(f"sqlite:///{database_path}")
+
+        with self._engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+            conn.exec_driver_sql("PRAGMA synchronous=NORMAL;")
+        logger.info("SQLite WAL mode enabled")
+
         SQLModel.metadata.create_all(self._engine)
 
     def get_or_create_user_warning(self, user_id: int, group_id: int) -> UserWarning:
@@ -342,7 +348,7 @@ class DatabaseService:
             logger.info(f"Removed from photo whitelist: user_id={user_id}")
 
     def get_warnings_past_time_threshold(
-        self, minutes_threshold: int
+        self, threshold: timedelta
     ) -> list[UserWarning]:
         """
         Find all active warnings that have exceeded the time threshold.
@@ -351,24 +357,21 @@ class DatabaseService:
         since first_warned_at exceeds the threshold, regardless of message count.
 
         Args:
-            minutes_threshold: Number of minutes since first warning to trigger restriction.
+            threshold: Time duration since first warning to trigger restriction.
 
         Returns:
             list[UserWarning]: List of warning records that should be auto-restricted.
         """
-        from datetime import timedelta
-
         with Session(self._engine) as session:
-            cutoff_time = datetime.now(UTC) - timedelta(minutes=minutes_threshold)
+            cutoff_time = datetime.now(UTC) - threshold
             statement = select(UserWarning).where(
                 ~UserWarning.is_restricted,
                 UserWarning.first_warned_at <= cutoff_time,
             )
             records = session.exec(statement).all()
             logger.info(
-                f"Found {len(records)} warnings past {minutes_threshold}min threshold"
+                f"Found {len(records)} warnings past {threshold} threshold"
             )
-            # Detach from session before returning
             return [record for record in records]
 
     def add_pending_captcha(

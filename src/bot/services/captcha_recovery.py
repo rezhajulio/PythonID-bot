@@ -109,7 +109,7 @@ async def recover_pending_captchas(application: Application) -> None:
             # Make created_at timezone-aware (SQLite stores without timezone)
             created_at_utc = record.created_at.replace(tzinfo=UTC)
             elapsed_seconds = (now - created_at_utc).total_seconds()
-            remaining_seconds = settings.captcha_timeout_seconds - elapsed_seconds
+            remaining_seconds = settings.captcha_timeout_timedelta.total_seconds() - elapsed_seconds
 
             if remaining_seconds <= 0:
                 # Timeout has already passed, expire immediately

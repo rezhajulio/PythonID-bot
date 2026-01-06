@@ -328,6 +328,7 @@ class TestHandleNewUserSpam:
         settings.rules_link = "https://example.com/rules"
         settings.new_user_probation_hours = 168
         settings.new_user_violation_threshold = 3
+        settings.probation_timedelta = timedelta(hours=168)
         return settings
 
     @pytest.mark.asyncio
