@@ -20,6 +20,7 @@ from bot.constants import (
     NEW_USER_SPAM_WARNING,
     RESTRICTED_PERMISSIONS,
     WHITELISTED_URL_DOMAINS,
+    WHITELISTED_TELEGRAM_PATHS,
     format_hours_display,
 )
 from bot.database.service import get_database
@@ -139,6 +140,22 @@ def is_url_whitelisted(url: str) -> bool:
         # Remove port if present
         if ':' in hostname:
             hostname = hostname.rsplit(':', 1)[0]
+            
+        # Specific logic for Telegram links
+        # Check against WHITELISTED_TELEGRAM_PATHS instead of WHITELISTED_URL_DOMAINS
+        if hostname in {"t.me", "telegram.me"}:
+            path = parsed.path
+            if not path or path == "/":
+                return False
+                
+            # Extract the first segment of the path (the username/channel name)
+            # e.g., "/PythonID/123" -> "pythonid"
+            parts = path.strip("/").split("/")
+            if not parts:
+                return False
+                
+            first_segment = parts[0].lower()
+            return first_segment in WHITELISTED_TELEGRAM_PATHS
 
         # Check suffixes of the hostname against the set
         # e.g., "sub.example.github.com" checks:
