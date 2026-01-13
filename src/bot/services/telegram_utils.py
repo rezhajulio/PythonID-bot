@@ -7,7 +7,7 @@ Telegram's API across different handlers and services.
 
 import logging
 
-from telegram import Bot, Message, User
+from telegram import Bot, Chat, Message, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
 from telegram.helpers import mention_markdown
@@ -15,39 +15,46 @@ from telegram.helpers import mention_markdown
 logger = logging.getLogger(__name__)
 
 
-def get_user_mention(user: User) -> str:
+def get_user_mention(user: User | Chat) -> str:
     """
-    Get a formatted mention string for a user.
+    Get a formatted mention string for a user or chat.
 
-    Returns `@username` if the user has a username, otherwise returns
-    a markdown mention using the user's full name and ID.
+    Returns `@username` if the user/chat has a username, otherwise returns
+    a markdown mention using the full name and ID.
 
     Args:
-        user: Telegram User object.
+        user: Telegram User or Chat object.
 
     Returns:
         str: Formatted user mention (either @username or markdown mention).
     """
     return (
-        f"@{user.username}"
+        f"@{user.username.lstrip('@')}"
         if user.username
         else mention_markdown(user.id, user.full_name, version=1)
     )
 
 
-def get_user_mention_by_id(user_id: int, user_full_name: str) -> str:
+def get_user_mention_by_id(
+    user_id: int,
+    user_full_name: str,
+    username: str | None = None,
+) -> str:
     """
-    Get a formatted markdown mention for a user by ID and name.
+    Get a formatted mention for a user by ID and name.
 
     Used when only user ID and full name are available (not a full User object).
 
     Args:
         user_id: Telegram user ID.
         user_full_name: User's full name.
+        username: Optional username to prefer @username format.
 
     Returns:
-        str: Markdown mention string.
+        str: Formatted mention string.
     """
+    if username:
+        return f"@{username.lstrip('@')}"
     return mention_markdown(user_id, user_full_name, version=1)
 
 

@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from telegram import User
+from telegram import Chat, User
 from telegram.error import BadRequest, Forbidden
 
 from bot.services.telegram_utils import (
@@ -97,6 +97,67 @@ class TestGetUserMention:
         mock_mention_markdown.assert_called_once_with(777888, "A" * 100, version=1)
         assert result == f"[{'A' * 100}](tg://user?id=777888)"
 
+    def test_get_user_mention_with_prefixed_username(self):
+        """Test that username with @ prefix is normalized."""
+        user = MagicMock(spec=User)
+        user.username = "@already_prefixed"
+        user.id = 123456
+        user.full_name = "Test User"
+
+        result = get_user_mention(user)
+
+        assert result == "@already_prefixed"
+
+    def test_get_user_mention_chat_with_username(self):
+        """Test getting mention for Chat object with username."""
+        chat = MagicMock(spec=Chat)
+        chat.username = "john_doe"
+        chat.id = 123456
+        chat.full_name = "John Doe"
+
+        result = get_user_mention(chat)
+
+        assert result == "@john_doe"
+
+    def test_get_user_mention_chat_with_prefixed_username(self):
+        """Test that Chat with @ prefixed username is normalized."""
+        chat = MagicMock(spec=Chat)
+        chat.username = "@prefixed_chat"
+        chat.id = 123456
+        chat.full_name = "Prefixed Chat"
+
+        result = get_user_mention(chat)
+
+        assert result == "@prefixed_chat"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_chat_without_username(self, mock_mention_markdown):
+        """Test getting mention for Chat object without username."""
+        chat = MagicMock(spec=Chat)
+        chat.username = None
+        chat.id = 123456
+        chat.full_name = "Jane Smith"
+        mock_mention_markdown.return_value = "[Jane Smith](tg://user?id=123456)"
+
+        result = get_user_mention(chat)
+
+        mock_mention_markdown.assert_called_once_with(123456, "Jane Smith", version=1)
+        assert result == "[Jane Smith](tg://user?id=123456)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_chat_empty_username(self, mock_mention_markdown):
+        """Test getting mention for Chat object with empty string username."""
+        chat = MagicMock(spec=Chat)
+        chat.username = ""
+        chat.id = 987654
+        chat.full_name = "Jane Smith"
+        mock_mention_markdown.return_value = "[Jane Smith](tg://user?id=987654)"
+
+        result = get_user_mention(chat)
+
+        mock_mention_markdown.assert_called_once_with(987654, "Jane Smith", version=1)
+        assert result == "[Jane Smith](tg://user?id=987654)"
+
 
 class TestGetUserMentionById:
     @patch("bot.services.telegram_utils.mention_markdown")
@@ -159,6 +220,44 @@ class TestGetUserMentionById:
 
         mock_mention_markdown.assert_called_once_with(777888, "A", version=1)
         assert result == "[A](tg://user?id=777888)"
+
+    def test_get_user_mention_by_id_with_username(self):
+        """Test mention by ID with username provided returns @username."""
+        result = get_user_mention_by_id(123456, "John Doe", username="johndoe")
+
+        assert result == "@johndoe"
+
+    def test_get_user_mention_by_id_with_username_special_chars(self):
+        """Test mention by ID with username containing underscores."""
+        result = get_user_mention_by_id(123456, "John Doe", username="john_doe_123")
+
+        assert result == "@john_doe_123"
+
+    def test_get_user_mention_by_id_with_prefixed_username(self):
+        """Test that username with @ prefix is normalized."""
+        result = get_user_mention_by_id(123456, "Test User", username="@prefixed")
+
+        assert result == "@prefixed"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_with_none_username(self, mock_mention_markdown):
+        """Test mention by ID with explicit None username."""
+        mock_mention_markdown.return_value = "[John Doe](tg://user?id=123456)"
+
+        result = get_user_mention_by_id(123456, "John Doe", username=None)
+
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=1)
+        assert result == "[John Doe](tg://user?id=123456)"
+
+    @patch("bot.services.telegram_utils.mention_markdown")
+    def test_get_user_mention_by_id_with_empty_username(self, mock_mention_markdown):
+        """Test mention by ID with empty string username falls back to markdown."""
+        mock_mention_markdown.return_value = "[John Doe](tg://user?id=123456)"
+
+        result = get_user_mention_by_id(123456, "John Doe", username="")
+
+        mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=1)
+        assert result == "[John Doe](tg://user?id=123456)"
 
 
 class TestUnrestrictUser:

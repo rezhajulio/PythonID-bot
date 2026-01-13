@@ -56,6 +56,7 @@ def mock_context():
     mock_permissions.can_pin_messages = False
     mock_chat.permissions = mock_permissions
     mock_chat.full_name = "Test User"
+    mock_chat.username = "testuser"
     context.bot.get_chat.return_value = mock_chat
     
     context.bot_data = {"admin_ids": [12345]}
@@ -285,6 +286,45 @@ class TestHandleVerifyCommand:
         new_warning = db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
         assert new_warning.message_count == 1  # Fresh start
 
+    async def test_verify_sends_clearance_message_when_warnings_deleted(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """Test that clearance message is sent to warning topic when user with warnings is verified."""
+        class MockSettings:
+            group_id = -1001234567890
+            warning_topic_id = 12345
+            telegram_bot_token = "fake_token"
+
+        monkeypatch.setattr("bot.handlers.verify.get_settings", lambda: MockSettings())
+
+        target_user_id = 77777777
+        db = get_database()
+
+        # Seed a warning for the target user
+        db.get_or_create_user_warning(target_user_id, MockSettings.group_id)
+        db.increment_message_count(target_user_id, MockSettings.group_id)
+
+        # Mock get_chat to return a user with username
+        mock_user_chat = MagicMock()
+        mock_user_chat.username = "verified_user"
+        mock_user_chat.full_name = "Verified User"
+
+        # First call is for group permissions, second call is for user info
+        mock_group_chat = MagicMock()
+        mock_group_chat.permissions = MagicMock()
+        mock_context.bot.get_chat.side_effect = [mock_group_chat, mock_user_chat]
+
+        mock_context.args = [str(target_user_id)]
+        await handle_verify_command(mock_update, mock_context)
+
+        # Verify send_message was called with correct clearance message
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert call_kwargs["chat_id"] == MockSettings.group_id
+        assert call_kwargs["message_thread_id"] == MockSettings.warning_topic_id
+        assert "@verified_user" in call_kwargs["text"]
+        assert call_kwargs["parse_mode"] == "Markdown"
+
     async def test_verify_handles_non_restricted_user_gracefully(
         self, mock_update, mock_context, temp_db, monkeypatch
     ):
@@ -348,7 +388,7 @@ class TestHandleVerifyCommand:
         assert call_args.kwargs["message_thread_id"] == MockSettings.warning_topic_id
         assert call_args.kwargs["parse_mode"] == "Markdown"
         # Check the message contains user mention
-        assert "Test User" in call_args.kwargs["text"] or str(target_user_id) in call_args.kwargs["text"]
+        assert "@testuser" in call_args.kwargs["text"]
 
     async def test_verify_without_warnings_no_notification(
         self, mock_update, mock_context, temp_db, monkeypatch

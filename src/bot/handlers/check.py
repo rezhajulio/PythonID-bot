@@ -23,7 +23,11 @@ from bot.constants import (
     MISSING_ITEMS_SEPARATOR,
 )
 from bot.database.service import get_database
-from bot.services.telegram_utils import extract_forwarded_user, get_user_mention_by_id
+from bot.services.telegram_utils import (
+    extract_forwarded_user,
+    get_user_mention,
+    get_user_mention_by_id,
+)
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -248,7 +252,7 @@ async def handle_warn_callback(
     try:
         # Get user info for mention
         chat = await context.bot.get_chat(target_user_id)
-        user_mention = get_user_mention_by_id(target_user_id, chat.full_name or f"User {target_user_id}")
+        user_mention = get_user_mention(chat)
         
         # Send warning to group
         warn_message = ADMIN_WARN_USER_MESSAGE.format(

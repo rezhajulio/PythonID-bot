@@ -438,6 +438,7 @@ class TestHandleWarnCallback:
 
         mock_chat = MagicMock()
         mock_chat.full_name = "Test User"
+        mock_chat.username = "testuser"
         mock_context.bot.get_chat.return_value = mock_chat
 
         with patch("bot.handlers.check.get_settings", return_value=mock_settings):
@@ -445,7 +446,7 @@ class TestHandleWarnCallback:
 
         send_call_args = mock_context.bot.send_message.call_args
         assert "foto profil publik" in send_call_args.kwargs["text"]
-        assert "username" not in send_call_args.kwargs["text"]
+        assert "@testuser" in send_call_args.kwargs["text"]
 
     async def test_warn_callback_invalid_data(self, mock_context):
         """Invalid callback data shows error."""
