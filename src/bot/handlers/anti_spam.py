@@ -14,7 +14,6 @@ from urllib.parse import urlparse
 from telegram import Message, MessageEntity, Update
 from telegram.ext import ContextTypes
 
-from bot.config import get_settings
 from bot.constants import (
     NEW_USER_SPAM_RESTRICTION,
     NEW_USER_SPAM_WARNING,
@@ -24,6 +23,7 @@ from bot.constants import (
     format_hours_display,
 )
 from bot.database.service import get_database
+from bot.group_config import get_group_config_for_update
 from bot.services.telegram_utils import get_user_mention
 
 logger = logging.getLogger(__name__)
@@ -140,20 +140,20 @@ def is_url_whitelisted(url: str) -> bool:
         # Remove port if present
         if ':' in hostname:
             hostname = hostname.rsplit(':', 1)[0]
-            
+
         # Specific logic for Telegram links
         # Check against WHITELISTED_TELEGRAM_PATHS instead of WHITELISTED_URL_DOMAINS
         if hostname in {"t.me", "telegram.me"}:
             path = parsed.path
             if not path or path == "/":
                 return False
-                
+
             # Extract the first segment of the path (the username/channel name)
             # e.g., "/PythonID/123" -> "pythonid"
             parts = path.strip("/").split("/")
             if not parts:
                 return False
-                
+
             first_segment = parts[0].lower()
             return first_segment in WHITELISTED_TELEGRAM_PATHS
 
@@ -214,12 +214,12 @@ async def handle_new_user_spam(
     if not update.message or not update.message.from_user:
         return
 
-    settings = get_settings()
+    group_config = get_group_config_for_update(update)
     chat = update.effective_chat
     user = update.message.from_user
 
-    # Only process messages from the configured group
-    if not chat or chat.id != settings.group_id:
+    # Only process messages from monitored groups
+    if group_config is None:
         return
 
     # Ignore bots
@@ -227,7 +227,7 @@ async def handle_new_user_spam(
         return
 
     db = get_database()
-    record = db.get_new_user_probation(user.id, settings.group_id)
+    record = db.get_new_user_probation(user.id, group_config.group_id)
 
     # User not on probation
     if not record:
@@ -240,9 +240,9 @@ async def handle_new_user_spam(
         joined_at = joined_at.replace(tzinfo=UTC)
 
     now = datetime.now(UTC)
-    probation_end = joined_at + settings.probation_timedelta
+    probation_end = joined_at + group_config.probation_timedelta
     if now >= probation_end:
-        db.clear_new_user_probation(user.id, settings.group_id)
+        db.clear_new_user_probation(user.id, group_config.group_id)
         logger.info(f"Probation expired for user_id={user.id}, cleared record")
         return
 
@@ -270,20 +270,20 @@ async def handle_new_user_spam(
         )
 
     # 2. Increment violation count
-    record = db.increment_new_user_violation(user.id, settings.group_id)
+    record = db.increment_new_user_violation(user.id, group_config.group_id)
 
     # 3. First violation: send warning to warning topic
     if record.violation_count == 1:
-        probation_display = format_hours_display(settings.new_user_probation_hours)
+        probation_display = format_hours_display(group_config.new_user_probation_hours)
         warning_text = NEW_USER_SPAM_WARNING.format(
             user_mention=user_mention,
             probation_display=probation_display,
-            rules_link=settings.rules_link,
+            rules_link=group_config.rules_link,
         )
         try:
             await context.bot.send_message(
-                chat_id=settings.group_id,
-                message_thread_id=settings.warning_topic_id,
+                chat_id=group_config.group_id,
+                message_thread_id=group_config.warning_topic_id,
                 text=warning_text,
                 parse_mode="Markdown",
             )
@@ -295,10 +295,10 @@ async def handle_new_user_spam(
             )
 
     # 4. Threshold reached: restrict user and notify
-    if record.violation_count == settings.new_user_violation_threshold:
+    if record.violation_count == group_config.new_user_violation_threshold:
         try:
             await context.bot.restrict_chat_member(
-                chat_id=settings.group_id,
+                chat_id=group_config.group_id,
                 user_id=user.id,
                 permissions=RESTRICTED_PERMISSIONS,
             )
@@ -311,11 +311,11 @@ async def handle_new_user_spam(
             restriction_text = NEW_USER_SPAM_RESTRICTION.format(
                 user_mention=user_mention,
                 violation_count=record.violation_count,
-                rules_link=settings.rules_link,
+                rules_link=group_config.rules_link,
             )
             await context.bot.send_message(
-                chat_id=settings.group_id,
-                message_thread_id=settings.warning_topic_id,
+                chat_id=group_config.group_id,
+                message_thread_id=group_config.warning_topic_id,
                 text=restriction_text,
                 parse_mode="Markdown",
             )

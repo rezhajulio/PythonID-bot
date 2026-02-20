@@ -19,7 +19,6 @@ from telegram.ext import (
     filters,
 )
 
-from bot.config import Settings, get_settings
 from bot.constants import (
     CAPTCHA_FAILED_VERIFICATION_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
@@ -28,6 +27,7 @@ from bot.constants import (
     RESTRICTED_PERMISSIONS,
 )
 from bot.database.service import get_database
+from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ async def _initiate_captcha_challenge(
     context: ContextTypes.DEFAULT_TYPE,
     user: User,
     chat_id: int,
-    settings: Settings,
+    group_config: GroupConfig,
 ) -> None:
     """
     Initiate captcha challenge for a new member.
@@ -62,7 +62,7 @@ async def _initiate_captcha_challenge(
         context: Bot context with helper methods and job queue.
         user: The user to challenge.
         chat_id: The group chat ID.
-        settings: Bot settings.
+        group_config: Per-group configuration.
     """
     user_id = user.id
     user_mention = get_user_mention(user)
@@ -87,12 +87,12 @@ async def _initiate_captcha_challenge(
 
     welcome_message = CAPTCHA_WELCOME_MESSAGE.format(
         user_mention=user_mention,
-        timeout=settings.captcha_timeout_seconds,
+        timeout=group_config.captcha_timeout_seconds,
     )
 
     sent_message = await context.bot.send_message(
         chat_id=chat_id,
-        message_thread_id=settings.warning_topic_id,
+        message_thread_id=group_config.warning_topic_id,
         text=welcome_message,
         parse_mode="Markdown",
         reply_markup=keyboard,
@@ -102,7 +102,7 @@ async def _initiate_captcha_challenge(
     try:
         db.add_pending_captcha(
             user_id=user_id,
-            group_id=settings.group_id,
+            group_id=group_config.group_id,
             chat_id=sent_message.chat_id,
             message_id=sent_message.message_id,
             user_full_name=user.full_name,
@@ -111,14 +111,14 @@ async def _initiate_captcha_challenge(
         logger.info(f"Captcha already exists for user {user_id} (race condition handled)")
         return
 
-    job_name = get_captcha_job_name(settings.group_id, user_id)
+    job_name = get_captcha_job_name(group_config.group_id, user_id)
     context.job_queue.run_once(
         captcha_timeout_callback,
-        when=settings.captcha_timeout_seconds,
+        when=group_config.captcha_timeout_seconds,
         name=job_name,
         data={
             "user_id": user_id,
-            "group_id": settings.group_id,
+            "group_id": group_config.group_id,
             "chat_id": sent_message.chat_id,
             "message_id": sent_message.message_id,
             "user_full_name": user.full_name,
@@ -127,7 +127,7 @@ async def _initiate_captcha_challenge(
 
     logger.info(
         f"Sent captcha challenge to user {user_id} ({user.full_name}), "
-        f"timeout in {settings.captcha_timeout_seconds}s"
+        f"timeout in {group_config.captcha_timeout_seconds}s"
     )
 
 
@@ -149,12 +149,12 @@ async def new_member_handler(
         logger.info("No message or no new chat members, skipping")
         return
 
-    settings = get_settings()
+    group_config = get_group_config_for_update(update)
 
-    if update.effective_chat and update.effective_chat.id != settings.group_id:
-        logger.info(f"Message from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+    if group_config is None:
+        logger.info(f"Message from unmonitored chat {update.effective_chat.id if update.effective_chat else None}, skipping")
         return
-    
+
     logger.info(f"Processing new members: {len(update.message.new_chat_members)} member(s)")
 
     db = get_database()
@@ -165,18 +165,18 @@ async def new_member_handler(
         user_id = new_member.id
 
         # Start probation for all new users (regardless of captcha setting)
-        db.start_new_user_probation(user_id, settings.group_id)
+        db.start_new_user_probation(user_id, group_config.group_id)
 
         # If captcha is disabled, we're done - user just gets probation
-        if not settings.captcha_enabled:
+        if not group_config.captcha_enabled:
             logger.info(f"Captcha disabled, probation started for user {user_id}")
             continue
 
-        if db.get_pending_captcha(user_id, settings.group_id):
+        if db.get_pending_captcha(user_id, group_config.group_id):
             logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (new_member_handler)")
             continue
 
-        await _initiate_captcha_challenge(context, new_member, settings.group_id, settings)
+        await _initiate_captcha_challenge(context, new_member, group_config.group_id, group_config)
 
 
 async def chat_member_handler(
@@ -197,10 +197,10 @@ async def chat_member_handler(
         logger.info("No chat_member in update, skipping")
         return
 
-    settings = get_settings()
+    group_config = get_group_config_for_update(update)
 
-    if update.effective_chat and update.effective_chat.id != settings.group_id:
-        logger.info(f"Update from wrong chat {update.effective_chat.id}, expected {settings.group_id}, skipping")
+    if group_config is None:
+        logger.info(f"Update from unmonitored chat {update.effective_chat.id if update.effective_chat else None}, skipping")
         return
 
     old_status = update.chat_member.old_chat_member.status
@@ -229,20 +229,20 @@ async def chat_member_handler(
 
     # Start probation for all new users (regardless of captcha setting)
     db = get_database()
-    db.start_new_user_probation(new_member.id, settings.group_id)
+    db.start_new_user_probation(new_member.id, group_config.group_id)
 
     # If captcha is disabled, we're done - user just gets probation
-    if not settings.captcha_enabled:
+    if not group_config.captcha_enabled:
         logger.info(f"Captcha disabled, probation started for user {new_member.id}")
         return
 
     user_id = new_member.id
 
-    if db.get_pending_captcha(user_id, settings.group_id):
+    if db.get_pending_captcha(user_id, group_config.group_id):
         logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (chat_member_handler)")
         return
 
-    await _initiate_captcha_challenge(context, new_member, settings.group_id, settings)
+    await _initiate_captcha_challenge(context, new_member, group_config.group_id, group_config)
 
 
 async def captcha_callback_handler(
@@ -271,27 +271,41 @@ async def captcha_callback_handler(
         await query.answer(CAPTCHA_WRONG_USER_MESSAGE, show_alert=True)
         return
 
-    settings = get_settings()
+    # Look up which group this captcha belongs to
+    db = get_database()
+    registry = get_group_registry()
 
-    job_name = get_captcha_job_name(settings.group_id, target_user_id)
+    # Find the group for this pending captcha
+    group_config = None
+    for gc in registry.all_groups():
+        pending = db.get_pending_captcha(target_user_id, gc.group_id)
+        if pending:
+            group_config = gc
+            break
+
+    if group_config is None:
+        logger.warning(f"No pending captcha found for user {target_user_id} in any monitored group")
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    job_name = get_captcha_job_name(group_config.group_id, target_user_id)
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal()
         logger.info(f"Cancelled timeout job for user {target_user_id}")
 
     try:
-        await unrestrict_user(context.bot, settings.group_id, target_user_id)
+        await unrestrict_user(context.bot, group_config.group_id, target_user_id)
         logger.info(f"Unrestricted verified user {target_user_id}")
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return  # Stop execution here so user can retry
 
-    db = get_database()
-    db.remove_pending_captcha(target_user_id, settings.group_id)
+    db.remove_pending_captcha(target_user_id, group_config.group_id)
 
     # Start anti-spam probation for verified user
-    db.start_new_user_probation(target_user_id, settings.group_id)
+    db.start_new_user_probation(target_user_id, group_config.group_id)
 
     user_mention = get_user_mention(query.from_user)
 
@@ -344,7 +358,7 @@ def get_handlers() -> list:
     Return list of handlers to register for captcha verification.
 
     Returns:
-        list: List containing chat member handler, message handler (fallback), 
+        list: List containing chat member handler, message handler (fallback),
               and callback query handler.
     """
     return [

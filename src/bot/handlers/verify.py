@@ -12,27 +12,28 @@ from telegram import Bot, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from bot.config import Settings, get_settings
 from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import DatabaseService, get_database
+from bot.group_config import GroupRegistry, get_group_registry
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
 
 logger = logging.getLogger(__name__)
 
 
 async def verify_user(
-    bot: Bot, db: DatabaseService, settings: Settings, target_user_id: int, admin_user_id: int
+    bot: Bot, db: DatabaseService, registry: GroupRegistry, target_user_id: int, admin_user_id: int
 ) -> str:
     """
     Verify a user by adding them to the photo verification whitelist.
 
     This function handles the core verification logic: adds user to whitelist,
-    unrestricts them, deletes warnings, and sends clearance notification if needed.
+    unrestricts them in all monitored groups, deletes warnings, and sends
+    clearance notification if needed.
 
     Args:
         bot: Telegram bot instance.
         db: Database service instance.
-        settings: Bot settings instance.
+        registry: Group registry for iterating all groups.
         target_user_id: ID of the user to verify.
         admin_user_id: ID of the admin performing the verification.
 
@@ -47,35 +48,41 @@ async def verify_user(
         verified_by_admin_id=admin_user_id,
     )
 
-    # Unrestrict user if they are restricted
-    try:
-        await unrestrict_user(bot, settings.group_id, target_user_id)
-        logger.info(f"Unrestricted user {target_user_id} during verification")
-    except BadRequest as e:
-        # User might not be restricted or not in group - that's okay
-        logger.info(f"Could not unrestrict user {target_user_id}: {e}")
+    # Unrestrict user and delete warnings in all monitored groups
+    total_deleted = 0
+    for group_config in registry.all_groups():
+        # Unrestrict user if they are restricted
+        try:
+            await unrestrict_user(bot, group_config.group_id, target_user_id)
+            logger.info(f"Unrestricted user {target_user_id} in group {group_config.group_id} during verification")
+        except BadRequest as e:
+            # User might not be restricted or not in group - that's okay
+            logger.info(f"Could not unrestrict user {target_user_id} in group {group_config.group_id}: {e}")
 
-    # Delete all warning records for this user
-    deleted_count = db.delete_user_warnings(target_user_id, settings.group_id)
+        # Delete all warning records for this user in this group
+        deleted_count = db.delete_user_warnings(target_user_id, group_config.group_id)
+        total_deleted += deleted_count
 
-    # Send notification to warning topic if user had previous warnings
-    if deleted_count > 0:
-        # Get user info for proper mention
-        user_info = await bot.get_chat(target_user_id)
-        user_mention = get_user_mention(user_info)
+        # Send notification to warning topic if user had previous warnings
+        if deleted_count > 0:
+            # Get user info for proper mention
+            user_info = await bot.get_chat(target_user_id)
+            user_mention = get_user_mention(user_info)
 
-        # Send clearance message to warning topic
-        clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
-            user_mention=user_mention
-        )
-        await bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=clearance_message,
-            parse_mode="Markdown"
-        )
-        logger.info(f"Sent clearance notification to warning topic for user {target_user_id}")
-        logger.info(f"Deleted {deleted_count} warning record(s) for user {target_user_id}")
+            # Send clearance message to warning topic
+            clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
+                user_mention=user_mention
+            )
+            await bot.send_message(
+                chat_id=group_config.group_id,
+                message_thread_id=group_config.warning_topic_id,
+                text=clearance_message,
+                parse_mode="Markdown"
+            )
+            logger.info(f"Sent clearance notification to warning topic for user {target_user_id} in group {group_config.group_id}")
+
+    if total_deleted > 0:
+        logger.info(f"Deleted {total_deleted} total warning record(s) for user {target_user_id}")
 
     return (
         f"✅ User dengan ID {target_user_id} telah diverifikasi:\n"
@@ -158,8 +165,8 @@ async def handle_verify_command(
     db = get_database()
 
     try:
-        settings = get_settings()
-        message = await verify_user(context.bot, db, settings, target_user_id, admin_user_id)
+        registry = get_group_registry()
+        message = await verify_user(context.bot, db, registry, target_user_id, admin_user_id)
         await update.message.reply_text(message)
         logger.info(
             f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
@@ -270,8 +277,8 @@ async def handle_verify_callback(
     db = get_database()
 
     try:
-        settings = get_settings()
-        message = await verify_user(context.bot, db, settings, target_user_id, admin_user_id)
+        registry = get_group_registry()
+        message = await verify_user(context.bot, db, registry, target_user_id, admin_user_id)
         await query.edit_message_text(message)
         logger.info(
             f"Admin {admin_user_id} ({query.from_user.full_name}) "
