@@ -11,12 +11,30 @@ import pytest
 from telegram.constants import ChatMemberStatus
 
 from bot.database.models import UserWarning
+from bot.group_config import GroupConfig, GroupRegistry
 from bot.services.scheduler import auto_restrict_expired_warnings
+
+
+@pytest.fixture
+def group_config():
+    return GroupConfig(
+        group_id=-100999,
+        warning_topic_id=123,
+        warning_time_threshold_minutes=180,
+        rules_link="https://example.com/rules",
+    )
+
+
+@pytest.fixture
+def mock_registry(group_config):
+    registry = GroupRegistry()
+    registry.register(group_config)
+    return registry
 
 
 class TestAutoRestrictExpiredWarnings:
     @pytest.mark.asyncio
-    async def test_restricts_expired_warnings(self):
+    async def test_restricts_expired_warnings(self, mock_registry):
         """Test that expired warnings are restricted."""
         # Mock database with expired warning
         mock_warning = UserWarning(
@@ -31,7 +49,7 @@ class TestAutoRestrictExpiredWarnings:
         )
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
         mock_db.mark_user_restricted = MagicMock()
 
         # Mock bot
@@ -43,15 +61,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        # Mock settings
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-        mock_settings.warning_topic_id = 123
-        mock_settings.rules_link = "https://example.com/rules"
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
                 with patch(
                     "bot.services.scheduler.BotInfoCache.get_username",
                     new_callable=AsyncMock,
@@ -76,28 +87,35 @@ class TestAutoRestrictExpiredWarnings:
         assert "dibatasi" in call_args.kwargs["text"]
 
     @pytest.mark.asyncio
-    async def test_handles_no_expired_warnings(self):
+    async def test_handles_no_expired_warnings(self, mock_registry):
         """Test that function handles empty list gracefully."""
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = []
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = []
 
         mock_bot = AsyncMock()
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_hours = 3
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
-                await auto_restrict_expired_warnings(mock_context)
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
+                with patch(
+                    "bot.services.scheduler.BotInfoCache.get_username",
+                    new_callable=AsyncMock,
+                    return_value="test_bot",
+                ):
+                    await auto_restrict_expired_warnings(mock_context)
 
         # Should not call restrict or send message
         mock_bot.restrict_chat_member.assert_not_called()
         mock_bot.send_message.assert_not_called()
 
+        # Should have queried once for the single group in registry
+        mock_db.get_warnings_past_time_threshold_for_group.assert_called_once_with(
+            -100999, timedelta(minutes=180)
+        )
+
     @pytest.mark.asyncio
-    async def test_restricts_multiple_expired_warnings(self):
+    async def test_restricts_multiple_expired_warnings(self, mock_registry):
         """Test that multiple expired warnings are processed."""
         mock_warnings = [
             UserWarning(
@@ -123,7 +141,7 @@ class TestAutoRestrictExpiredWarnings:
         ]
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = mock_warnings
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = mock_warnings
         mock_db.mark_user_restricted = MagicMock()
 
         mock_bot = AsyncMock()
@@ -133,14 +151,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-        mock_settings.warning_topic_id = 123
-        mock_settings.rules_link = "https://example.com/rules"
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
                 with patch(
                     "bot.services.scheduler.BotInfoCache.get_username",
                     new_callable=AsyncMock,
@@ -154,7 +166,7 @@ class TestAutoRestrictExpiredWarnings:
         assert mock_bot.send_message.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_handles_restriction_errors(self):
+    async def test_handles_restriction_errors(self, mock_registry):
         """Test that function handles errors gracefully."""
         mock_warning = UserWarning(
             id=1,
@@ -168,7 +180,7 @@ class TestAutoRestrictExpiredWarnings:
         )
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
 
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock(side_effect=Exception("API error"))
@@ -176,42 +188,55 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
-                # Should not raise, but log the error
-                await auto_restrict_expired_warnings(mock_context)
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
+                with patch(
+                    "bot.services.scheduler.BotInfoCache.get_username",
+                    new_callable=AsyncMock,
+                    return_value="test_bot",
+                ):
+                    # Should not raise, but log the error
+                    await auto_restrict_expired_warnings(mock_context)
 
         # Verify restriction was attempted
         mock_bot.restrict_chat_member.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_uses_correct_time_threshold(self):
-        """Test that the correct time threshold from settings is used."""
+        """Test that the correct time threshold from group config is used."""
+        # Create a group config with a different threshold
+        custom_group_config = GroupConfig(
+            group_id=-100999,
+            warning_topic_id=123,
+            warning_time_threshold_minutes=300,
+            rules_link="https://example.com/rules",
+        )
+        custom_registry = GroupRegistry()
+        custom_registry.register(custom_group_config)
+
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = []
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = []
 
         mock_bot = AsyncMock()
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_timedelta = timedelta(minutes=300)
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
-                await auto_restrict_expired_warnings(mock_context)
+            with patch("bot.services.scheduler.get_group_registry", return_value=custom_registry):
+                with patch(
+                    "bot.services.scheduler.BotInfoCache.get_username",
+                    new_callable=AsyncMock,
+                    return_value="test_bot",
+                ):
+                    await auto_restrict_expired_warnings(mock_context)
 
-        # Verify correct threshold was passed to database query
-        mock_db.get_warnings_past_time_threshold.assert_called_once_with(
-            timedelta(minutes=300)
+        # Verify correct group_id and threshold were passed to database query
+        mock_db.get_warnings_past_time_threshold_for_group.assert_called_once_with(
+            -100999, timedelta(minutes=300)
         )
 
     @pytest.mark.asyncio
-    async def test_skips_kicked_user_and_deletes_warning(self):
+    async def test_skips_kicked_user_and_deletes_warning(self, mock_registry):
         """Test that kicked users have their warning deleted so they don't reappear."""
         mock_warning = UserWarning(
             id=1,
@@ -225,7 +250,7 @@ class TestAutoRestrictExpiredWarnings:
         )
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
         mock_db.delete_user_warnings = MagicMock()
 
         mock_bot = AsyncMock()
@@ -235,18 +260,19 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
                 with patch(
-                    "bot.services.scheduler.get_user_status",
+                    "bot.services.scheduler.BotInfoCache.get_username",
                     new_callable=AsyncMock,
-                    return_value=ChatMemberStatus.BANNED,
+                    return_value="test_bot",
                 ):
-                    await auto_restrict_expired_warnings(mock_context)
+                    with patch(
+                        "bot.services.scheduler.get_user_status",
+                        new_callable=AsyncMock,
+                        return_value=ChatMemberStatus.BANNED,
+                    ):
+                        await auto_restrict_expired_warnings(mock_context)
 
         # Verify warning was deleted (not just marked unrestricted)
         mock_db.delete_user_warnings.assert_called_once_with(123, -100999)
@@ -256,7 +282,7 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.send_message.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_kicked_user_not_in_subsequent_queries(self):
+    async def test_kicked_user_not_in_subsequent_queries(self, mock_registry):
         """Test that deleted warnings don't appear in subsequent threshold queries."""
         mock_warning = UserWarning(
             id=1,
@@ -272,7 +298,7 @@ class TestAutoRestrictExpiredWarnings:
         # Track calls to simulate deletion effect
         call_count = 0
 
-        def get_warnings_side_effect(threshold):
+        def get_warnings_side_effect(group_id, threshold):
             nonlocal call_count
             call_count += 1
             # First call returns the warning, subsequent calls return empty
@@ -282,7 +308,7 @@ class TestAutoRestrictExpiredWarnings:
             return []
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.side_effect = get_warnings_side_effect
+        mock_db.get_warnings_past_time_threshold_for_group.side_effect = get_warnings_side_effect
         mock_db.delete_user_warnings = MagicMock()
 
         mock_bot = AsyncMock()
@@ -292,29 +318,30 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
                 with patch(
-                    "bot.services.scheduler.get_user_status",
+                    "bot.services.scheduler.BotInfoCache.get_username",
                     new_callable=AsyncMock,
-                    return_value=ChatMemberStatus.BANNED,
+                    return_value="test_bot",
                 ):
-                    # First run - should process and delete warning
-                    await auto_restrict_expired_warnings(mock_context)
-                    # Second run - should find no warnings
-                    await auto_restrict_expired_warnings(mock_context)
+                    with patch(
+                        "bot.services.scheduler.get_user_status",
+                        new_callable=AsyncMock,
+                        return_value=ChatMemberStatus.BANNED,
+                    ):
+                        # First run - should process and delete warning
+                        await auto_restrict_expired_warnings(mock_context)
+                        # Second run - should find no warnings
+                        await auto_restrict_expired_warnings(mock_context)
 
         # Verify delete was called exactly once (first run only)
         mock_db.delete_user_warnings.assert_called_once_with(123, -100999)
-        # Verify the query was called twice
-        assert mock_db.get_warnings_past_time_threshold.call_count == 2
+        # Verify the query was called twice (once per run, one group each)
+        assert mock_db.get_warnings_past_time_threshold_for_group.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_handles_get_chat_member_failure(self):
+    async def test_handles_get_chat_member_failure(self, mock_registry):
         """Test fallback user mention when get_chat_member fails."""
         mock_warning = UserWarning(
             id=1,
@@ -328,7 +355,7 @@ class TestAutoRestrictExpiredWarnings:
         )
 
         mock_db = MagicMock()
-        mock_db.get_warnings_past_time_threshold.return_value = [mock_warning]
+        mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
         mock_db.mark_user_restricted = MagicMock()
 
         mock_bot = AsyncMock()
@@ -340,14 +367,8 @@ class TestAutoRestrictExpiredWarnings:
         mock_context = MagicMock()
         mock_context.bot = mock_bot
 
-        mock_settings = MagicMock()
-        mock_settings.warning_time_threshold_minutes = 180
-        mock_settings.group_id = -100999
-        mock_settings.warning_topic_id = 123
-        mock_settings.rules_link = "https://example.com/rules"
-
         with patch("bot.services.scheduler.get_database", return_value=mock_db):
-            with patch("bot.services.scheduler.get_settings", return_value=mock_settings):
+            with patch("bot.services.scheduler.get_group_registry", return_value=mock_registry):
                 with patch(
                     "bot.services.scheduler.get_user_status",
                     new_callable=AsyncMock,
@@ -367,5 +388,3 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.send_message.assert_called_once()
         call_args = mock_bot.send_message.call_args
         assert "User 123" in call_args.kwargs["text"]
-
-

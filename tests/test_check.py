@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram.error import TimedOut
 
+from bot.group_config import GroupConfig, GroupRegistry
 from bot.handlers.check import (
     handle_check_command,
     handle_check_forwarded_message,
@@ -20,6 +21,22 @@ def mock_settings():
     settings.warning_topic_id = 12345
     settings.rules_link = "https://t.me/test/rules"
     return settings
+
+
+@pytest.fixture
+def group_config():
+    return GroupConfig(
+        group_id=-1001234567890,
+        warning_topic_id=12345,
+        rules_link="https://t.me/test/rules",
+    )
+
+
+@pytest.fixture
+def mock_registry(group_config):
+    registry = GroupRegistry()
+    registry.register(group_config)
+    return registry
 
 
 @pytest.fixture
@@ -88,9 +105,7 @@ class TestHandleCheckCommand:
         call_args = mock_update.message.reply_text.call_args
         assert "angka" in call_args.args[0]
 
-    async def test_check_command_complete_profile(
-        self, mock_update, mock_context, mock_settings
-    ):
+    async def test_check_command_complete_profile(self, mock_update, mock_context):
         """Shows complete profile (no warn button)."""
         mock_context.args = ["555666"]
 
@@ -102,7 +117,6 @@ class TestHandleCheckCommand:
         mock_db.is_user_photo_whitelisted.return_value = False
 
         with (
-            patch("bot.handlers.check.get_settings", return_value=mock_settings),
             patch(
                 "bot.handlers.check.check_user_profile",
                 return_value=complete_result,
@@ -114,11 +128,11 @@ class TestHandleCheckCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "555666" in call_args.args[0]
-        assert "✅" in call_args.args[0]
+        assert "\u2705" in call_args.args[0]
         assert call_args.kwargs.get("reply_markup") is None
 
     async def test_check_command_complete_profile_whitelisted(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context
     ):
         """Shows complete profile with unverify button when user is whitelisted."""
         mock_context.args = ["555666"]
@@ -131,7 +145,6 @@ class TestHandleCheckCommand:
         mock_db.is_user_photo_whitelisted.return_value = True
 
         with (
-            patch("bot.handlers.check.get_settings", return_value=mock_settings),
             patch(
                 "bot.handlers.check.check_user_profile",
                 return_value=complete_result,
@@ -143,16 +156,14 @@ class TestHandleCheckCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "555666" in call_args.args[0]
-        assert "✅" in call_args.args[0]
+        assert "\u2705" in call_args.args[0]
         keyboard = call_args.kwargs.get("reply_markup")
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
         assert any("unverify:555666" in btn.callback_data for btn in buttons)
         assert any("Unverify User" in btn.text for btn in buttons)
 
-    async def test_check_command_incomplete_profile(
-        self, mock_update, mock_context, mock_settings
-    ):
+    async def test_check_command_incomplete_profile(self, mock_update, mock_context):
         """Shows incomplete profile with warn button."""
         mock_context.args = ["555666"]
 
@@ -164,7 +175,6 @@ class TestHandleCheckCommand:
         mock_db.is_user_photo_whitelisted.return_value = False
 
         with (
-            patch("bot.handlers.check.get_settings", return_value=mock_settings),
             patch(
                 "bot.handlers.check.check_user_profile",
                 return_value=incomplete_result,
@@ -176,7 +186,7 @@ class TestHandleCheckCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "555666" in call_args.args[0]
-        assert "❌" in call_args.args[0]
+        assert "\u274c" in call_args.args[0]
         keyboard = call_args.kwargs.get("reply_markup")
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
@@ -261,9 +271,7 @@ class TestHandleCheckForwardedMessage:
         call_args = mock_update.message.reply_text.call_args
         assert "Tidak dapat mengekstrak" in call_args.args[0]
 
-    async def test_check_forwarded_success(
-        self, mock_update, mock_context, mock_settings
-    ):
+    async def test_check_forwarded_success(self, mock_update, mock_context):
         """Successfully checks forwarded user."""
         forwarded_user = MagicMock()
         forwarded_user.id = 555666
@@ -278,7 +286,6 @@ class TestHandleCheckForwardedMessage:
         mock_db.is_user_photo_whitelisted.return_value = False
 
         with (
-            patch("bot.handlers.check.get_settings", return_value=mock_settings),
             patch(
                 "bot.handlers.check.check_user_profile",
                 return_value=complete_result,
@@ -292,7 +299,7 @@ class TestHandleCheckForwardedMessage:
         assert "555666" in call_args.args[0]
 
     async def test_check_forwarded_with_forward_origin(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context
     ):
         """Successfully checks forwarded user via forward_origin."""
         forwarded_user = MagicMock()
@@ -312,7 +319,6 @@ class TestHandleCheckForwardedMessage:
         mock_db.is_user_photo_whitelisted.return_value = False
 
         with (
-            patch("bot.handlers.check.get_settings", return_value=mock_settings),
             patch(
                 "bot.handlers.check.check_user_profile",
                 return_value=complete_result,
@@ -338,7 +344,7 @@ class TestHandleCheckForwardedMessage:
 
         await handle_check_forwarded_message(update, mock_context)
 
-    async def test_check_forwarded_error(self, mock_update, mock_context, mock_settings):
+    async def test_check_forwarded_error(self, mock_update, mock_context):
         """Handles error gracefully when checking forwarded user."""
         forwarded_user = MagicMock()
         forwarded_user.id = 555666
@@ -391,8 +397,10 @@ class TestHandleWarnCallback:
         call_args = query.edit_message_text.call_args
         assert "izin" in call_args.args[0]
 
-    async def test_warn_callback_success(self, mock_context, mock_settings):
-        """Successfully sends warning to group."""
+    async def test_warn_callback_success(
+        self, mock_context, mock_settings, group_config, mock_registry
+    ):
+        """Successfully sends warning to all monitored groups."""
         update = MagicMock()
         query = MagicMock()
         query.from_user = MagicMock()
@@ -407,14 +415,23 @@ class TestHandleWarnCallback:
         mock_chat.full_name = "Test User"
         mock_context.bot.get_chat.return_value = mock_chat
 
-        with patch("bot.handlers.check.get_settings", return_value=mock_settings):
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
             await handle_warn_callback(update, mock_context)
 
         query.answer.assert_called_once()
         mock_context.bot.send_message.assert_called_once()
         send_call_args = mock_context.bot.send_message.call_args
-        assert send_call_args.kwargs["chat_id"] == mock_settings.group_id
-        assert send_call_args.kwargs["message_thread_id"] == mock_settings.warning_topic_id
+        assert send_call_args.kwargs["chat_id"] == group_config.group_id
+        assert (
+            send_call_args.kwargs["message_thread_id"]
+            == group_config.warning_topic_id
+        )
         assert "foto profil publik" in send_call_args.kwargs["text"]
         assert "username" in send_call_args.kwargs["text"]
 
@@ -423,7 +440,7 @@ class TestHandleWarnCallback:
         assert "dikirim" in edit_call_args.args[0]
 
     async def test_warn_callback_success_missing_photo_only(
-        self, mock_context, mock_settings
+        self, mock_context, mock_settings, group_config, mock_registry
     ):
         """Successfully sends warning for missing photo only."""
         update = MagicMock()
@@ -441,7 +458,13 @@ class TestHandleWarnCallback:
         mock_chat.username = "testuser"
         mock_context.bot.get_chat.return_value = mock_chat
 
-        with patch("bot.handlers.check.get_settings", return_value=mock_settings):
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
             await handle_warn_callback(update, mock_context)
 
         send_call_args = mock_context.bot.send_message.call_args
@@ -491,7 +514,9 @@ class TestHandleWarnCallback:
 
         await handle_warn_callback(update, mock_context)
 
-    async def test_warn_callback_send_message_error(self, mock_context, mock_settings):
+    async def test_warn_callback_send_message_error(
+        self, mock_context, mock_settings, mock_registry
+    ):
         """Handles send_message error gracefully."""
         update = MagicMock()
         query = MagicMock()
@@ -508,15 +533,23 @@ class TestHandleWarnCallback:
         mock_context.bot.get_chat.return_value = mock_chat
         mock_context.bot.send_message.side_effect = Exception("Failed to send")
 
-        with patch("bot.handlers.check.get_settings", return_value=mock_settings):
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
             await handle_warn_callback(update, mock_context)
 
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
         assert "Gagal mengirim" in call_args.args[0]
 
-    async def test_warn_callback_timeout(self, mock_context, mock_settings):
-        """Handles TimedOut error gracefully."""
+    async def test_warn_callback_timeout(
+        self, mock_context, mock_settings, mock_registry
+    ):
+        """Handles TimedOut error gracefully (per-group failure)."""
         update = MagicMock()
         query = MagicMock()
         query.from_user = MagicMock()
@@ -532,7 +565,44 @@ class TestHandleWarnCallback:
         mock_context.bot.get_chat.return_value = mock_chat
         mock_context.bot.send_message.side_effect = TimedOut()
 
-        with patch("bot.handlers.check.get_settings", return_value=mock_settings):
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
+            await handle_warn_callback(update, mock_context)
+
+        # TimedOut is caught per-group inside the loop, so all groups fail
+        # and the "failed to send to all groups" message is shown
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "Gagal mengirim" in call_args.args[0]
+
+    async def test_warn_callback_get_chat_timeout(
+        self, mock_context, mock_settings, mock_registry
+    ):
+        """Handles TimedOut on get_chat (before the per-group loop)."""
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "warn:555666:pu"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        mock_context.bot.get_chat.side_effect = TimedOut()
+
+        with (
+            patch("bot.handlers.check.get_settings", return_value=mock_settings),
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
             await handle_warn_callback(update, mock_context)
 
         query.edit_message_text.assert_called_once()
