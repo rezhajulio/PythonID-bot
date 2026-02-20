@@ -12,9 +12,9 @@ from datetime import UTC, datetime
 from telegram import Bot
 from telegram.ext import Application
 
-from bot.config import get_settings
 from bot.constants import CAPTCHA_TIMEOUT_MESSAGE
 from bot.database.service import get_database
+from bot.group_config import get_group_registry
 from bot.handlers.captcha import captcha_timeout_callback, get_captcha_job_name
 from bot.services.bot_info import BotInfoCache
 from bot.services.telegram_utils import get_user_mention_by_id
@@ -86,12 +86,15 @@ async def recover_pending_captchas(application: Application) -> None:
     1. If timeout has already passed: immediately expire them
     2. If timeout hasn't passed yet: reschedule the timeout job
 
+    Each pending captcha uses the timeout from its group's config.
+    Captchas for groups no longer in the registry are skipped.
+
     This prevents users from being stuck in restricted state after bot restart.
 
     Args:
         application: The Application instance with bot and job_queue.
     """
-    settings = get_settings()
+    registry = get_group_registry()
     db = get_database()
 
     pending_records = db.get_all_pending_captchas()
@@ -106,10 +109,19 @@ async def recover_pending_captchas(application: Application) -> None:
 
     for record in pending_records:
         try:
+            # Look up the group config for this captcha
+            group_config = registry.get(record.group_id)
+            if group_config is None:
+                logger.warning(
+                    f"Skipping captcha for user {record.user_id} in group {record.group_id} "
+                    f"- group no longer in registry"
+                )
+                continue
+
             # Make created_at timezone-aware (SQLite stores without timezone)
             created_at_utc = record.created_at.replace(tzinfo=UTC)
             elapsed_seconds = (now - created_at_utc).total_seconds()
-            remaining_seconds = settings.captcha_timeout_timedelta.total_seconds() - elapsed_seconds
+            remaining_seconds = group_config.captcha_timeout_timedelta.total_seconds() - elapsed_seconds
 
             if remaining_seconds <= 0:
                 # Timeout has already passed, expire immediately
