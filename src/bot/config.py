@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     captcha_timeout_seconds: int = 120
     new_user_probation_hours: int = 72  # 3 days default
     new_user_violation_threshold: int = 3  # restrict after this many violations
+    groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
     logfire_environment: str = "production"
