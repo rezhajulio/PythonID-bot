@@ -16,6 +16,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from bot.config import get_settings
 from bot.database.service import init_database
+from bot.group_config import get_group_registry, init_group_registry
 from bot.handlers import captcha
 from bot.handlers.anti_spam import handle_new_user_spam
 from bot.handlers.dm import handle_dm
@@ -39,7 +40,7 @@ from bot.services.telegram_utils import fetch_group_admin_ids
 def configure_logging() -> None:
     """
     Configure logging with Logfire integration.
-    
+
     Uses minimal instrumentation to conserve Logfire quota:
     - Configurable log level via LOG_LEVEL environment variable
     - Disables database query tracing
@@ -54,21 +55,21 @@ def configure_logging() -> None:
         level=logging.INFO,
         force=True,  # Override any existing config
     )
-    
+
     # Now load settings (this will trigger model_post_init logging)
     settings = get_settings()
-    
+
     # Get log level from settings and convert to logging constant
     log_level_str = settings.log_level.upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
-    
+
     # Determine if we should send to Logfire
     # Only send if enabled AND token is provided
     send_to_logfire = settings.logfire_enabled and settings.logfire_token is not None
-    
+
     # Map log level to Logfire console min_log_level
     logfire_min_level = log_level_str.lower()
-    
+
     # Configure Logfire with minimal instrumentation
     logfire.configure(
         token=settings.logfire_token,
@@ -83,7 +84,7 @@ def configure_logging() -> None:
         # Disable auto-instrumentation to save quota
         inspect_arguments=False,
     )
-    
+
     # Reconfigure logging with Logfire handler and configured level
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -91,12 +92,12 @@ def configure_logging() -> None:
         handlers=[logfire.LogfireLoggingHandler()],
         force=True,  # Override previous config
     )
-    
+
     # Suppress verbose HTTP logs from httpx/httpcore used by python-telegram-bot
     # These libraries log every HTTP request at INFO level, flooding logs with Telegram API polling requests
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    
+
     logger = logging.getLogger(__name__)
     logger.info(f"Logging level set to {log_level_str}")
     if send_to_logfire:
@@ -133,26 +134,37 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     Post-initialization callback to fetch and cache group admin IDs.
 
     This runs once after the bot starts and before polling begins.
-    Fetches admin list from the monitored group and stores it in bot_data.
-    Also recovers any pending captcha verifications from database.
+    Fetches admin list from all monitored groups and stores per-group
+    and union admin IDs in bot_data. Also recovers pending captchas.
 
     Args:
         application: The Application instance.
     """
     logger.info("Starting post_init: fetching admin IDs and recovering captcha state")
-    settings = get_settings()
-    
-    logger.info(f"Fetching admin IDs for group {settings.group_id}")
-    try:
-        admin_ids = await fetch_group_admin_ids(application.bot, settings.group_id)  # type: ignore[arg-type]
-        application.bot_data["admin_ids"] = admin_ids  # type: ignore[index]
-        logger.info(f"Fetched {len(admin_ids)} admin(s) from group {settings.group_id}")
-    except Exception as e:
-        logger.error(f"Failed to fetch admin IDs: {e}")
-        application.bot_data["admin_ids"] = []  # type: ignore[index]
+    registry = get_group_registry()
 
-    # Recover pending captcha verifications
-    if settings.captcha_enabled:
+    # Fetch admin IDs for all monitored groups
+    group_admin_ids: dict[int, list[int]] = {}
+    all_admin_ids: set[int] = set()
+
+    for gc in registry.all_groups():
+        logger.info(f"Fetching admin IDs for group {gc.group_id}")
+        try:
+            ids = await fetch_group_admin_ids(application.bot, gc.group_id)  # type: ignore[arg-type]
+            group_admin_ids[gc.group_id] = ids
+            all_admin_ids.update(ids)
+            logger.info(f"Fetched {len(ids)} admin(s) from group {gc.group_id}")
+        except Exception as e:
+            logger.error(f"Failed to fetch admin IDs for group {gc.group_id}: {e}")
+            group_admin_ids[gc.group_id] = []
+
+    application.bot_data["group_admin_ids"] = group_admin_ids  # type: ignore[index]
+    application.bot_data["admin_ids"] = list(all_admin_ids)  # type: ignore[index]
+    logger.info(f"Total unique admins across all groups: {len(all_admin_ids)}")
+
+    # Recover pending captcha verifications for groups with captcha enabled
+    has_captcha = any(gc.captcha_enabled for gc in registry.all_groups())
+    if has_captcha:
         logger.info("Recovering pending captcha verifications from database")
         from bot.services.captcha_recovery import recover_pending_captchas
         await recover_pending_captchas(application)
@@ -165,16 +177,26 @@ def main() -> None:
     This function:
     1. Configures logging with Logfire integration
     2. Loads configuration from environment
-    3. Initializes the SQLite database
-    4. Registers message handlers in priority order
-    5. Starts JobQueue for periodic tasks
-    6. Starts the bot polling loop
+    3. Initializes the group registry (from groups.json or .env fallback)
+    4. Initializes the SQLite database
+    5. Registers message handlers in priority order
+    6. Starts JobQueue for periodic tasks
+    7. Starts the bot polling loop
     """
     # Configure logging first
     configure_logging()
-    
+
     settings = get_settings()
-    logger.info(f"Starting PythonID bot (environment: {settings.logfire_environment}, group_id: {settings.group_id})")
+
+    # Initialize group registry
+    registry = init_group_registry(settings)
+    group_count = len(registry.all_groups())
+    logger.info(f"Starting PythonID bot (environment: {settings.logfire_environment}, groups: {group_count})")
+    for gc in registry.all_groups():
+        logger.info(
+            f"  Group {gc.group_id}: warning_topic={gc.warning_topic_id}, "
+            f"restrict={gc.restrict_failed_users}, captcha={gc.captcha_enabled}"
+        )
 
     # Initialize database (creates tables if they don't exist)
     init_database(settings.database_path)
@@ -262,8 +284,8 @@ def main() -> None:
     )
     logger.info("Registered handler: anti_spam_handler (group=0)")
 
-    # Handler 9: Group message handler - monitors messages in the configured
-    # group and warns/restricts users with incomplete profiles
+    # Handler 9: Group message handler - monitors messages in monitored
+    # groups and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & ~filters.COMMAND,
@@ -283,9 +305,9 @@ def main() -> None:
         )
         logger.info("JobQueue registered: auto_restrict_job (every 5 minutes, first run in 5 minutes)")
 
-    logger.info(f"Starting bot polling for group {settings.group_id}")
+    logger.info(f"Starting bot polling for {group_count} group(s)")
     logger.info("All handlers registered successfully")
-    
+
     application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
 
 
