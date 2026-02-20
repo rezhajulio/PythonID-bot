@@ -23,6 +23,7 @@ from bot.constants import (
     MISSING_ITEMS_SEPARATOR,
 )
 from bot.database.service import get_database
+from bot.group_config import get_group_registry
 from bot.services.telegram_utils import (
     extract_forwarded_user,
     get_user_mention,
@@ -38,12 +39,12 @@ async def _build_check_response(
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """
     Build the check response message and keyboard.
-    
+
     Args:
         bot: Telegram bot instance.
         user_id: ID of the user to check.
         user_name: Display name of the user.
-        
+
     Returns:
         Tuple of (message text, optional keyboard markup).
     """
@@ -57,10 +58,10 @@ async def _build_check_response(
     user_mention = get_user_mention_by_id(user_id, user_name)
     photo_status = "✅" if result.has_profile_photo else "❌"
     username_status = "✅" if result.has_username else "❌"
-    
+
     db = get_database()
     is_whitelisted = db.is_user_photo_whitelisted(user_id)
-    
+
     if result.is_complete:
         action_prompt = ADMIN_CHECK_ACTION_COMPLETE
         if is_whitelisted:
@@ -83,7 +84,7 @@ async def _build_check_response(
                 InlineKeyboardButton("✅ Verify User", callback_data=f"verify:{user_id}"),
             ]
         ])
-    
+
     message = ADMIN_CHECK_PROMPT.format(
         user_mention=user_mention,
         user_id=user_id,
@@ -91,7 +92,7 @@ async def _build_check_response(
         username_status=username_status,
         action_prompt=action_prompt,
     )
-    
+
     return message, keyboard
 
 
@@ -100,9 +101,9 @@ async def handle_check_command(
 ) -> None:
     """
     Handle /check command to manually check a user's profile.
-    
+
     Usage: /check USER_ID (e.g., /check 123456789)
-    
+
     Only works in bot DMs for admins.
     """
     if not update.message or not update.message.from_user:
@@ -139,10 +140,10 @@ async def handle_check_command(
         # Get user info for display name
         chat = await context.bot.get_chat(target_user_id)
         user_name = chat.full_name or f"User {target_user_id}"
-        
+
         message, keyboard = await _build_check_response(context.bot, target_user_id, user_name)
         await update.message.reply_text(message, reply_markup=keyboard, parse_mode="Markdown")
-        
+
         logger.info(
             f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
             f"checked profile for user {target_user_id}"
@@ -160,7 +161,7 @@ async def handle_check_forwarded_message(
 ) -> None:
     """
     Handle forwarded messages from admins to check user profile.
-    
+
     When an admin forwards a user's message to the bot in DM, this handler
     checks the user's profile and shows action buttons.
     """
@@ -191,7 +192,7 @@ async def handle_check_forwarded_message(
     try:
         message, keyboard = await _build_check_response(context.bot, user_id, user_name)
         await update.message.reply_text(message, reply_markup=keyboard, parse_mode="Markdown")
-        
+
         logger.info(
             f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
             f"forwarded message from user {user_id} for profile check"
@@ -209,8 +210,8 @@ async def handle_warn_callback(
 ) -> None:
     """
     Handle callback query for warn button.
-    
-    Sends a warning message to the user in the group.
+
+    Sends a warning message to the user in all monitored groups (or the first group).
     """
     query = update.callback_query
     if not query or not query.from_user or not query.data:
@@ -248,33 +249,42 @@ async def handle_warn_callback(
     missing_text = MISSING_ITEMS_SEPARATOR.join(missing_items) if missing_items else "profil"
 
     settings = get_settings()
-    
+    registry = get_group_registry()
+
     try:
         # Get user info for mention
         chat = await context.bot.get_chat(target_user_id)
         user_mention = get_user_mention(chat)
-        
-        # Send warning to group
-        warn_message = ADMIN_WARN_USER_MESSAGE.format(
-            user_mention=user_mention,
-            missing_text=missing_text,
-            rules_link=settings.rules_link,
-        )
-        await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=warn_message,
-            parse_mode="Markdown",
-        )
-        
-        # Update the original message
-        success_message = ADMIN_WARN_SENT_MESSAGE.format(user_mention=user_mention)
-        await query.edit_message_text(success_message, parse_mode="Markdown")
-        
-        logger.info(
-            f"Admin {admin_user_id} ({query.from_user.full_name}) "
-            f"sent warning to user {target_user_id} in group"
-        )
+
+        # Send warning to all monitored groups
+        sent_to_any = False
+        for group_config in registry.all_groups():
+            warn_message = ADMIN_WARN_USER_MESSAGE.format(
+                user_mention=user_mention,
+                missing_text=missing_text,
+                rules_link=group_config.rules_link,
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=group_config.group_id,
+                    message_thread_id=group_config.warning_topic_id,
+                    text=warn_message,
+                    parse_mode="Markdown",
+                )
+                sent_to_any = True
+                logger.info(
+                    f"Admin {admin_user_id} sent warning to user {target_user_id} in group {group_config.group_id}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send warning to group {group_config.group_id}: {e}")
+
+        if sent_to_any:
+            # Update the original message
+            success_message = ADMIN_WARN_SENT_MESSAGE.format(user_mention=user_mention)
+            await query.edit_message_text(success_message, parse_mode="Markdown")
+        else:
+            await query.edit_message_text("❌ Gagal mengirim peringatan ke semua grup.")
+
     except TimedOut:
         await query.edit_message_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout sending warning to user {target_user_id}")

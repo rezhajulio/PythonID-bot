@@ -3,10 +3,11 @@ DM (Direct Message) handler for the PythonID bot.
 
 This module handles private messages to the bot, primarily for the
 unrestriction flow. When a restricted user DMs the bot:
-1. Check if user is in the group
+1. Check if user is in any monitored group
 2. Check if user has an active pending captcha (redirect to group)
 3. Check if user's profile is complete
 4. If profile-restricted by bot and profile complete, unrestrict them
+   across all monitored groups where they are restricted
 """
 
 import logging
@@ -27,6 +28,7 @@ from bot.constants import (
     MISSING_ITEMS_SEPARATOR,
 )
 from bot.database.service import get_database
+from bot.group_config import get_group_registry
 from bot.services.telegram_utils import get_user_mention, get_user_status, unrestrict_user
 from bot.services.user_checker import check_user_profile
 
@@ -38,11 +40,11 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     Handle direct messages to the bot for unrestriction flow.
 
     This handler processes DMs (including /start) and:
-    1. Checks if user is a member of the monitored group
+    1. Checks if user is a member of any monitored group
     2. Checks if user has an active pending captcha (redirect to group)
     3. Checks if user's profile is complete (photo + username)
     4. If user was restricted by the bot and now has complete profile,
-       removes the restriction using the group's default permissions
+       removes the restriction in all groups where restricted
 
     Args:
         update: Telegram update containing the message.
@@ -60,32 +62,35 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user = update.message.from_user
     settings = get_settings()
-    
-    logger.info(f"DM handler called for user_id={user.id} ({user.full_name})")
-
-    # Check user's status in the group
-    logger.info(f"Checking user status in group_id={settings.group_id} for user_id={user.id}")
-    user_status = await get_user_status(context.bot, settings.group_id, user.id)
-
-    # User not in group (or we can't check)
-    if user_status is None or user_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
-        await update.message.reply_text(DM_NOT_IN_GROUP_MESSAGE)
-        logger.info(
-            f"DM from user {user.id} ({user.full_name}) - not in group {settings.group_id}"
-        )
-        return
-
+    registry = get_group_registry()
     db = get_database()
 
-    # Check if user has an active pending captcha
-    logger.info(f"Checking for pending captcha for user_id={user.id} in group_id={settings.group_id}")
-    pending_captcha = db.get_pending_captcha(user.id, settings.group_id)
-    if pending_captcha:
-        await update.message.reply_text(CAPTCHA_PENDING_DM_MESSAGE)
-        logger.info(
-            f"DM from user {user.id} ({user.full_name}) - has pending captcha (group_id={settings.group_id})"
-        )
+    logger.info(f"DM handler called for user_id={user.id} ({user.full_name})")
+
+    # Check user's membership across all monitored groups
+    member_groups = []
+    for gc in registry.all_groups():
+        logger.info(f"Checking user status in group_id={gc.group_id} for user_id={user.id}")
+        user_status = await get_user_status(context.bot, gc.group_id, user.id)
+        if user_status is not None and user_status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
+            member_groups.append((gc, user_status))
+
+    # User not in any monitored group
+    if not member_groups:
+        await update.message.reply_text(DM_NOT_IN_GROUP_MESSAGE)
+        logger.info(f"DM from user {user.id} ({user.full_name}) - not in any monitored group")
         return
+
+    # Check if user has an active pending captcha in any group
+    for gc, _ in member_groups:
+        logger.info(f"Checking for pending captcha for user_id={user.id} in group_id={gc.group_id}")
+        pending_captcha = db.get_pending_captcha(user.id, gc.group_id)
+        if pending_captcha:
+            await update.message.reply_text(CAPTCHA_PENDING_DM_MESSAGE)
+            logger.info(
+                f"DM from user {user.id} ({user.full_name}) - has pending captcha (group_id={gc.group_id})"
+            )
+            return
 
     # Check if user's profile is complete
     logger.info(f"Checking user profile completeness for user_id={user.id} ({user.full_name})")
@@ -105,53 +110,70 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Check if user was restricted by this bot (not by admin)
-    logger.info(f"Checking bot restriction status for user_id={user.id} in group_id={settings.group_id}")
-    if not db.is_user_restricted_by_bot(user.id, settings.group_id):
+    # Find all groups where user is restricted by bot
+    restricted_groups = []
+    for gc, user_status in member_groups:
+        logger.info(f"Checking bot restriction status for user_id={user.id} in group_id={gc.group_id}")
+        if db.is_user_restricted_by_bot(user.id, gc.group_id):
+            restricted_groups.append((gc, user_status))
+
+    # User not restricted by bot in any group
+    if not restricted_groups:
         await update.message.reply_text(DM_NO_RESTRICTION_MESSAGE)
         logger.info(
-            f"DM from user {user.id} ({user.full_name}) - no bot restriction (group_id={settings.group_id})"
+            f"DM from user {user.id} ({user.full_name}) - no bot restriction in any group"
         )
         return
 
-    # User was restricted by bot but is no longer restricted on Telegram
-    # (e.g., admin already unrestricted them) - just clear our record
-    if user_status != ChatMemberStatus.RESTRICTED:
-        db.mark_user_unrestricted(user.id, settings.group_id)
-        await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
-        logger.info(
-            f"User {user.id} ({user.full_name}) already unrestricted - clearing record (group_id={settings.group_id})"
-        )
-        return
+    # Unrestrict user from all groups where restricted by bot
+    unrestricted_any = False
+    all_already_unrestricted = True
 
-    # Remove restriction
-    logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={settings.group_id}")
-    try:
-        await unrestrict_user(context.bot, settings.group_id, user.id)
+    for gc, user_status in restricted_groups:
+        # User was restricted by bot but is no longer restricted on Telegram
+        # (e.g., admin already unrestricted them) - just clear our record
+        if user_status != ChatMemberStatus.RESTRICTED:
+            db.mark_user_unrestricted(user.id, gc.group_id)
+            logger.info(
+                f"User {user.id} ({user.full_name}) already unrestricted in group {gc.group_id} - clearing record"
+            )
+            continue
 
-        # Clear our database record so we don't try to unrestrict again
-        db.mark_user_unrestricted(user.id, settings.group_id)
+        all_already_unrestricted = False
 
+        # Remove restriction
+        logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
+        try:
+            await unrestrict_user(context.bot, gc.group_id, user.id)
+            db.mark_user_unrestricted(user.id, gc.group_id)
+            unrestricted_any = True
+
+            # Send notification to warning topic
+            user_mention = get_user_mention(user)
+            notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
+                user_mention=user_mention
+            )
+            await context.bot.send_message(
+                chat_id=gc.group_id,
+                message_thread_id=gc.warning_topic_id,
+                text=notification_message,
+                parse_mode="Markdown",
+            )
+            logger.info(
+                f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to unrestrict user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})",
+                exc_info=True,
+            )
+
+    if unrestricted_any:
         await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
-
-        # Send notification to warning topic
-        user_mention = get_user_mention(user)
-        notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
-            user_mention=user_mention
+    elif all_already_unrestricted:
+        await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
+    else:
+        # All unrestriction attempts failed
+        raise RuntimeError(
+            f"Failed to unrestrict user {user.id} in any group"
         )
-        await context.bot.send_message(
-            chat_id=settings.group_id,
-            message_thread_id=settings.warning_topic_id,
-            text=notification_message,
-            parse_mode="Markdown",
-        )
-
-        logger.info(
-            f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})"
-        )
-    except Exception:
-        logger.error(
-            f"Failed to unrestrict user {user.id} ({user.full_name}) via DM (group_id={settings.group_id})",
-            exc_info=True,
-        )
-        raise
