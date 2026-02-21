@@ -5,7 +5,8 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 ## Features
 
 ### Core Monitoring
-- Monitors all messages in a configured group
+- Monitors all messages in one or more configured groups
+- **Multi-group support**: Manage multiple groups from a single bot instance with isolated per-group settings via `groups.json`
 - Checks if users have a public profile picture
 - Checks if users have a username set
 - Sends warnings to a dedicated topic (thread) for non-compliant users
@@ -101,6 +102,49 @@ WARNING_TIME_THRESHOLD_MINUTES=180
 RULES_LINK=https://t.me/yourgroup/rules
 ```
 
+### 6. Multi-Group Configuration (Optional)
+
+To manage multiple groups from a single bot instance, use a `groups.json` configuration file:
+
+```bash
+cp groups.json.example groups.json
+```
+
+Add `GROUPS_CONFIG_PATH=groups.json` to your `.env` file, then edit `groups.json`:
+
+```json
+[
+  {
+    "group_id": -1001234567890,
+    "warning_topic_id": 123,
+    "restrict_failed_users": false,
+    "warning_threshold": 3,
+    "warning_time_threshold_minutes": 180,
+    "captcha_enabled": false,
+    "captcha_timeout_seconds": 120,
+    "new_user_probation_hours": 72,
+    "new_user_violation_threshold": 3,
+    "rules_link": "https://t.me/pythonID/290029/321799"
+  },
+  {
+    "group_id": -1009876543210,
+    "warning_topic_id": 456,
+    "restrict_failed_users": true,
+    "warning_threshold": 5,
+    "warning_time_threshold_minutes": 60,
+    "captcha_enabled": true,
+    "captcha_timeout_seconds": 180,
+    "new_user_probation_hours": 168,
+    "new_user_violation_threshold": 2,
+    "rules_link": "https://t.me/mygroup/rules"
+  }
+]
+```
+
+When `groups.json` is present, per-group settings override the `.env` defaults. Each group can have its own warning thresholds, captcha settings, probation rules, and rules link.
+
+**Backward compatibility**: If no `groups.json` is configured (i.e., `GROUPS_CONFIG_PATH` is not set), the bot falls back to single-group mode using `GROUP_ID`, `WARNING_TOPIC_ID`, and other settings from `.env`.
+
 ## Installation
 
 ```bash
@@ -150,12 +194,12 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 99% (1,216 statements)
-- **Tests**: 404 total
-- **Pass Rate**: 100% (404/404 passed)
+- **Coverage**: 99% (1,396 statements)
+- **Tests**: 442 total
+- **Pass Rate**: 100% (442/442 passed)
 - **All modules**: 100% coverage including JobQueue scheduler integration, captcha verification, and anti-spam enforcement
-  - Services: `bot_info.py` (100%), `scheduler.py` (100%), `user_checker.py` (100%), `telegram_utils.py` (100%), `captcha_recovery.py` (100%)
-  - Handlers: `anti_spam.py` (100%), `captcha.py` (100%), `check.py` (100%), `dm.py` (100%), `message.py` (100%), `topic_guard.py` (100%), `verify.py` (100%)
+  - Services: `bot_info.py` (100%), `group_config.py` (97%), `scheduler.py` (100%), `user_checker.py` (100%), `telegram_utils.py` (100%), `captcha_recovery.py` (100%)
+  - Handlers: `anti_spam.py` (100%), `captcha.py` (100%), `check.py` (98%), `dm.py` (100%), `message.py` (100%), `topic_guard.py` (100%), `verify.py` (100%)
   - Database: `service.py` (100%), `models.py` (100%)
   - Config: `config.py` (100%)
   - Constants: `constants.py` (100%)
@@ -192,13 +236,16 @@ PythonID/
 │   ├── test_scheduler.py     # JobQueue scheduler tests
 │   ├── test_telegram_utils.py
 │   ├── test_topic_guard.py
+│   ├── test_group_config.py
 │   ├── test_user_checker.py
-│   └── test_verify_handler.py
+│   ├── test_verify_handler.py
+│   └── test_whitelist.py
 └── src/
     └── bot/
         ├── main.py              # Entry point with JobQueue integration
         ├── config.py            # Pydantic settings
         ├── constants.py         # Shared constants
+        ├── group_config.py      # Multi-group configuration (GroupConfig, GroupRegistry)
         ├── handlers/
         │   ├── anti_spam.py     # Anti-spam handler for probation users
         │   ├── captcha.py       # Captcha verification handler
@@ -412,6 +459,7 @@ The bot is organized into clear modules for maintainability:
   - `service.py`: Database operations with SQLite
   - `models.py`: Data models using SQLModel (UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation)
 - **config.py**: Environment configuration using Pydantic
+- **group_config.py**: Multi-group configuration management (GroupConfig model, GroupRegistry for O(1) lookup, groups.json loading with .env fallback)
 - **constants.py**: Centralized message templates and utilities for consistent formatting across handlers
 
 ### Group Message Monitoring
@@ -484,6 +532,7 @@ When a restricted user DMs the bot (or sends `/start`):
 | `LOGFIRE_ENABLED` | Enable Logfire logging integration | `true` |
 | `LOGFIRE_TOKEN` | Logfire API token (optional) | None |
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `GROUPS_CONFIG_PATH` | Path to `groups.json` for multi-group support | None (single-group mode from `.env`) |
 
 ### Restriction Modes
 
