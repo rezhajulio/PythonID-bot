@@ -10,7 +10,7 @@ import logging
 from telegram import Bot, Chat, Message, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
-from telegram.helpers import mention_markdown
+from telegram.helpers import escape_markdown, mention_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,10 @@ def get_user_mention(user: User | Chat) -> str:
     Returns:
         str: Formatted user mention (either @username or markdown mention).
     """
-    return (
-        f"@{user.username.lstrip('@')}"
-        if user.username
-        else mention_markdown(user.id, user.full_name, version=1)
-    )
+    if user.username:
+        escaped = escape_markdown(user.username.lstrip("@"), version=1)
+        return f"@{escaped}"
+    return mention_markdown(user.id, user.full_name, version=1)
 
 
 def get_user_mention_by_id(
@@ -54,7 +53,8 @@ def get_user_mention_by_id(
         str: Formatted mention string.
     """
     if username:
-        return f"@{username.lstrip('@')}"
+        escaped = escape_markdown(username.lstrip("@"), version=1)
+        return f"@{escaped}"
     return mention_markdown(user_id, user_full_name, version=1)
 
 
