@@ -647,6 +647,7 @@ class TestChatMemberHandler:
         new_member.user.id = user_id
         new_member.user.is_bot = False
         new_member.user.full_name = "Test User"
+        new_member.user.username = "testuser"
         update.chat_member.new_chat_member = new_member
 
         update.effective_chat = MagicMock()
