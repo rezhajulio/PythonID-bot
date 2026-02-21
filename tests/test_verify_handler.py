@@ -308,7 +308,7 @@ class TestHandleVerifyCommand:
         call_kwargs = mock_context.bot.send_message.call_args.kwargs
         assert call_kwargs["chat_id"] == gc.group_id
         assert call_kwargs["message_thread_id"] == gc.warning_topic_id
-        assert "@verified_user" in call_kwargs["text"]
+        assert r"@verified\_user" in call_kwargs["text"]
         assert call_kwargs["parse_mode"] == "Markdown"
 
     async def test_verify_handles_non_restricted_user_gracefully(
