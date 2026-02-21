@@ -2,7 +2,7 @@
 
 ## Overview
 
-Indonesian Telegram bot for group profile enforcement (photo + username), captcha verification, and anti-spam protection. Built with python-telegram-bot v20+, SQLModel, Pydantic, and Logfire.
+Indonesian Telegram bot for multi-group profile enforcement (photo + username), captcha verification, and anti-spam protection. Built with python-telegram-bot v20+, SQLModel, Pydantic, and Logfire.
 
 ## Commands
 
@@ -40,6 +40,7 @@ PythonID/
 │   ├── main.py           # Entry point + handler registration (priority groups!)
 │   ├── config.py         # Pydantic settings (get_settings() cached)
 │   ├── constants.py      # Indonesian templates + URL whitelists (528 lines)
+│   ├── group_config.py   # Multi-group config (GroupConfig, GroupRegistry)
 │   ├── handlers/         # Telegram update handlers
 │   │   ├── captcha.py    # New member verification flow
 │   │   ├── verify.py     # Admin /verify, /unverify commands
@@ -57,7 +58,7 @@ PythonID/
 │   └── database/
 │       ├── models.py     # SQLModel schemas (4 tables)
 │       └── service.py    # DatabaseService singleton (645 lines)
-├── tests/                # pytest-asyncio (18 files, 100% coverage)
+├── tests/                # pytest-asyncio (18 files, 99% coverage)
 └── data/bot.db           # SQLite (auto-created, WAL mode)
 ```
 
@@ -71,17 +72,19 @@ PythonID/
 | Change config | `config.py` | Pydantic BaseSettings with env vars |
 | Add URL whitelist | `constants.py` → `WHITELISTED_URL_DOMAINS` | Suffix-based matching |
 | Add Telegram whitelist | `constants.py` → `WHITELISTED_TELEGRAM_PATHS` | Lowercase, exact path match |
+| Multi-group config | `group_config.py` | GroupConfig model, GroupRegistry, groups.json loading |
 
 ## Code Map (Key Files)
 
 | File | Lines | Role |
 |------|-------|------|
-| `database/service.py` | 645 | **Complexity hotspot** - handles warnings, captcha, probation state |
-| `constants.py` | 528 | Templates + massive whitelists (Indonesian tech community) |
-| `handlers/captcha.py` | 365 | New member join → restrict → verify → unrestrict lifecycle |
-| `handlers/verify.py` | 344 | Admin verification commands + inline button callbacks |
-| `handlers/anti_spam.py` | 327 | Probation enforcement with URL whitelisting |
-| `main.py` | 293 | Entry point, logging, handler registration, JobQueue setup |
+| `group_config.py` | 250 | Multi-group config, registry, JSON loading, .env fallback |
+| `database/service.py` | 671 | **Complexity hotspot** - handles warnings, captcha, probation state |
+| `constants.py` | 530 | Templates + massive whitelists (Indonesian tech community) |
+| `handlers/captcha.py` | 375 | New member join → restrict → verify → unrestrict lifecycle |
+| `handlers/verify.py` | 358 | Admin verification commands + inline button callbacks |
+| `handlers/anti_spam.py` | 326 | Probation enforcement with URL whitelisting |
+| `main.py` | 315 | Entry point, logging, handler registration, JobQueue setup |
 
 ## Architecture Patterns
 
@@ -97,6 +100,13 @@ group=1   # message_handler: Runs LAST, profile compliance check
 - `get_settings()` — Pydantic settings, `@lru_cache`
 - `get_database()` — DatabaseService, lazy init
 - `BotInfoCache` — Class-level cache for bot username/ID
+
+### Multi-Group Support
+- `GroupConfig` — Pydantic model for per-group settings (warning thresholds, captcha, probation)
+- `GroupRegistry` — O(1) lookup by group_id, manages all monitored groups
+- `groups.json` — Per-group config file; falls back to `.env` for single-group mode
+- `get_group_config_for_update()` — Helper to resolve config for incoming Telegram updates
+- Exception-isolated loops — Per-group API calls wrapped in try/except to prevent cross-group failures
 
 ### State Machine (Progressive Restriction)
 ```
@@ -179,3 +189,7 @@ if user.id not in admin_ids:
 - JobQueue auto-restriction job runs every 5 minutes (first run after 5 min delay)
 - Bot uses `allowed_updates=["message", "callback_query", "chat_member"]`
 - Captcha uses both `ChatMemberHandler` (for "Hide Join" groups) and `MessageHandler` fallback
+- Multi-group: handlers use `get_group_config_for_update()` instead of `settings.group_id`
+- Captcha callback data encodes group_id: `captcha_verify_{group_id}_{user_id}` to avoid ambiguity
+- Scheduler iterates all groups with per-group exception isolation
+- DM handler scans all groups in registry for user membership and unrestriction
