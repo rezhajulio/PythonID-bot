@@ -215,7 +215,6 @@ async def handle_new_user_spam(
         return
 
     group_config = get_group_config_for_update(update)
-    chat = update.effective_chat
     user = update.message.from_user
 
     # Only process messages from monitored groups

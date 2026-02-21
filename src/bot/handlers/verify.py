@@ -51,35 +51,42 @@ async def verify_user(
     # Unrestrict user and delete warnings in all monitored groups
     total_deleted = 0
     for group_config in registry.all_groups():
-        # Unrestrict user if they are restricted
         try:
-            await unrestrict_user(bot, group_config.group_id, target_user_id)
-            logger.info(f"Unrestricted user {target_user_id} in group {group_config.group_id} during verification")
-        except BadRequest as e:
-            # User might not be restricted or not in group - that's okay
-            logger.info(f"Could not unrestrict user {target_user_id} in group {group_config.group_id}: {e}")
+            # Unrestrict user if they are restricted
+            try:
+                await unrestrict_user(bot, group_config.group_id, target_user_id)
+                logger.info(f"Unrestricted user {target_user_id} in group {group_config.group_id} during verification")
+            except BadRequest as e:
+                # User might not be restricted or not in group - that's okay
+                logger.info(f"Could not unrestrict user {target_user_id} in group {group_config.group_id}: {e}")
 
-        # Delete all warning records for this user in this group
-        deleted_count = db.delete_user_warnings(target_user_id, group_config.group_id)
-        total_deleted += deleted_count
+            # Delete all warning records for this user in this group
+            deleted_count = db.delete_user_warnings(target_user_id, group_config.group_id)
+            total_deleted += deleted_count
 
-        # Send notification to warning topic if user had previous warnings
-        if deleted_count > 0:
-            # Get user info for proper mention
-            user_info = await bot.get_chat(target_user_id)
-            user_mention = get_user_mention(user_info)
+            # Send notification to warning topic if user had previous warnings
+            if deleted_count > 0:
+                # Get user info for proper mention
+                user_info = await bot.get_chat(target_user_id)
+                user_mention = get_user_mention(user_info)
 
-            # Send clearance message to warning topic
-            clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
-                user_mention=user_mention
+                # Send clearance message to warning topic
+                clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
+                    user_mention=user_mention
+                )
+                await bot.send_message(
+                    chat_id=group_config.group_id,
+                    message_thread_id=group_config.warning_topic_id,
+                    text=clearance_message,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Sent clearance notification to warning topic for user {target_user_id} in group {group_config.group_id}")
+        except Exception:
+            logger.warning(
+                f"Verification failed for group {group_config.group_id} for user {target_user_id}",
+                exc_info=True,
             )
-            await bot.send_message(
-                chat_id=group_config.group_id,
-                message_thread_id=group_config.warning_topic_id,
-                text=clearance_message,
-                parse_mode="Markdown"
-            )
-            logger.info(f"Sent clearance notification to warning topic for user {target_user_id} in group {group_config.group_id}")
+            continue
 
     if total_deleted > 0:
         logger.info(f"Deleted {total_deleted} total warning record(s) for user {target_user_id}")

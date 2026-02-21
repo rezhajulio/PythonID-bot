@@ -13,7 +13,6 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TimedOut
 from telegram.ext import ContextTypes
 
-from bot.config import get_settings
 from bot.constants import (
     ADMIN_CHECK_ACTION_COMPLETE,
     ADMIN_CHECK_ACTION_INCOMPLETE,
@@ -248,7 +247,6 @@ async def handle_warn_callback(
         missing_items.append("username")
     missing_text = MISSING_ITEMS_SEPARATOR.join(missing_items) if missing_items else "profil"
 
-    settings = get_settings()
     registry = get_group_registry()
 
     try:
