@@ -2,15 +2,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from bot.group_config import GroupConfig
 from bot.handlers.topic_guard import guard_warning_topic
 
 
 @pytest.fixture
-def mock_settings():
-    settings = MagicMock()
-    settings.group_id = -1001234567890
-    settings.warning_topic_id = 42
-    return settings
+def group_config():
+    return GroupConfig(
+        group_id=-1001234567890,
+        warning_topic_id=42,
+    )
 
 
 @pytest.fixture
@@ -53,43 +54,43 @@ class TestGuardWarningTopic:
 
         mock_context.bot.get_chat_member.assert_not_called()
 
-    async def test_wrong_group_ignored(self, mock_update, mock_context, mock_settings):
+    async def test_wrong_group_ignored(self, mock_update, mock_context):
         mock_update.effective_chat.id = -100999999
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=None):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_context.bot.get_chat_member.assert_not_called()
         mock_update.message.delete.assert_not_called()
 
     async def test_different_topic_ignored(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         mock_update.message.message_thread_id = 999
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_context.bot.get_chat_member.assert_not_called()
         mock_update.message.delete.assert_not_called()
 
-    async def test_bot_message_allowed(self, mock_update, mock_context, mock_settings):
+    async def test_bot_message_allowed(self, mock_update, mock_context, group_config):
         mock_update.message.from_user.id = 99999  # Same as bot id
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_context.bot.get_chat_member.assert_not_called()
         mock_update.message.delete.assert_not_called()
 
     async def test_admin_message_allowed(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         chat_member = MagicMock()
         chat_member.status = "administrator"
         mock_context.bot.get_chat_member.return_value = chat_member
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_context.bot.get_chat_member.assert_called_once_with(
@@ -99,37 +100,37 @@ class TestGuardWarningTopic:
         mock_update.message.delete.assert_not_called()
 
     async def test_creator_message_allowed(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         chat_member = MagicMock()
         chat_member.status = "creator"
         mock_context.bot.get_chat_member.return_value = chat_member
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_update.message.delete.assert_not_called()
 
     async def test_regular_user_message_deleted(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         chat_member = MagicMock()
         chat_member.status = "member"
         mock_context.bot.get_chat_member.return_value = chat_member
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
     async def test_restricted_user_message_deleted(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         chat_member = MagicMock()
         chat_member.status = "restricted"
         mock_context.bot.get_chat_member.return_value = chat_member
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             await guard_warning_topic(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
@@ -137,7 +138,7 @@ class TestGuardWarningTopic:
 
 class TestGuardWarningTopicErrorHandling:
     async def test_delete_message_exception_logged(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test when update.message.delete() raises an exception (lines 91-92)."""
         chat_member = MagicMock()
@@ -145,7 +146,7 @@ class TestGuardWarningTopicErrorHandling:
         mock_context.bot.get_chat_member.return_value = chat_member
         mock_update.message.delete.side_effect = Exception("test error")
 
-        with patch("bot.handlers.topic_guard.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.topic_guard.get_group_config_for_update", return_value=group_config):
             # Should not raise, error is caught and logged
             await guard_warning_topic(mock_update, mock_context)
 

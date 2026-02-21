@@ -374,6 +374,32 @@ class DatabaseService:
             )
             return [record for record in records]
 
+    def get_warnings_past_time_threshold_for_group(
+        self, group_id: int, threshold: timedelta
+    ) -> list[UserWarning]:
+        """
+        Find active warnings for a specific group that exceeded the time threshold.
+
+        Args:
+            group_id: Telegram group ID to filter by.
+            threshold: Time duration since first warning to trigger restriction.
+
+        Returns:
+            list[UserWarning]: Warning records that should be auto-restricted.
+        """
+        with Session(self._engine) as session:
+            cutoff_time = datetime.now(UTC) - threshold
+            statement = select(UserWarning).where(
+                UserWarning.group_id == group_id,
+                ~UserWarning.is_restricted,
+                UserWarning.first_warned_at <= cutoff_time,
+            )
+            records = session.exec(statement).all()
+            logger.info(
+                f"Found {len(records)} warnings past {threshold} threshold for group {group_id}"
+            )
+            return [record for record in records]
+
     def add_pending_captcha(
         self,
         user_id: int,

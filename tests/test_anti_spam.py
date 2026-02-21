@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram import Chat, Message, MessageEntity, User
 
+from bot.group_config import GroupConfig
 from bot.handlers.anti_spam import (
     extract_urls,
     handle_new_user_spam,
@@ -296,7 +297,7 @@ class TestHandleNewUserSpam:
         update.message.from_user.full_name = "Test User"
         update.message.from_user.username = "testuser"
         update.effective_chat = MagicMock(spec=Chat)
-        update.effective_chat.id = -100123456  # group_id from settings
+        update.effective_chat.id = -100123456  # group_id from group_config
 
         # Default: not forwarded, no links, no external reply, no story
         update.message.forward_origin = None
@@ -320,51 +321,50 @@ class TestHandleNewUserSpam:
         return context
 
     @pytest.fixture
-    def mock_settings(self):
-        """Create mock settings."""
-        settings = MagicMock()
-        settings.group_id = -100123456
-        settings.warning_topic_id = 123
-        settings.rules_link = "https://example.com/rules"
-        settings.new_user_probation_hours = 168
-        settings.new_user_violation_threshold = 3
-        settings.probation_timedelta = timedelta(hours=168)
-        return settings
+    def group_config(self):
+        """Create group config for anti-spam tests."""
+        return GroupConfig(
+            group_id=-100123456,
+            warning_topic_id=123,
+            rules_link="https://example.com/rules",
+            new_user_probation_hours=168,
+            new_user_violation_threshold=3,
+        )
 
     @pytest.mark.asyncio
     async def test_ignores_message_from_wrong_group(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context
     ):
         """Test that messages from other groups are ignored."""
         mock_update.effective_chat.id = -999999  # Different group
 
-        with patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=None):
             await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ignores_bot_messages(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that bot messages are ignored."""
         mock_update.message.from_user.is_bot = True
 
-        with patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
             await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ignores_user_not_on_probation(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that users without probation record are ignored."""
         mock_db = MagicMock()
         mock_db.get_new_user_probation.return_value = None
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -373,7 +373,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_handles_naive_datetime_from_database(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that naive datetimes from database are handled correctly."""
         mock_update.message.forward_origin = MagicMock()  # Trigger violation
@@ -391,7 +391,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             # Should not raise TypeError
@@ -401,7 +401,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_clears_expired_probation(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that expired probation is cleared and message is not deleted."""
         mock_record = MagicMock()
@@ -411,7 +411,7 @@ class TestHandleNewUserSpam:
         mock_db.get_new_user_probation.return_value = mock_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -421,7 +421,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_ignores_regular_message(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that regular messages (no forward, no link) are ignored."""
         mock_record = MagicMock()
@@ -431,7 +431,7 @@ class TestHandleNewUserSpam:
         mock_db.get_new_user_probation.return_value = mock_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -440,7 +440,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_deletes_forwarded_message(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that forwarded messages are deleted."""
         mock_update.message.forward_origin = MagicMock()  # Any non-None value
@@ -457,7 +457,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -466,7 +466,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_deletes_message_with_non_whitelisted_link(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that messages with non-whitelisted links are deleted."""
         entity = MagicMock(spec=MessageEntity)
@@ -487,7 +487,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -496,7 +496,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_allows_whitelisted_link(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that messages with whitelisted links are allowed."""
         entity = MagicMock(spec=MessageEntity)
@@ -513,7 +513,7 @@ class TestHandleNewUserSpam:
         mock_db.get_new_user_probation.return_value = mock_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -522,7 +522,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_sends_warning_on_first_violation(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that warning is sent on first violation."""
         mock_update.message.forward_origin = MagicMock()  # Any non-None value
@@ -538,7 +538,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -547,7 +547,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_no_warning_on_second_violation(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that no warning is sent on subsequent violations."""
         mock_update.message.forward_origin = MagicMock()  # Any non-None value
@@ -563,7 +563,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -572,7 +572,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_restricts_user_at_threshold(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that user is restricted when reaching threshold."""
         mock_update.message.forward_origin = MagicMock()  # Any non-None value
@@ -588,7 +588,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -597,7 +597,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_sends_restriction_notification_at_threshold(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that restriction notification is sent when user is restricted."""
         mock_update.message.forward_origin = MagicMock()
@@ -613,7 +613,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -624,7 +624,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_deletes_message_with_external_reply(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that messages with external replies are deleted."""
         mock_update.message.external_reply = MagicMock()  # Any non-None value
@@ -640,7 +640,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -649,7 +649,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_deletes_message_with_story(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that messages with shared stories are deleted."""
         mock_update.message.story = MagicMock()  # Any non-None value
@@ -665,7 +665,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -673,27 +673,25 @@ class TestHandleNewUserSpam:
         mock_update.message.delete.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ignores_update_without_message(self, mock_context, mock_settings):
+    async def test_ignores_update_without_message(self, mock_context):
         """Test that update without message is ignored."""
         mock_update = MagicMock()
         mock_update.message = None
 
-        with patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings):
-            await handle_new_user_spam(mock_update, mock_context)
+        await handle_new_user_spam(mock_update, mock_context)
 
     @pytest.mark.asyncio
-    async def test_ignores_message_without_from_user(self, mock_context, mock_settings):
+    async def test_ignores_message_without_from_user(self, mock_context):
         """Test that message without from_user is ignored."""
         mock_update = MagicMock()
         mock_update.message = MagicMock(spec=Message)
         mock_update.message.from_user = None
 
-        with patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings):
-            await handle_new_user_spam(mock_update, mock_context)
+        await handle_new_user_spam(mock_update, mock_context)
 
     @pytest.mark.asyncio
     async def test_continues_when_delete_fails(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that handler continues when message delete fails."""
         mock_update.message.forward_origin = MagicMock()
@@ -710,7 +708,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -719,7 +717,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_continues_when_send_warning_fails(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that handler continues when sending warning fails."""
         mock_update.message.forward_origin = MagicMock()
@@ -738,7 +736,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
@@ -747,7 +745,7 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_continues_when_restrict_fails(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         """Test that handler completes when restrict fails."""
         mock_update.message.forward_origin = MagicMock()
@@ -766,7 +764,7 @@ class TestHandleNewUserSpam:
         mock_db.increment_new_user_violation.return_value = updated_record
 
         with (
-            patch("bot.handlers.anti_spam.get_settings", return_value=mock_settings),
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
             await handle_new_user_spam(mock_update, mock_context)
