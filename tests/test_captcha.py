@@ -244,7 +244,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()
@@ -270,7 +270,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()
@@ -301,7 +301,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()
@@ -327,7 +327,7 @@ class TestCaptchaCallbackHandler:
         query.answer = AsyncMock()
         query.from_user = MagicMock()
         query.from_user.id = 99999
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
 
         update = MagicMock()
         update.callback_query = query
@@ -381,7 +381,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()
@@ -413,7 +413,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()
@@ -447,7 +447,7 @@ class TestCaptchaCallbackHandler:
         query.from_user.id = 12345
         query.from_user.username = "testuser"
         query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_12345"
+        query.data = "captcha_verify_-1001234567890_12345"
         query.edit_message_text = AsyncMock()
         query.edit_message_text.side_effect = Exception("Edit failed")
 
@@ -461,6 +461,26 @@ class TestCaptchaCallbackHandler:
             await captcha_callback_handler(update, mock_context)
 
         assert db.get_pending_captcha(12345, -1001234567890) is None
+
+    async def test_unknown_group_in_callback_rejects(
+        self, mock_context, mock_registry, temp_db
+    ):
+        """Test that a callback with an unregistered group_id is rejected."""
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.data = "captcha_verify_-9999999999_12345"
+
+        update = MagicMock()
+        update.callback_query = query
+
+        with patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry):
+            await captcha_callback_handler(update, mock_context)
+
+        query.answer.assert_called_with(
+            "Gagal memverifikasi. Silakan coba lagi.", show_alert=True
+        )
 
 
 class TestGetHandlers:

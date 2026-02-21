@@ -388,3 +388,45 @@ class TestAutoRestrictExpiredWarnings:
         mock_bot.send_message.assert_called_once()
         call_args = mock_bot.send_message.call_args
         assert "User 123" in call_args.kwargs["text"]
+
+    @pytest.mark.asyncio
+    async def test_group_query_failure_continues_to_next_group(self):
+        """Test that a DB query failure for one group doesn't stop other groups."""
+        group1 = GroupConfig(
+            group_id=-100111,
+            warning_topic_id=1,
+            warning_time_threshold_minutes=180,
+            rules_link="https://example.com/rules",
+        )
+        group2 = GroupConfig(
+            group_id=-100222,
+            warning_topic_id=2,
+            warning_time_threshold_minutes=180,
+            rules_link="https://example.com/rules",
+        )
+        registry = GroupRegistry()
+        registry.register(group1)
+        registry.register(group2)
+
+        mock_db = MagicMock()
+        # First group query raises, second group returns empty
+        mock_db.get_warnings_past_time_threshold_for_group.side_effect = [
+            Exception("DB connection lost"),
+            [],
+        ]
+
+        mock_bot = AsyncMock()
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+
+        with patch("bot.services.scheduler.get_database", return_value=mock_db):
+            with patch("bot.services.scheduler.get_group_registry", return_value=registry):
+                with patch(
+                    "bot.services.scheduler.BotInfoCache.get_username",
+                    new_callable=AsyncMock,
+                    return_value="test_bot",
+                ):
+                    await auto_restrict_expired_warnings(mock_context)
+
+        # Both groups should have been queried despite first failure
+        assert mock_db.get_warnings_past_time_threshold_for_group.call_count == 2
