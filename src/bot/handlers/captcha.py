@@ -81,7 +81,7 @@ async def _initiate_captcha_challenge(
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(
             "✅ Saya bukan robot",
-            callback_data=f"captcha_verify_{user_id}",
+            callback_data=f"captcha_verify_{chat_id}_{user_id}",
         )]
     ])
 
@@ -265,26 +265,22 @@ async def captcha_callback_handler(
     await query.answer()
 
     callback_user_id = query.from_user.id
-    target_user_id = int(query.data.split("_")[-1])
+    parts = query.data.split("_")
+    target_user_id = int(parts[-1])
+    group_id = int(parts[-2])
 
     if callback_user_id != target_user_id:
         await query.answer(CAPTCHA_WRONG_USER_MESSAGE, show_alert=True)
         return
 
-    # Look up which group this captcha belongs to
+    # Look up group config directly using group_id from callback data
     db = get_database()
     registry = get_group_registry()
 
-    # Find the group for this pending captcha
-    group_config = None
-    for gc in registry.all_groups():
-        pending = db.get_pending_captcha(target_user_id, gc.group_id)
-        if pending:
-            group_config = gc
-            break
+    group_config = registry.get(group_id)
 
-    if group_config is None:
-        logger.warning(f"No pending captcha found for user {target_user_id} in any monitored group")
+    if group_config is None or not db.get_pending_captcha(target_user_id, group_id):
+        logger.warning(f"No pending captcha found for user {target_user_id} in group {group_id}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return
 
@@ -374,6 +370,6 @@ def get_handlers() -> list:
         ),
         CallbackQueryHandler(
             captcha_callback_handler,
-            pattern=r"^captcha_verify_\d+$",
+            pattern=r"^captcha_verify_-?\d+_\d+$",
         ),
     ]

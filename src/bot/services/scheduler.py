@@ -46,10 +46,17 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     dm_link = f"https://t.me/{bot_username}"
 
     for group_config in registry.all_groups():
-        # Get warnings that exceeded time threshold for this group
-        expired_warnings = db.get_warnings_past_time_threshold_for_group(
-            group_config.group_id, group_config.warning_time_threshold_timedelta
-        )
+        try:
+            # Get warnings that exceeded time threshold for this group
+            expired_warnings = db.get_warnings_past_time_threshold_for_group(
+                group_config.group_id, group_config.warning_time_threshold_timedelta
+            )
+        except Exception as e:
+            logger.error(
+                f"Error querying expired warnings for group {group_config.group_id}: {e}",
+                exc_info=True,
+            )
+            continue
 
         if not expired_warnings:
             logger.info(f"No expired warnings for group {group_config.group_id}")
