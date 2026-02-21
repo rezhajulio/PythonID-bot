@@ -413,6 +413,7 @@ class TestHandleWarnCallback:
 
         mock_chat = MagicMock()
         mock_chat.full_name = "Test User"
+        mock_chat.username = "testuser"
         mock_context.bot.get_chat.return_value = mock_chat
 
         with (

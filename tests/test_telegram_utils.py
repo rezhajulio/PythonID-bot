@@ -67,7 +67,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        assert result == "@user_name_123"
+        assert result == r"@user\_name\_123"
 
     @patch("bot.services.telegram_utils.mention_markdown")
     def test_get_user_mention_special_characters_in_full_name(self, mock_mention_markdown):
@@ -106,7 +106,7 @@ class TestGetUserMention:
 
         result = get_user_mention(user)
 
-        assert result == "@already_prefixed"
+        assert result == r"@already\_prefixed"
 
     def test_get_user_mention_chat_with_username(self):
         """Test getting mention for Chat object with username."""
@@ -117,7 +117,7 @@ class TestGetUserMention:
 
         result = get_user_mention(chat)
 
-        assert result == "@john_doe"
+        assert result == r"@john\_doe"
 
     def test_get_user_mention_chat_with_prefixed_username(self):
         """Test that Chat with @ prefixed username is normalized."""
@@ -128,7 +128,7 @@ class TestGetUserMention:
 
         result = get_user_mention(chat)
 
-        assert result == "@prefixed_chat"
+        assert result == r"@prefixed\_chat"
 
     @patch("bot.services.telegram_utils.mention_markdown")
     def test_get_user_mention_chat_without_username(self, mock_mention_markdown):
@@ -231,7 +231,7 @@ class TestGetUserMentionById:
         """Test mention by ID with username containing underscores."""
         result = get_user_mention_by_id(123456, "John Doe", username="john_doe_123")
 
-        assert result == "@john_doe_123"
+        assert result == r"@john\_doe\_123"
 
     def test_get_user_mention_by_id_with_prefixed_username(self):
         """Test that username with @ prefix is normalized."""
