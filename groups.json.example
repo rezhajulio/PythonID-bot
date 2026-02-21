@@ -1,0 +1,26 @@
+[
+  {
+    "group_id": -1001234567890,
+    "warning_topic_id": 123,
+    "restrict_failed_users": false,
+    "warning_threshold": 3,
+    "warning_time_threshold_minutes": 180,
+    "captcha_enabled": false,
+    "captcha_timeout_seconds": 120,
+    "new_user_probation_hours": 72,
+    "new_user_violation_threshold": 3,
+    "rules_link": "https://t.me/pythonID/290029/321799"
+  },
+  {
+    "group_id": -1009876543210,
+    "warning_topic_id": 456,
+    "restrict_failed_users": true,
+    "warning_threshold": 5,
+    "warning_time_threshold_minutes": 60,
+    "captcha_enabled": true,
+    "captcha_timeout_seconds": 180,
+    "new_user_probation_hours": 168,
+    "new_user_violation_threshold": 2,
+    "rules_link": "https://t.me/mygroup/rules"
+  }
+]

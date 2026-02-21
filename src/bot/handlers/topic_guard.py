@@ -11,7 +11,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import get_settings
+from bot.group_config import get_group_config_for_update
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ async def guard_warning_topic(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.info("No message or no sender, skipping")
             return
 
-        settings = get_settings()
+        group_config = get_group_config_for_update(update)
         user = update.message.from_user
         chat_id = update.effective_chat.id if update.effective_chat else None
         thread_id = update.message.message_thread_id
@@ -46,17 +46,17 @@ async def guard_warning_topic(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"Topic guard called: user_id={user.id}, chat_id={chat_id}, thread_id={thread_id}"
         )
 
-        # Only process messages from the configured group
-        if chat_id != settings.group_id:
+        # Only process messages from monitored groups
+        if group_config is None:
             logger.info(
-                f"Wrong group (chat_id={chat_id}, expected {settings.group_id}), skipping"
+                f"Chat not monitored (chat_id={chat_id}), skipping"
             )
             return
 
         # Only guard the warning topic, not other topics
-        if thread_id != settings.warning_topic_id:
+        if thread_id != group_config.warning_topic_id:
             logger.info(
-                f"Wrong topic (thread_id={thread_id}, expected {settings.warning_topic_id}), skipping"
+                f"Wrong topic (thread_id={thread_id}, expected {group_config.warning_topic_id}), skipping"
             )
             return
 
@@ -70,7 +70,7 @@ async def guard_warning_topic(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Check if user is an admin or creator
         logger.info(f"Checking admin status for user {user.id} ({user.full_name})")
         chat_member = await context.bot.get_chat_member(
-            chat_id=settings.group_id,
+            chat_id=group_config.group_id,
             user_id=user.id,
         )
 
@@ -84,7 +84,7 @@ async def guard_warning_topic(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Delete message from non-admin user
         logger.info(
             f"Deleting message from non-admin user {user.id} ({user.full_name}) "
-            f"in warning topic (group_id={settings.group_id}, thread_id={thread_id})"
+            f"in warning topic (group_id={group_config.group_id}, thread_id={thread_id})"
         )
         await update.message.delete()
 

@@ -8,6 +8,7 @@ import pytest
 from sqlmodel import Session, text
 
 from bot.database.service import get_database, init_database, reset_database
+from bot.group_config import GroupConfig, GroupRegistry
 from bot.services.captcha_recovery import (
     handle_captcha_expiration,
     recover_pending_captchas,
@@ -15,12 +16,19 @@ from bot.services.captcha_recovery import (
 
 
 @pytest.fixture
-def mock_settings():
-    settings = MagicMock()
-    settings.group_id = -1001234567890
-    settings.captcha_timeout_seconds = 300
-    settings.captcha_timeout_timedelta = timedelta(seconds=300)
-    return settings
+def group_config():
+    return GroupConfig(
+        group_id=-1001234567890,
+        warning_topic_id=0,
+        captcha_timeout_seconds=300,
+    )
+
+
+@pytest.fixture
+def mock_registry(group_config):
+    registry = GroupRegistry()
+    registry.register(group_config)
+    return registry
 
 
 @pytest.fixture
@@ -58,7 +66,7 @@ class TestHandleCaptchaExpiration:
 
         with patch("bot.services.captcha_recovery.BotInfoCache.get_username") as mock_username:
             mock_username.return_value = "testbot"
-            
+
             await handle_captcha_expiration(
                 bot=mock_bot,
                 user_id=12345,
@@ -106,7 +114,7 @@ class TestHandleCaptchaExpiration:
 
         with patch("bot.services.captcha_recovery.BotInfoCache.get_username") as mock_username:
             mock_username.return_value = "testbot"
-            
+
             await handle_captcha_expiration(
                 bot=mock_bot,
                 user_id=12345,
@@ -122,27 +130,27 @@ class TestHandleCaptchaExpiration:
 
 class TestRecoverPendingCaptchas:
     async def test_recover_pending_captchas_no_records(
-        self, mock_application, mock_settings, temp_db, caplog
+        self, mock_application, mock_registry, temp_db, caplog
     ):
         caplog.set_level(logging.INFO)
-        with patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings):
+        with patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry):
             await recover_pending_captchas(mock_application)
 
         assert "No pending captcha verifications to recover" in caplog.text
         mock_application.job_queue.run_once.assert_not_called()
 
     async def test_recover_pending_captchas_expired_timeout(
-        self, mock_application, mock_settings, temp_db, caplog
+        self, mock_application, mock_registry, temp_db, caplog
     ):
         caplog.set_level(logging.INFO)
         db = get_database()
-        
+
         # Create a record that expired 100 seconds ago
         old_time = datetime.now(UTC) - timedelta(seconds=400)
         record = db.add_pending_captcha(
             12345, -1001234567890, -1001234567890, 999, "Test User"
         )
-        
+
         # Manually update created_at to simulate old record
         with Session(db._engine) as session:
             stmt = text("UPDATE pending_validations SET created_at = :created_at WHERE id = :id")
@@ -150,7 +158,7 @@ class TestRecoverPendingCaptchas:
             session.commit()
 
         with (
-            patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings),
+            patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry),
             patch("bot.services.captcha_recovery.handle_captcha_expiration") as mock_expire,
         ):
             mock_expire.return_value = AsyncMock()
@@ -171,17 +179,17 @@ class TestRecoverPendingCaptchas:
         assert "Captcha recovery complete" in caplog.text
 
     async def test_recover_pending_captchas_reschedule_timeout(
-        self, mock_application, mock_settings, temp_db, caplog
+        self, mock_application, mock_registry, temp_db, caplog
     ):
         caplog.set_level(logging.INFO)
         db = get_database()
-        
+
         # Create a record with 150 seconds remaining (150 seconds ago)
         recent_time = datetime.now(UTC) - timedelta(seconds=150)
         record = db.add_pending_captcha(
             12345, -1001234567890, -1001234567890, 999, "Test User"
         )
-        
+
         # Manually update created_at
         with Session(db._engine) as session:
             stmt = text("UPDATE pending_validations SET created_at = :created_at WHERE id = :id")
@@ -189,14 +197,14 @@ class TestRecoverPendingCaptchas:
             session.commit()
 
         with (
-            patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings),
+            patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry),
             patch("bot.services.captcha_recovery.captcha_timeout_callback") as mock_callback,
         ):
             await recover_pending_captchas(mock_application)
 
         mock_application.job_queue.run_once.assert_called_once()
         call_args = mock_application.job_queue.run_once.call_args
-        
+
         assert call_args.args[0] == mock_callback
         assert 149 <= call_args.kwargs["when"] <= 151  # Allow 1 second tolerance
         assert call_args.kwargs["name"] == "captcha_timeout_-1001234567890_12345"
@@ -211,52 +219,52 @@ class TestRecoverPendingCaptchas:
         assert "remaining:" in caplog.text
 
     async def test_recover_pending_captchas_handles_errors(
-        self, mock_application, mock_settings, temp_db, caplog
+        self, mock_application, mock_registry, temp_db, caplog
     ):
         caplog.set_level(logging.INFO)
         db = get_database()
-        
+
         # Create a record
         record = db.add_pending_captcha(
             12345, -1001234567890, -1001234567890, 999, "Test User"
         )
 
         with (
-            patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings),
+            patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry),
             patch("bot.services.captcha_recovery.handle_captcha_expiration") as mock_expire,
         ):
             mock_expire.side_effect = Exception("Something went wrong")
-            
+
             # Manually update to make it expired
             old_time = datetime.now(UTC) - timedelta(seconds=400)
             with Session(db._engine) as session:
                 stmt = text("UPDATE pending_validations SET created_at = :created_at WHERE id = :id")
                 session.execute(stmt, {"created_at": old_time, "id": record.id})
                 session.commit()
-            
+
             await recover_pending_captchas(mock_application)
 
         assert "Failed to recover captcha for user 12345: Something went wrong" in caplog.text
         assert "Captcha recovery complete" in caplog.text
 
     async def test_recover_pending_captchas_multiple_records(
-        self, mock_application, mock_settings, temp_db, caplog
+        self, mock_application, mock_registry, temp_db, caplog
     ):
         caplog.set_level(logging.INFO)
         db = get_database()
-        
+
         # Create expired record
         old_time = datetime.now(UTC) - timedelta(seconds=400)
         record1 = db.add_pending_captcha(
             12345, -1001234567890, -1001234567890, 999, "User One"
         )
-        
+
         # Create pending record
         recent_time = datetime.now(UTC) - timedelta(seconds=150)
         record2 = db.add_pending_captcha(
             67890, -1001234567890, -1001234567890, 888, "User Two"
         )
-        
+
         # Manually update created_at for both
         with Session(db._engine) as session:
             stmt = text("UPDATE pending_validations SET created_at = :created_at WHERE id = :id")
@@ -265,7 +273,7 @@ class TestRecoverPendingCaptchas:
             session.commit()
 
         with (
-            patch("bot.services.captcha_recovery.get_settings", return_value=mock_settings),
+            patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry),
             patch("bot.services.captcha_recovery.handle_captcha_expiration") as mock_expire,
             patch("bot.services.captcha_recovery.captcha_timeout_callback"),
         ):
@@ -275,7 +283,7 @@ class TestRecoverPendingCaptchas:
         # Should expire the first one
         mock_expire.assert_called_once()
         assert mock_expire.call_args.kwargs["user_id"] == 12345
-        
+
         # Should reschedule the second one
         mock_application.job_queue.run_once.assert_called_once()
         call_args = mock_application.job_queue.run_once.call_args
@@ -285,3 +293,29 @@ class TestRecoverPendingCaptchas:
         assert "Expiring captcha for user 12345" in caplog.text
         assert "Rescheduling captcha timeout for user 67890" in caplog.text
         assert "Captcha recovery complete" in caplog.text
+
+    async def test_recover_pending_captchas_skips_unknown_group(
+        self, mock_application, mock_registry, temp_db, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        db = get_database()
+
+        # Create a captcha record for a group NOT in the registry
+        unknown_group_id = -1009999999999
+        old_time = datetime.now(UTC) - timedelta(seconds=400)
+        record = db.add_pending_captcha(
+            12345, unknown_group_id, unknown_group_id, 999, "Test User"
+        )
+
+        with Session(db._engine) as session:
+            stmt = text("UPDATE pending_validations SET created_at = :created_at WHERE id = :id")
+            session.execute(stmt, {"created_at": old_time, "id": record.id})
+            session.commit()
+
+        with patch("bot.services.captcha_recovery.get_group_registry", return_value=mock_registry):
+            await recover_pending_captchas(mock_application)
+
+        # Should skip - no expiration, no reschedule
+        mock_application.job_queue.run_once.assert_not_called()
+
+        assert "group no longer in registry" in caplog.text

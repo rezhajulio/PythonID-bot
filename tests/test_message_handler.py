@@ -5,20 +5,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.database.service import init_database, reset_database
+from bot.group_config import GroupConfig
 from bot.handlers.message import handle_message
 from bot.services.user_checker import ProfileCheckResult
 
 
 @pytest.fixture
-def mock_settings():
-    settings = MagicMock()
-    settings.group_id = -1001234567890
-    settings.warning_topic_id = 42
-    settings.restrict_failed_users = False
-    settings.warning_time_threshold_minutes = 180
-    settings.warning_threshold = 3
-    settings.rules_link = "https://example.com/rules"
-    return settings
+def group_config():
+    return GroupConfig(
+        group_id=-1001234567890,
+        warning_topic_id=42,
+        restrict_failed_users=False,
+        warning_time_threshold_minutes=180,
+        warning_threshold=3,
+        rules_link="https://example.com/rules",
+    )
 
 
 @pytest.fixture
@@ -69,29 +70,29 @@ class TestHandleMessage:
 
         mock_context.bot.send_message.assert_not_called()
 
-    async def test_wrong_group(self, mock_update, mock_context, mock_settings):
+    async def test_wrong_group(self, mock_update, mock_context):
         mock_update.effective_chat.id = -100999999  # Different group
 
-        with patch("bot.handlers.message.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.message.get_group_config_for_update", return_value=None):
             await handle_message(mock_update, mock_context)
 
         mock_context.bot.send_message.assert_not_called()
 
-    async def test_bot_user_ignored(self, mock_update, mock_context, mock_settings):
+    async def test_bot_user_ignored(self, mock_update, mock_context, group_config):
         mock_update.message.from_user.is_bot = True
 
-        with patch("bot.handlers.message.get_settings", return_value=mock_settings):
+        with patch("bot.handlers.message.get_group_config_for_update", return_value=group_config):
             await handle_message(mock_update, mock_context)
 
         mock_context.bot.send_message.assert_not_called()
 
     async def test_complete_profile_no_warning(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         complete_result = ProfileCheckResult(has_profile_photo=True, has_username=True)
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=complete_result,
@@ -102,14 +103,14 @@ class TestHandleMessage:
         mock_context.bot.send_message.assert_not_called()
 
     async def test_missing_photo_sends_warning(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
         )
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -124,7 +125,7 @@ class TestHandleMessage:
         assert "foto profil publik" in call_args.kwargs["text"]
 
     async def test_missing_username_sends_warning(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         mock_update.message.from_user.username = None
         incomplete_result = ProfileCheckResult(
@@ -132,7 +133,7 @@ class TestHandleMessage:
         )
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -146,7 +147,7 @@ class TestHandleMessage:
         assert "Test User" in call_args.kwargs["text"]
 
     async def test_missing_both_sends_warning(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         mock_update.message.from_user.username = None
         incomplete_result = ProfileCheckResult(
@@ -154,7 +155,7 @@ class TestHandleMessage:
         )
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -168,7 +169,7 @@ class TestHandleMessage:
         assert "username" in call_args.kwargs["text"]
 
     async def test_warning_mentions_username_when_available(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         mock_update.message.from_user.username = "cooluser"
         incomplete_result = ProfileCheckResult(
@@ -176,7 +177,7 @@ class TestHandleMessage:
         )
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -190,18 +191,18 @@ class TestHandleMessage:
 
 class TestHandleMessageWithProgressiveRestriction:
     @pytest.fixture
-    def mock_settings_with_restriction(self):
-        settings = MagicMock()
-        settings.group_id = -1001234567890
-        settings.warning_topic_id = 42
-        settings.restrict_failed_users = True
-        settings.warning_threshold = 3
-        settings.warning_time_threshold_minutes = 180
-        settings.rules_link = "https://example.com/rules"
-        return settings
+    def group_config_with_restriction(self):
+        return GroupConfig(
+            group_id=-1001234567890,
+            warning_topic_id=42,
+            restrict_failed_users=True,
+            warning_threshold=3,
+            warning_time_threshold_minutes=180,
+            rules_link="https://example.com/rules",
+        )
 
     async def test_first_message_sends_warning(
-        self, mock_update, mock_context, mock_settings_with_restriction, temp_db
+        self, mock_update, mock_context, group_config_with_restriction, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -209,8 +210,8 @@ class TestHandleMessageWithProgressiveRestriction:
 
         with (
             patch(
-                "bot.handlers.message.get_settings",
-                return_value=mock_settings_with_restriction,
+                "bot.handlers.message.get_group_config_for_update",
+                return_value=group_config_with_restriction,
             ),
             patch(
                 "bot.handlers.message.check_user_profile",
@@ -226,7 +227,7 @@ class TestHandleMessageWithProgressiveRestriction:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_second_message_silent(
-        self, mock_update, mock_context, mock_settings_with_restriction, temp_db
+        self, mock_update, mock_context, group_config_with_restriction, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -234,8 +235,8 @@ class TestHandleMessageWithProgressiveRestriction:
 
         with (
             patch(
-                "bot.handlers.message.get_settings",
-                return_value=mock_settings_with_restriction,
+                "bot.handlers.message.get_group_config_for_update",
+                return_value=group_config_with_restriction,
             ),
             patch(
                 "bot.handlers.message.check_user_profile",
@@ -253,7 +254,7 @@ class TestHandleMessageWithProgressiveRestriction:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_threshold_message_restricts_user(
-        self, mock_update, mock_context, mock_settings_with_restriction, temp_db
+        self, mock_update, mock_context, group_config_with_restriction, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -261,8 +262,8 @@ class TestHandleMessageWithProgressiveRestriction:
 
         with (
             patch(
-                "bot.handlers.message.get_settings",
-                return_value=mock_settings_with_restriction,
+                "bot.handlers.message.get_group_config_for_update",
+                return_value=group_config_with_restriction,
             ),
             patch(
                 "bot.handlers.message.check_user_profile",
@@ -284,14 +285,14 @@ class TestHandleMessageWithProgressiveRestriction:
         assert "dibatasi" in call_args.kwargs["text"]
 
     async def test_no_restriction_when_disabled(
-        self, mock_update, mock_context, mock_settings
+        self, mock_update, mock_context, group_config
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
         )
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -304,7 +305,7 @@ class TestHandleMessageWithProgressiveRestriction:
         assert "⚠️" in call_args.kwargs["text"]
 
     async def test_different_users_tracked_separately(
-        self, mock_update, mock_context, mock_settings_with_restriction, temp_db
+        self, mock_update, mock_context, group_config_with_restriction, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -312,8 +313,8 @@ class TestHandleMessageWithProgressiveRestriction:
 
         with (
             patch(
-                "bot.handlers.message.get_settings",
-                return_value=mock_settings_with_restriction,
+                "bot.handlers.message.get_group_config_for_update",
+                return_value=group_config_with_restriction,
             ),
             patch(
                 "bot.handlers.message.check_user_profile",
@@ -336,7 +337,7 @@ class TestHandleMessageWithProgressiveRestriction:
 
 
 class TestHandleMessageErrorHandling:
-    async def test_send_warning_message_fails(self, mock_update, mock_context, mock_settings):
+    async def test_send_warning_message_fails(self, mock_update, mock_context, group_config):
         """Test when sending warning message fails (lines 110-111)."""
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -344,7 +345,7 @@ class TestHandleMessageErrorHandling:
         mock_context.bot.send_message.side_effect = Exception("test error")
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=mock_settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -359,13 +360,14 @@ class TestHandleMessageErrorHandling:
         self, mock_update, mock_context, temp_db
     ):
         """Test when sending first warning fails (lines 146-147)."""
-        settings = MagicMock()
-        settings.group_id = -1001234567890
-        settings.warning_topic_id = 42
-        settings.restrict_failed_users = True
-        settings.warning_threshold = 3
-        settings.warning_time_threshold_minutes = 180
-        settings.rules_link = "https://example.com/rules"
+        gc = GroupConfig(
+            group_id=-1001234567890,
+            warning_topic_id=42,
+            restrict_failed_users=True,
+            warning_threshold=3,
+            warning_time_threshold_minutes=180,
+            rules_link="https://example.com/rules",
+        )
 
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -373,7 +375,7 @@ class TestHandleMessageErrorHandling:
         mock_context.bot.send_message.side_effect = Exception("test error")
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=gc),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
@@ -388,13 +390,14 @@ class TestHandleMessageErrorHandling:
         self, mock_update, mock_context, temp_db
     ):
         """Test when restricting user fails (lines 193-194)."""
-        settings = MagicMock()
-        settings.group_id = -1001234567890
-        settings.warning_topic_id = 42
-        settings.restrict_failed_users = True
-        settings.warning_threshold = 3
-        settings.warning_time_threshold_minutes = 180
-        settings.rules_link = "https://example.com/rules"
+        gc = GroupConfig(
+            group_id=-1001234567890,
+            warning_topic_id=42,
+            restrict_failed_users=True,
+            warning_threshold=3,
+            warning_time_threshold_minutes=180,
+            rules_link="https://example.com/rules",
+        )
 
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
@@ -402,7 +405,7 @@ class TestHandleMessageErrorHandling:
         mock_context.bot.restrict_chat_member.side_effect = Exception("test error")
 
         with (
-            patch("bot.handlers.message.get_settings", return_value=settings),
+            patch("bot.handlers.message.get_group_config_for_update", return_value=gc),
             patch(
                 "bot.handlers.message.check_user_profile",
                 return_value=incomplete_result,
