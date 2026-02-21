@@ -460,5 +460,7 @@ class TestUnrestrictUserError:
                 side_effect=Exception("test error"),
             ),
         ):
-            with pytest.raises(RuntimeError, match="Failed to unrestrict user 12345 in any group"):
-                await handle_dm(mock_update, mock_context)
+            await handle_dm(mock_update, mock_context)
+            mock_update.message.reply_text.assert_called_with(
+                "❌ Gagal membuka pembatasan. Silakan hubungi admin grup."
+            )

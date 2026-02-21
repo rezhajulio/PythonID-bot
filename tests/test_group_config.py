@@ -3,7 +3,6 @@
 import json
 import tempfile
 from datetime import timedelta
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

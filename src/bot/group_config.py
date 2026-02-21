@@ -201,7 +201,11 @@ def get_group_config_for_update(update: Update) -> GroupConfig | None:
     """
     if not update.effective_chat:
         return None
-    return get_group_registry().get(update.effective_chat.id)
+    try:
+        return get_group_registry().get(update.effective_chat.id)
+    except RuntimeError:
+        logger.error("Group registry not initialized; skipping update")
+        return None
 
 
 # Module-level singleton

@@ -71,7 +71,14 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     member_groups = []
     for gc in registry.all_groups():
         logger.info(f"Checking user status in group_id={gc.group_id} for user_id={user.id}")
-        user_status = await get_user_status(context.bot, gc.group_id, user.id)
+        try:
+            user_status = await get_user_status(context.bot, gc.group_id, user.id)
+        except Exception:
+            logger.warning(
+                f"Failed to check user status in group {gc.group_id} for user {user.id}",
+                exc_info=True,
+            )
+            continue
         if user_status is not None and user_status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
             member_groups.append((gc, user_status))
 
@@ -174,6 +181,7 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
     else:
         # All unrestriction attempts failed
-        raise RuntimeError(
-            f"Failed to unrestrict user {user.id} in any group"
+        logger.error(f"Failed to unrestrict user {user.id} in any group")
+        await update.message.reply_text(
+            "❌ Gagal membuka pembatasan. Silakan hubungi admin grup."
         )
