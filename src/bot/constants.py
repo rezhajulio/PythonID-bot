@@ -211,6 +211,21 @@ INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT = (
     "📌 [Peraturan Grup]({rules_link})"
 )
 
+# Duplicate message spam notification
+DUPLICATE_SPAM_RESTRICTION = (
+    "🚫 *Spam Pesan Duplikat*\n\n"
+    "{user_mention} telah dibatasi karena mengirim pesan yang sama "
+    "sebanyak {count} kali dalam waktu singkat.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+DUPLICATE_SPAM_RESTRICTION_NO_RESTRICT = (
+    "🚫 *Spam Pesan Duplikat*\n\n"
+    "Pesan duplikat dari {user_mention} telah dihapus "
+    "({count} pesan yang sama dalam waktu singkat).\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
 # Whitelisted URL domains for new user probation
 # These domains are allowed even during probation period
 # Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")
