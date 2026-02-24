@@ -20,6 +20,8 @@ from bot.handlers.duplicate_spam import (
     RECENT_MESSAGES_KEY,
 )
 
+DEFAULT_SIMILARITY = 0.95
+
 
 class TestNormalizeText:
     """Tests for the normalize_text function."""

@@ -39,6 +39,7 @@ class GroupConfig(BaseModel):
     duplicate_spam_window_seconds: int = 120
     duplicate_spam_threshold: int = 3
     duplicate_spam_min_length: int = 20
+    duplicate_spam_similarity: float = 0.95
 
     @field_validator("group_id")
     @classmethod
@@ -189,6 +190,7 @@ def build_group_registry(settings: object) -> GroupRegistry:
             duplicate_spam_window_seconds=settings.duplicate_spam_window_seconds,
             duplicate_spam_threshold=settings.duplicate_spam_threshold,
             duplicate_spam_min_length=settings.duplicate_spam_min_length,
+            duplicate_spam_similarity=settings.duplicate_spam_similarity,
         )
         registry.register(config)
 

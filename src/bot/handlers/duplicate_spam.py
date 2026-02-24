@@ -33,7 +33,6 @@ from bot.services.telegram_utils import get_user_mention
 logger = logging.getLogger(__name__)
 
 RECENT_MESSAGES_KEY = "duplicate_spam_recent"
-SIMILARITY_THRESHOLD = 0.97
 
 
 @dataclass
@@ -59,7 +58,7 @@ def normalize_text(text: str) -> str:
     return text
 
 
-def is_similar(a: str, b: str, threshold: float = SIMILARITY_THRESHOLD) -> bool:
+def is_similar(a: str, b: str, threshold: float = 0.95) -> bool:
     """Check if two normalized texts are similar enough to be considered duplicates."""
     if a == b:
         return True
@@ -88,7 +87,7 @@ def _prune_old_messages(
 
 
 def count_similar_in_window(
-    dq: deque[RecentMessage], normalized: str, threshold: float = SIMILARITY_THRESHOLD
+    dq: deque[RecentMessage], normalized: str, threshold: float = 0.95
 ) -> int:
     """Count how many messages in the deque are similar to the given text."""
     return sum(1 for m in dq if is_similar(normalized, m.normalized_text, threshold))
@@ -134,7 +133,7 @@ async def handle_duplicate_spam(
     dq = _get_recent_messages(context, group_config.group_id, user.id)
     _prune_old_messages(dq, group_config.duplicate_spam_window_seconds, now)
 
-    similar_count = count_similar_in_window(dq, normalized)
+    similar_count = count_similar_in_window(dq, normalized, group_config.duplicate_spam_similarity)
 
     dq.append(
         RecentMessage(

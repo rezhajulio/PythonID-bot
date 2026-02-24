@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     duplicate_spam_window_seconds: int = 120
     duplicate_spam_threshold: int = 3
     duplicate_spam_min_length: int = 20
+    duplicate_spam_similarity: float = 0.95
     groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
