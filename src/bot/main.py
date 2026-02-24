@@ -18,7 +18,7 @@ from bot.config import get_settings
 from bot.database.service import init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.handlers import captcha
-from bot.handlers.anti_spam import handle_new_user_spam
+from bot.handlers.anti_spam import handle_inline_keyboard_spam, handle_new_user_spam
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
@@ -275,7 +275,17 @@ def main() -> None:
     )
     logger.info("Registered handler: dm_handler (group=0)")
 
-    # Handler 8: New-user anti-spam handler - checks for forwards/links from users on probation
+    # Handler 8: Inline keyboard spam handler - catches messages with
+    # non-whitelisted URL buttons in inline keyboards (spam from bots/forwards)
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS,
+            handle_inline_keyboard_spam,
+        )
+    )
+    logger.info("Registered handler: inline_keyboard_spam_handler (group=0)")
+
+    # Handler 9: New-user anti-spam handler - checks for forwards/links from users on probation
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS,
@@ -284,7 +294,7 @@ def main() -> None:
     )
     logger.info("Registered handler: anti_spam_handler (group=0)")
 
-    # Handler 9: Group message handler - monitors messages in monitored
+    # Handler 10: Group message handler - monitors messages in monitored
     # groups and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(

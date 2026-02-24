@@ -195,6 +195,22 @@ NEW_USER_SPAM_RESTRICTION = (
     "📖 [Baca aturan grup]({rules_link})"
 )
 
+# Inline keyboard spam notification
+INLINE_KEYBOARD_SPAM_NOTIFICATION = (
+    "🚫 *Spam Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena mengandung "
+    "tombol inline keyboard dengan tautan mencurigakan.\n\n"
+    "Pengguna telah dibatasi.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT = (
+    "🚫 *Spam Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena mengandung "
+    "tombol inline keyboard dengan tautan mencurigakan.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
 # Whitelisted URL domains for new user probation
 # These domains are allowed even during probation period
 # Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")

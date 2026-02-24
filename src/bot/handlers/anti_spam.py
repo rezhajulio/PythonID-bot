@@ -12,9 +12,11 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from telegram import Message, MessageEntity, Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from bot.constants import (
+    INLINE_KEYBOARD_SPAM_NOTIFICATION,
+    INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT,
     NEW_USER_SPAM_RESTRICTION,
     NEW_USER_SPAM_WARNING,
     RESTRICTED_PERMISSIONS,
@@ -194,6 +196,139 @@ def has_non_whitelisted_link(message: Message) -> bool:
     return False
 
 
+def has_non_whitelisted_inline_keyboard_urls(message: Message) -> bool:
+    """
+    Check if a message contains inline keyboard buttons with non-whitelisted URLs.
+
+    Regular Telegram users cannot create inline keyboards from the client.
+    Messages with inline keyboard URL buttons pointing to non-whitelisted
+    domains are considered spam. Checks url, login_url, and web_app button types.
+
+    Args:
+        message: Telegram message to check.
+
+    Returns:
+        bool: True if any inline keyboard button has a non-whitelisted URL.
+    """
+    rm = getattr(message, "reply_markup", None)
+    keyboard = getattr(rm, "inline_keyboard", None)
+    if not keyboard:
+        return False
+
+    for row in keyboard:
+        if not row:
+            continue
+        for button in row:
+            if not button:
+                continue
+
+            candidates: list[str] = []
+            if getattr(button, "url", None):
+                candidates.append(button.url)
+
+            login_url = getattr(button, "login_url", None)
+            if getattr(login_url, "url", None):
+                candidates.append(login_url.url)
+
+            web_app = getattr(button, "web_app", None)
+            if getattr(web_app, "url", None):
+                candidates.append(web_app.url)
+
+            for u in candidates:
+                if not is_url_whitelisted(u):
+                    return True
+
+    return False
+
+
+async def handle_inline_keyboard_spam(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle spam messages containing inline keyboard buttons with non-whitelisted URLs.
+
+    Regular users cannot create inline keyboards from the Telegram client.
+    Any group message with inline keyboard URL buttons pointing to
+    non-whitelisted domains is treated as spam.
+
+    Args:
+        update: Telegram update containing the message.
+        context: Bot context with helper methods.
+    """
+    if not update.message or not update.message.from_user:
+        return
+
+    group_config = get_group_config_for_update(update)
+    if group_config is None:
+        return
+
+    user = update.message.from_user
+    if user.is_bot:
+        return
+
+    admin_ids = context.bot_data.get("group_admin_ids", {}).get(group_config.group_id, [])
+    if user.id in admin_ids:
+        return
+
+    msg = update.message
+    if not has_non_whitelisted_inline_keyboard_urls(msg):
+        return
+
+    user_mention = get_user_mention(user)
+    logger.info(
+        f"Inline keyboard spam detected: user_id={user.id}, "
+        f"group_id={group_config.group_id}"
+    )
+
+    try:
+        await msg.delete()
+        logger.info(f"Deleted inline keyboard spam from user_id={user.id}")
+    except Exception:
+        logger.error(
+            f"Failed to delete inline keyboard spam: user_id={user.id}",
+            exc_info=True,
+        )
+
+    restricted = False
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=group_config.group_id,
+            user_id=user.id,
+            permissions=RESTRICTED_PERMISSIONS,
+        )
+        restricted = True
+        logger.info(f"Restricted user_id={user.id} for inline keyboard spam")
+    except Exception:
+        logger.error(
+            f"Failed to restrict user for inline keyboard spam: user_id={user.id}",
+            exc_info=True,
+        )
+
+    try:
+        template = (
+            INLINE_KEYBOARD_SPAM_NOTIFICATION if restricted
+            else INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT
+        )
+        notification_text = template.format(
+            user_mention=user_mention,
+            rules_link=group_config.rules_link,
+        )
+        await context.bot.send_message(
+            chat_id=group_config.group_id,
+            message_thread_id=group_config.warning_topic_id,
+            text=notification_text,
+            parse_mode="Markdown",
+        )
+        logger.info(f"Sent inline keyboard spam notification for user_id={user.id}")
+    except Exception:
+        logger.error(
+            f"Failed to send inline keyboard spam notification: user_id={user.id}",
+            exc_info=True,
+        )
+
+    raise ApplicationHandlerStop
+
+
 async def handle_new_user_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -249,13 +384,20 @@ async def handle_new_user_spam(
     user_mention = get_user_mention(user)
 
     # Check for violations (forwarded message or non-whitelisted link or external reply)
-    if not (is_forwarded(msg) or has_non_whitelisted_link(msg) or has_external_reply(msg) or has_story(msg)):
+    if not (
+        is_forwarded(msg)
+        or has_non_whitelisted_link(msg)
+        or has_external_reply(msg)
+        or has_story(msg)
+        or has_non_whitelisted_inline_keyboard_urls(msg)
+    ):
         return  # Not a violation
 
     logger.info(
         f"Probation violation detected: user_id={user.id}, "
         f"forwarded={is_forwarded(msg)}, has_non_whitelisted_link={has_non_whitelisted_link(msg)}, "
-        f"external_reply={has_external_reply(msg)}, has_story={has_story(msg)}"
+        f"external_reply={has_external_reply(msg)}, has_story={has_story(msg)}, "
+        f"inline_keyboard_spam={has_non_whitelisted_inline_keyboard_urls(msg)}"
     )
 
     # 1. Delete the violating message

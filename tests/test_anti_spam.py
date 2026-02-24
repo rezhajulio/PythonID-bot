@@ -9,9 +9,11 @@ from telegram import Chat, Message, MessageEntity, User
 from bot.group_config import GroupConfig
 from bot.handlers.anti_spam import (
     extract_urls,
+    handle_inline_keyboard_spam,
     handle_new_user_spam,
     has_external_reply,
     has_link,
+    has_non_whitelisted_inline_keyboard_urls,
     has_non_whitelisted_link,
     has_story,
     is_forwarded,
@@ -770,3 +772,371 @@ class TestHandleNewUserSpam:
             await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
+
+
+class TestHasNonWhitelistedInlineKeyboardUrls:
+    """Tests for has_non_whitelisted_inline_keyboard_urls function."""
+
+    def test_no_reply_markup_returns_false(self):
+        """Test that messages without reply_markup return False."""
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = None
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
+    def test_whitelisted_urls_returns_false(self):
+        """Test that inline keyboard with whitelisted URLs returns False."""
+        button = MagicMock()
+        button.url = "https://github.com/user/repo"
+        button.login_url = None
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
+    def test_non_whitelisted_urls_returns_true(self):
+        """Test that inline keyboard with non-whitelisted URLs returns True."""
+        button = MagicMock()
+        button.url = "https://spam-site.com/scam"
+        button.login_url = None
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is True
+
+    def test_mixed_urls_returns_true(self):
+        """Test that any non-whitelisted URL among mixed URLs returns True."""
+        button_safe = MagicMock()
+        button_safe.url = "https://github.com/user/repo"
+        button_safe.login_url = None
+        button_safe.web_app = None
+
+        button_spam = MagicMock()
+        button_spam.url = "https://spam-site.com/scam"
+        button_spam.login_url = None
+        button_spam.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button_safe, button_spam]]
+
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is True
+
+    def test_callback_data_buttons_returns_false(self):
+        """Test that buttons without URLs (callback_data buttons) return False."""
+        button = MagicMock()
+        button.url = None
+        button.login_url = None
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
+    def test_login_url_non_whitelisted_returns_true(self):
+        """Test that login_url with non-whitelisted URL returns True."""
+        button = MagicMock()
+        button.url = None
+        login_url_obj = MagicMock()
+        login_url_obj.url = "https://spam-site.com/phish"
+        button.login_url = login_url_obj
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is True
+
+    def test_web_app_non_whitelisted_returns_true(self):
+        """Test that web_app with non-whitelisted URL returns True."""
+        button = MagicMock()
+        button.url = None
+        button.login_url = None
+        web_app_obj = MagicMock()
+        web_app_obj.url = "https://spam-site.com/app"
+        button.web_app = web_app_obj
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is True
+
+    def test_login_url_whitelisted_returns_false(self):
+        """Test that login_url with whitelisted URL returns False."""
+        button = MagicMock()
+        button.url = None
+        login_url_obj = MagicMock()
+        login_url_obj.url = "https://github.com/login"
+        button.login_url = login_url_obj
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
+    def test_empty_row_skipped(self):
+        """Test that empty or None rows don't crash."""
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[], None]
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
+
+class TestHandleInlineKeyboardSpam:
+    """Tests for the handle_inline_keyboard_spam handler."""
+
+    @pytest.fixture
+    def mock_update(self):
+        """Create a mock update with a message containing inline keyboard."""
+        update = MagicMock()
+        update.message = MagicMock(spec=Message)
+        update.message.from_user = MagicMock(spec=User)
+        update.message.from_user.id = 12345
+        update.message.from_user.is_bot = False
+        update.message.from_user.full_name = "Spam User"
+        update.message.from_user.username = "spamuser"
+        update.effective_chat = MagicMock(spec=Chat)
+        update.effective_chat.id = -100123456
+
+        update.message.delete = AsyncMock()
+
+        return update
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock context."""
+        context = MagicMock()
+        context.bot = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.restrict_chat_member = AsyncMock()
+        context.bot_data = {"group_admin_ids": {}}
+        return context
+
+    @pytest.fixture
+    def group_config(self):
+        """Create group config for inline keyboard spam tests."""
+        return GroupConfig(
+            group_id=-100123456,
+            warning_topic_id=123,
+            rules_link="https://example.com/rules",
+        )
+
+    def _add_spam_inline_keyboard(self, update):
+        """Add a non-whitelisted inline keyboard to the update message."""
+        button = MagicMock()
+        button.url = "https://spam-site.com/scam"
+        button.login_url = None
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+
+        update.message.reply_markup = reply_markup
+
+    def _add_safe_inline_keyboard(self, update):
+        """Add a whitelisted inline keyboard to the update message."""
+        button = MagicMock()
+        button.url = "https://github.com/user/repo"
+        button.login_url = None
+        button.web_app = None
+
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[button]]
+
+        update.message.reply_markup = reply_markup
+
+    async def test_spam_inline_keyboard_deleted_and_restricted(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that inline keyboard spam is deleted and user is restricted."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_no_inline_keyboard_returns_early(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages without inline keyboard are ignored."""
+        mock_update.message.reply_markup = None
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+    async def test_whitelisted_inline_keyboard_returns_early(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that whitelisted inline keyboard URLs are ignored."""
+        self._add_safe_inline_keyboard(mock_update)
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+    async def test_non_group_message_returns_early(
+        self, mock_update, mock_context
+    ):
+        """Test that non-group messages are ignored."""
+        self._add_spam_inline_keyboard(mock_update)
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=None):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_bot_user_returns_early(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that bot messages are ignored."""
+        self._add_spam_inline_keyboard(mock_update)
+        mock_update.message.from_user.is_bot = True
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_no_message_returns_early(self, mock_context):
+        """Test that update without message is ignored."""
+        mock_update = MagicMock()
+        mock_update.message = None
+
+        await handle_inline_keyboard_spam(mock_update, mock_context)
+
+    async def test_no_from_user_returns_early(self, mock_context):
+        """Test that message without from_user is ignored."""
+        mock_update = MagicMock()
+        mock_update.message = MagicMock(spec=Message)
+        mock_update.message.from_user = None
+
+        await handle_inline_keyboard_spam(mock_update, mock_context)
+
+    async def test_continues_when_delete_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler continues when message delete fails."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+        mock_update.message.delete = AsyncMock(side_effect=Exception("Delete failed"))
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_continues_when_restrict_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler continues when restrict fails."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+        mock_context.bot.restrict_chat_member = AsyncMock(
+            side_effect=Exception("Restrict failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_continues_when_send_notification_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler completes when sending notification fails."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+        mock_context.bot.send_message = AsyncMock(
+            side_effect=Exception("Send failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+        mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_admin_user_returns_early(self, mock_update, mock_context, group_config):
+        """Test that admin user with inline keyboard spam is NOT restricted."""
+        self._add_spam_inline_keyboard(mock_update)
+        mock_context.bot_data = {
+            "group_admin_ids": {group_config.group_id: [mock_update.message.from_user.id]}
+        }
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+    async def test_raises_application_handler_stop(self, mock_update, mock_context, group_config):
+        """Test that handler raises ApplicationHandlerStop after processing spam."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+    async def test_notification_without_restrict_on_restrict_failure(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that notification uses different template when restrict fails."""
+        from telegram.ext import ApplicationHandlerStop
+
+        self._add_spam_inline_keyboard(mock_update)
+        mock_context.bot.restrict_chat_member = AsyncMock(
+            side_effect=Exception("Restrict failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        call_args = mock_context.bot.send_message.call_args
+        assert "dibatasi" not in call_args.kwargs.get("text", call_args[1].get("text", ""))
