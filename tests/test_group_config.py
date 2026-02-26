@@ -88,6 +88,27 @@ class TestGroupConfig:
         gc = GroupConfig(group_id=-1, warning_topic_id=42, captcha_timeout_seconds=120)
         assert gc.captcha_timeout_timedelta == timedelta(seconds=120)
 
+    def test_duplicate_spam_defaults(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42)
+        assert gc.duplicate_spam_enabled is True
+        assert gc.duplicate_spam_window_seconds == 120
+        assert gc.duplicate_spam_threshold == 2
+        assert gc.duplicate_spam_min_length == 20
+
+    def test_duplicate_spam_custom_values(self):
+        gc = GroupConfig(
+            group_id=-1,
+            warning_topic_id=42,
+            duplicate_spam_enabled=False,
+            duplicate_spam_window_seconds=300,
+            duplicate_spam_threshold=5,
+            duplicate_spam_min_length=50,
+        )
+        assert gc.duplicate_spam_enabled is False
+        assert gc.duplicate_spam_window_seconds == 300
+        assert gc.duplicate_spam_threshold == 5
+        assert gc.duplicate_spam_min_length == 50
+
 
 class TestGroupRegistry:
     def test_register_and_get(self):
@@ -157,6 +178,10 @@ class TestLoadGroupsFromJson:
                 "captcha_enabled": True,
                 "captcha_timeout_seconds": 180,
                 "rules_link": "https://example.com/rules",
+                "duplicate_spam_enabled": False,
+                "duplicate_spam_window_seconds": 300,
+                "duplicate_spam_threshold": 5,
+                "duplicate_spam_min_length": 50,
             }
         ]
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -166,6 +191,10 @@ class TestLoadGroupsFromJson:
 
         assert configs[0].restrict_failed_users is True
         assert configs[0].warning_threshold == 5
+        assert configs[0].duplicate_spam_enabled is False
+        assert configs[0].duplicate_spam_window_seconds == 300
+        assert configs[0].duplicate_spam_threshold == 5
+        assert configs[0].duplicate_spam_min_length == 50
 
     def test_file_not_found(self):
         with pytest.raises(FileNotFoundError):
@@ -244,6 +273,10 @@ class TestBuildGroupRegistry:
         settings.new_user_probation_hours = 72
         settings.new_user_violation_threshold = 3
         settings.rules_link = "https://t.me/test/rules"
+        settings.duplicate_spam_enabled = False
+        settings.duplicate_spam_window_seconds = 300
+        settings.duplicate_spam_threshold = 5
+        settings.duplicate_spam_min_length = 50
 
         registry = build_group_registry(settings)
 
@@ -252,6 +285,10 @@ class TestBuildGroupRegistry:
         assert gc is not None
         assert gc.warning_topic_id == 42
         assert gc.rules_link == "https://t.me/test/rules"
+        assert gc.duplicate_spam_enabled is False
+        assert gc.duplicate_spam_window_seconds == 300
+        assert gc.duplicate_spam_threshold == 5
+        assert gc.duplicate_spam_min_length == 50
 
 
 class TestGetGroupConfigForUpdate:
@@ -313,6 +350,10 @@ class TestSingleton:
         settings.new_user_probation_hours = 72
         settings.new_user_violation_threshold = 3
         settings.rules_link = "https://t.me/test/rules"
+        settings.duplicate_spam_enabled = True
+        settings.duplicate_spam_window_seconds = 120
+        settings.duplicate_spam_threshold = 3
+        settings.duplicate_spam_min_length = 20
 
         registry = init_group_registry(settings)
         assert registry is get_group_registry()
@@ -331,6 +372,10 @@ class TestSingleton:
         settings.new_user_probation_hours = 72
         settings.new_user_violation_threshold = 3
         settings.rules_link = "https://t.me/test/rules"
+        settings.duplicate_spam_enabled = True
+        settings.duplicate_spam_window_seconds = 120
+        settings.duplicate_spam_threshold = 3
+        settings.duplicate_spam_min_length = 20
 
         init_group_registry(settings)
         reset_group_registry()

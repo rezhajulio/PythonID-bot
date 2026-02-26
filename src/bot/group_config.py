@@ -35,6 +35,11 @@ class GroupConfig(BaseModel):
     new_user_probation_hours: int = 72
     new_user_violation_threshold: int = 3
     rules_link: str = "https://t.me/pythonID/290029/321799"
+    duplicate_spam_enabled: bool = True
+    duplicate_spam_window_seconds: int = 120
+    duplicate_spam_threshold: int = 2
+    duplicate_spam_min_length: int = 20
+    duplicate_spam_similarity: float = 0.95
 
     @field_validator("group_id")
     @classmethod
@@ -181,6 +186,11 @@ def build_group_registry(settings: object) -> GroupRegistry:
             new_user_probation_hours=settings.new_user_probation_hours,
             new_user_violation_threshold=settings.new_user_violation_threshold,
             rules_link=settings.rules_link,
+            duplicate_spam_enabled=settings.duplicate_spam_enabled,
+            duplicate_spam_window_seconds=settings.duplicate_spam_window_seconds,
+            duplicate_spam_threshold=settings.duplicate_spam_threshold,
+            duplicate_spam_min_length=settings.duplicate_spam_min_length,
+            duplicate_spam_similarity=settings.duplicate_spam_similarity,
         )
         registry.register(config)
 
