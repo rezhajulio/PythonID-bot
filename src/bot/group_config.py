@@ -37,7 +37,7 @@ class GroupConfig(BaseModel):
     rules_link: str = "https://t.me/pythonID/290029/321799"
     duplicate_spam_enabled: bool = True
     duplicate_spam_window_seconds: int = 120
-    duplicate_spam_threshold: int = 3
+    duplicate_spam_threshold: int = 2
     duplicate_spam_min_length: int = 20
     duplicate_spam_similarity: float = 0.95
 

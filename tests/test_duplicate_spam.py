@@ -153,7 +153,7 @@ class TestHandleDuplicateSpam:
             warning_topic_id=999,
             duplicate_spam_enabled=True,
             duplicate_spam_window_seconds=120,
-            duplicate_spam_threshold=3,
+            duplicate_spam_threshold=2,
             duplicate_spam_min_length=20,
         )
 
@@ -237,21 +237,10 @@ class TestHandleDuplicateSpam:
             await handle_duplicate_spam(mock_update, mock_context)
         mock_update.message.delete.assert_not_called()
 
-    async def test_second_message_no_action(self, mock_update, mock_context, group_config):
-        now = datetime.now(UTC)
-        existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=normalize_text(mock_update.message.text), message_id=99),
-        ])
-        mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
-        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
-            await handle_duplicate_spam(mock_update, mock_context)
-        mock_update.message.delete.assert_not_called()
-
-    async def test_third_message_triggers_restriction(self, mock_update, mock_context, group_config):
+    async def test_second_message_triggers_restriction(self, mock_update, mock_context, group_config):
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -270,7 +259,6 @@ class TestHandleDuplicateSpam:
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.caption)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -285,7 +273,6 @@ class TestHandleDuplicateSpam:
         old = datetime.now(UTC) - timedelta(seconds=200)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=old, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=old, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -313,7 +300,6 @@ class TestHandleDuplicateSpam:
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -329,7 +315,6 @@ class TestHandleDuplicateSpam:
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -347,7 +332,6 @@ class TestHandleDuplicateSpam:
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
@@ -356,11 +340,10 @@ class TestHandleDuplicateSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_duplicate_spam(mock_update, mock_context)
 
-    async def test_fourth_message_also_triggers(self, mock_update, mock_context, group_config):
+    async def test_third_message_also_triggers(self, mock_update, mock_context, group_config):
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
-            RecentMessage(timestamp=now, normalized_text=norm, message_id=97),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=98),
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])

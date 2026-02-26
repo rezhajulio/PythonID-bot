@@ -12,7 +12,7 @@
     "rules_link": "https://t.me/pythonID/290029/321799",
     "duplicate_spam_enabled": true,
     "duplicate_spam_window_seconds": 120,
-    "duplicate_spam_threshold": 3,
+    "duplicate_spam_threshold": 2,
     "duplicate_spam_min_length": 20,
     "duplicate_spam_similarity": 0.95
   },

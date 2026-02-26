@@ -133,7 +133,7 @@ class TestSettings:
 
         assert settings.duplicate_spam_enabled is True
         assert settings.duplicate_spam_window_seconds == 120
-        assert settings.duplicate_spam_threshold == 3
+        assert settings.duplicate_spam_threshold == 2
         assert settings.duplicate_spam_min_length == 20
 
     def test_duplicate_spam_from_env(self, monkeypatch):

@@ -92,7 +92,7 @@ class TestGroupConfig:
         gc = GroupConfig(group_id=-1, warning_topic_id=42)
         assert gc.duplicate_spam_enabled is True
         assert gc.duplicate_spam_window_seconds == 120
-        assert gc.duplicate_spam_threshold == 3
+        assert gc.duplicate_spam_threshold == 2
         assert gc.duplicate_spam_min_length == 20
 
     def test_duplicate_spam_custom_values(self):
