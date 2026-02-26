@@ -19,6 +19,7 @@ from bot.database.service import init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.handlers import captcha
 from bot.handlers.anti_spam import handle_inline_keyboard_spam, handle_new_user_spam
+from bot.handlers.duplicate_spam import handle_duplicate_spam
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
 from bot.handlers.topic_guard import guard_warning_topic
@@ -294,7 +295,16 @@ def main() -> None:
     )
     logger.info("Registered handler: anti_spam_handler (group=0)")
 
-    # Handler 10: Group message handler - monitors messages in monitored
+    # Handler 10: Duplicate message spam handler - detects repeated identical messages
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & ~filters.COMMAND,
+            handle_duplicate_spam,
+        )
+    )
+    logger.info("Registered handler: duplicate_spam_handler (group=0)")
+
+    # Handler 11: Group message handler - monitors messages in monitored
     # groups and warns/restricts users with incomplete profiles
     application.add_handler(
         MessageHandler(

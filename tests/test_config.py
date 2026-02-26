@@ -123,6 +123,36 @@ class TestSettings:
 
         assert settings.captcha_timeout_timedelta == timedelta(seconds=90)
 
+    def test_duplicate_spam_defaults(self, monkeypatch):
+        """Test that duplicate_spam fields have correct defaults."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.duplicate_spam_enabled is True
+        assert settings.duplicate_spam_window_seconds == 120
+        assert settings.duplicate_spam_threshold == 2
+        assert settings.duplicate_spam_min_length == 20
+
+    def test_duplicate_spam_from_env(self, monkeypatch):
+        """Test that duplicate_spam fields are read from environment variables."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("DUPLICATE_SPAM_ENABLED", "false")
+        monkeypatch.setenv("DUPLICATE_SPAM_WINDOW_SECONDS", "300")
+        monkeypatch.setenv("DUPLICATE_SPAM_THRESHOLD", "5")
+        monkeypatch.setenv("DUPLICATE_SPAM_MIN_LENGTH", "50")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.duplicate_spam_enabled is False
+        assert settings.duplicate_spam_window_seconds == 300
+        assert settings.duplicate_spam_threshold == 5
+        assert settings.duplicate_spam_min_length == 50
+
 
 class TestSettingsValidation:
     def test_group_id_must_be_negative(self, monkeypatch):
