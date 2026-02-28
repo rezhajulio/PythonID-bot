@@ -277,32 +277,38 @@ def main() -> None:
     logger.info("Registered handler: dm_handler (group=0)")
 
     # Handler 8: Inline keyboard spam handler - catches messages with
-    # non-whitelisted URL buttons in inline keyboards (spam from bots/forwards)
+    # non-whitelisted URL buttons in inline keyboards (spam from bots/forwards).
+    # Each spam handler runs in its own group so they all independently process
+    # every group message. They raise ApplicationHandlerStop to prevent later
+    # groups from running when spam IS detected.
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS,
             handle_inline_keyboard_spam,
-        )
+        ),
+        group=1,
     )
-    logger.info("Registered handler: inline_keyboard_spam_handler (group=0)")
+    logger.info("Registered handler: inline_keyboard_spam_handler (group=1)")
 
     # Handler 9: New-user anti-spam handler - checks for forwards/links from users on probation
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS,
             handle_new_user_spam,
-        )
+        ),
+        group=2,
     )
-    logger.info("Registered handler: anti_spam_handler (group=0)")
+    logger.info("Registered handler: anti_spam_handler (group=2)")
 
     # Handler 10: Duplicate message spam handler - detects repeated identical messages
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & ~filters.COMMAND,
             handle_duplicate_spam,
-        )
+        ),
+        group=3,
     )
-    logger.info("Registered handler: duplicate_spam_handler (group=0)")
+    logger.info("Registered handler: duplicate_spam_handler (group=3)")
 
     # Handler 11: Group message handler - monitors messages in monitored
     # groups and warns/restricts users with incomplete profiles
@@ -311,9 +317,9 @@ def main() -> None:
             filters.ChatType.GROUPS & ~filters.COMMAND,
             handle_message,
         ),
-        group=1,
+        group=4,
     )
-    logger.info("Registered handler: message_handler (group=1)")
+    logger.info("Registered handler: message_handler (group=4)")
 
     # Register auto-restriction job to run every 5 minutes
     if application.job_queue:

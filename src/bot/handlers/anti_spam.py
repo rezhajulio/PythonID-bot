@@ -436,7 +436,7 @@ async def handle_new_user_spam(
             )
 
     # 4. Threshold reached: restrict user and notify
-    if record.violation_count == group_config.new_user_violation_threshold:
+    if record.violation_count >= group_config.new_user_violation_threshold:
         try:
             await context.bot.restrict_chat_member(
                 chat_id=group_config.group_id,
@@ -466,3 +466,5 @@ async def handle_new_user_spam(
                 f"Failed to restrict user: user_id={user.id}",
                 exc_info=True,
             )
+
+    raise ApplicationHandlerStop
