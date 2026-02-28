@@ -7,6 +7,8 @@ import pytest
 from telegram import Chat, Message, MessageEntity, User
 
 from bot.group_config import GroupConfig
+from telegram.ext import ApplicationHandlerStop
+
 from bot.handlers.anti_spam import (
     extract_urls,
     handle_inline_keyboard_spam,
@@ -396,8 +398,9 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            # Should not raise TypeError
-            await handle_new_user_spam(mock_update, mock_context)
+            # Should not raise TypeError, but raises ApplicationHandlerStop on violation
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -462,7 +465,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -492,7 +496,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -543,7 +548,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_context.bot.send_message.assert_called_once()
 
@@ -568,7 +574,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_context.bot.send_message.assert_not_called()
 
@@ -593,7 +600,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_context.bot.restrict_chat_member.assert_called_once()
 
@@ -618,7 +626,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         # Should call send_message for restriction notification (not first warning)
         mock_context.bot.send_message.assert_called_once()
@@ -645,7 +654,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -670,7 +680,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -713,7 +724,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_context.bot.send_message.assert_called_once()
 
@@ -741,7 +753,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
@@ -769,7 +782,8 @@ class TestHandleNewUserSpam:
             patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
             patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
         ):
-            await handle_new_user_spam(mock_update, mock_context)
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
 
