@@ -848,6 +848,15 @@ class TestHasNonWhitelistedInlineKeyboardUrls:
 
         assert has_non_whitelisted_inline_keyboard_urls(msg) is True
 
+    def test_none_button_skipped(self):
+        """Test that None buttons in a row don't crash."""
+        reply_markup = MagicMock()
+        reply_markup.inline_keyboard = [[None]]
+        msg = MagicMock(spec=Message)
+        msg.reply_markup = reply_markup
+
+        assert has_non_whitelisted_inline_keyboard_urls(msg) is False
+
     def test_callback_data_buttons_returns_false(self):
         """Test that buttons without URLs (callback_data buttons) return False."""
         button = MagicMock()

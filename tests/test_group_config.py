@@ -292,6 +292,16 @@ class TestBuildGroupRegistry:
 
 
 class TestGetGroupConfigForUpdate:
+    def test_returns_none_when_registry_not_initialized(self):
+        reset_group_registry()
+
+        update = MagicMock()
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = -100
+
+        result = get_group_config_for_update(update)
+        assert result is None
+
     def test_returns_config_for_monitored_group(self):
         gc = GroupConfig(group_id=-100, warning_topic_id=1)
         registry = GroupRegistry()
