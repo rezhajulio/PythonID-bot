@@ -108,6 +108,25 @@ class TestHandleDM:
         assert "belum bergabung di grup" in call_args.args[0]
         mock_context.bot.restrict_chat_member.assert_not_called()
 
+    async def test_get_user_status_exception_continues(
+        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+    ):
+        """When get_user_status raises an Exception, handler catches it and treats user as not in group."""
+        with (
+            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
+            patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
+            patch(
+                "bot.handlers.dm.get_user_status",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("API error"),
+            ),
+        ):
+            await handle_dm(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "belum bergabung di grup" in call_args.args[0]
+
     async def test_user_left_group(
         self, mock_update, mock_context, mock_settings, mock_registry, temp_db
     ):

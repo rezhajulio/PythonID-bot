@@ -604,3 +604,35 @@ class TestHandleWarnCallback:
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
         assert "timeout" in call_args.args[0].lower()
+
+    async def test_warn_callback_per_group_send_failure_all_groups(
+        self, mock_context, mock_settings, mock_registry
+    ):
+        """When send_message fails for all groups, shows 'all groups failed' message."""
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.full_name = "Admin User"
+        query.data = "warn:555666:pu"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        mock_chat = MagicMock()
+        mock_chat.full_name = "Test User"
+        mock_chat.username = "testuser"
+        mock_context.bot.get_chat.return_value = mock_chat
+        mock_context.bot.send_message.side_effect = RuntimeError("Connection lost")
+
+        with (
+            patch(
+                "bot.handlers.check.get_group_registry",
+                return_value=mock_registry,
+            ),
+        ):
+            await handle_warn_callback(update, mock_context)
+
+        query.edit_message_text.assert_called_once()
+        call_args = query.edit_message_text.call_args
+        assert "Gagal mengirim peringatan ke semua grup" in call_args.args[0]

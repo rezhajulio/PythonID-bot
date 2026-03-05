@@ -110,6 +110,33 @@ def configure_logging() -> None:
 logger = logging.getLogger(__name__)
 
 
+async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Periodically refresh cached admin IDs for all monitored groups.
+
+    Called by JobQueue every 10 minutes to keep admin rosters up to date
+    when promotions/demotions happen after startup.
+    """
+    registry = get_group_registry()
+    group_admin_ids: dict[int, list[int]] = {}
+    all_admin_ids: set[int] = set()
+
+    for gc in registry.all_groups():
+        try:
+            ids = await fetch_group_admin_ids(context.bot, gc.group_id)
+            group_admin_ids[gc.group_id] = ids
+            all_admin_ids.update(ids)
+        except Exception as e:
+            logger.error(f"Failed to refresh admin IDs for group {gc.group_id}: {e}")
+            existing = context.bot_data.get("group_admin_ids", {}).get(gc.group_id, [])
+            group_admin_ids[gc.group_id] = existing
+            all_admin_ids.update(existing)
+
+    context.bot_data["group_admin_ids"] = group_admin_ids
+    context.bot_data["admin_ids"] = list(all_admin_ids)
+    logger.info(f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle errors in the bot.
@@ -212,12 +239,12 @@ def main() -> None:
     # messages in the warning topic before other handlers process them
     application.add_handler(
         MessageHandler(
-            filters.ALL,
+            filters.UpdateType.MESSAGE | filters.UpdateType.EDITED_MESSAGE,
             guard_warning_topic,
         ),
         group=-1,
     )
-    logger.info("Registered handler: topic_guard (group=-1)")
+    logger.info("Registered handler: topic_guard (group=-1, message + edited_message)")
 
     # Handler 2: /verify command - allows admins to whitelist users in DM
     application.add_handler(
@@ -331,10 +358,18 @@ def main() -> None:
         )
         logger.info("JobQueue registered: auto_restrict_job (every 5 minutes, first run in 5 minutes)")
 
+        application.job_queue.run_repeating(
+            refresh_admin_ids,
+            interval=600,
+            first=600,
+            name="refresh_admin_ids_job"
+        )
+        logger.info("JobQueue registered: refresh_admin_ids_job (every 10 minutes)")
+
     logger.info(f"Starting bot polling for {group_count} group(s)")
     logger.info("All handlers registered successfully")
 
-    application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
+    application.run_polling(allowed_updates=["message", "edited_message", "callback_query", "chat_member"])
 
 
 if __name__ == "__main__":

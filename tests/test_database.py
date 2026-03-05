@@ -333,3 +333,57 @@ class TestNewUserProbation:
 
         record = db_service.get_new_user_probation(user_id=1001, group_id=-100)
         assert record is None
+
+
+class TestGetWarningsPastTimeThresholdForGroup:
+    def test_returns_empty_when_no_warnings(self, db_service):
+        result = db_service.get_warnings_past_time_threshold_for_group(
+            group_id=-100999, threshold=timedelta(minutes=1440)
+        )
+        assert result == []
+
+    def test_returns_warnings_past_threshold_for_group(self, db_service):
+        old_time = datetime.now(UTC) - timedelta(minutes=1500)
+        record = db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
+
+        from sqlmodel import Session, select
+
+        with Session(db_service._engine) as session:
+            stmt = select(UserWarning).where(UserWarning.id == record.id)
+            db_record = session.exec(stmt).first()
+            db_record.first_warned_at = old_time
+            session.add(db_record)
+            session.commit()
+
+        result = db_service.get_warnings_past_time_threshold_for_group(
+            group_id=-100999, threshold=timedelta(minutes=1440)
+        )
+        assert len(result) == 1
+        assert result[0].user_id == 123
+
+    def test_does_not_return_warnings_from_different_group(self, db_service):
+        old_time = datetime.now(UTC) - timedelta(minutes=1500)
+        record = db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
+
+        from sqlmodel import Session, select
+
+        with Session(db_service._engine) as session:
+            stmt = select(UserWarning).where(UserWarning.id == record.id)
+            db_record = session.exec(stmt).first()
+            db_record.first_warned_at = old_time
+            session.add(db_record)
+            session.commit()
+
+        result = db_service.get_warnings_past_time_threshold_for_group(
+            group_id=-200888, threshold=timedelta(minutes=1440)
+        )
+        assert result == []
+
+    def test_does_not_return_restricted_warnings(self, db_service):
+        db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
+        db_service.mark_user_restricted(user_id=123, group_id=-100999)
+
+        result = db_service.get_warnings_past_time_threshold_for_group(
+            group_id=-100999, threshold=timedelta(minutes=0)
+        )
+        assert result == []
