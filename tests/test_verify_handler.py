@@ -388,6 +388,37 @@ class TestHandleVerifyCommand:
         # Should NOT send notification to warning topic
         mock_context.bot.send_message.assert_not_called()
 
+    async def test_verify_per_group_exception_caught_and_continues(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """Test that a generic Exception in per-group verification is caught and continues."""
+        gc = GroupConfig(group_id=-1001234567890, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+        monkeypatch.setattr("bot.handlers.verify.get_group_registry", lambda: registry)
+
+        target_user_id = 99999999
+        db = get_database()
+
+        # Seed a warning so delete_warnings returns > 0, triggering get_chat/send_message
+        db.get_or_create_user_warning(target_user_id, gc.group_id)
+        db.increment_message_count(target_user_id, gc.group_id)
+
+        mock_context.args = [str(target_user_id)]
+
+        # Make restrict_chat_member raise a generic Exception (not BadRequest)
+        mock_context.bot.restrict_chat_member.side_effect = RuntimeError("Network error")
+
+        await handle_verify_command(mock_update, mock_context)
+
+        # Should still return success message despite per-group failure
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert "diverifikasi" in call_args.args[0]
+
+        # User should still be whitelisted
+        assert db.is_user_photo_whitelisted(target_user_id)
+
 
 class TestHandleUnverifyCommand:
     async def test_no_message(self, mock_context):
