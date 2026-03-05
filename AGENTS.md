@@ -58,7 +58,7 @@ PythonID/
 │   └── database/
 │       ├── models.py     # SQLModel schemas (4 tables)
 │       └── service.py    # DatabaseService singleton (645 lines)
-├── tests/                # pytest-asyncio (18 files, 99% coverage)
+├── tests/                # pytest-asyncio (19 files, 99.9% coverage)
 └── data/bot.db           # SQLite (auto-created, WAL mode)
 ```
 
@@ -91,15 +91,31 @@ PythonID/
 ### Handler Priority Groups
 ```python
 # main.py - Order matters!
-group=-1  # topic_guard: Runs FIRST, deletes unauthorized warning topic msgs
-group=0   # Commands, DM, anti_spam: Default priority
-group=1   # message_handler: Runs LAST, profile compliance check
+group=-1  # topic_guard: Runs FIRST, deletes unauthorized warning topic msgs, raises ApplicationHandlerStop
+group=0   # Commands, DM, captcha: Default priority
+group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
+group=2   # new_user_spam: Probation enforcement (links/forwards)
+group=3   # duplicate_spam: Repeated message detection
+group=4   # message_handler: Runs LAST, profile compliance check
 ```
+
+### Topic Guard Design
+- Handles both `message` and `edited_message` updates (combined filter)
+- Raises `ApplicationHandlerStop` after handling ANY warning-topic message (allows or deletes)
+- This prevents downstream spam/profile handlers from processing warning-topic traffic
+- **Fail-closed**: On `get_chat_member` API error, deletes the message (scoped to confirmed warning-topic only)
+- Early returns (no message, wrong group, wrong topic) happen OUTSIDE the try/except block
 
 ### Singletons
 - `get_settings()` — Pydantic settings, `@lru_cache`
 - `get_database()` — DatabaseService, lazy init
 - `BotInfoCache` — Class-level cache for bot username/ID
+
+### Admin Cache
+- Fetched at startup in `post_init()` and stored in `bot_data["group_admin_ids"]` (per-group) and `bot_data["admin_ids"]` (union)
+- Refreshed every 10 minutes via `refresh_admin_ids` JobQueue job
+- On refresh failure for a group, falls back to existing cached data (not empty list)
+- Spam handlers use cached admin IDs; topic_guard uses live `get_chat_member` API call
 
 ### Multi-Group Support
 - `GroupConfig` — Pydantic model for per-group settings (warning thresholds, captcha, probation)
@@ -140,7 +156,7 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - **Fixtures**: `mock_update`, `mock_context`, `mock_settings` — copy from existing tests
 - **Database tests**: Use `temp_db` fixture with `tempfile.TemporaryDirectory`
 - **Mocking**: `AsyncMock` for Telegram API; no real network calls
-- **Coverage**: 100% maintained — check before committing
+- **Coverage**: 99.9% maintained (519 tests) — check before committing
 
 ## Anti-Patterns (THIS PROJECT)
 
@@ -186,8 +202,10 @@ if user.id not in admin_ids:
 ## Notes
 
 - Topic guard runs at `group=-1` to intercept unauthorized messages BEFORE other handlers
+- Topic guard handles both messages and edited messages, raises `ApplicationHandlerStop` to block downstream handlers
 - JobQueue auto-restriction job runs every 5 minutes (first run after 5 min delay)
-- Bot uses `allowed_updates=["message", "callback_query", "chat_member"]`
+- JobQueue admin refresh job runs every 10 minutes (first run after 10 min delay)
+- Bot uses `allowed_updates=["message", "edited_message", "callback_query", "chat_member"]`
 - Captcha uses both `ChatMemberHandler` (for "Hide Join" groups) and `MessageHandler` fallback
 - Multi-group: handlers use `get_group_config_for_update()` instead of `settings.group_id`
 - Captcha callback data encodes group_id: `captcha_verify_{group_id}_{user_id}` to avoid ambiguity

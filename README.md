@@ -10,7 +10,7 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - Checks if users have a public profile picture
 - Checks if users have a username set
 - Sends warnings to a dedicated topic (thread) for non-compliant users
-- **Warning topic protection**: Only admins and the bot can post in the warning topic
+- **Warning topic protection**: Only admins and the bot can post in the warning topic (messages + edited messages)
 
 ### Restriction & Unrestriction
 - **Progressive restriction**: Optional mode to restrict users after multiple warnings (message-based)
@@ -194,15 +194,14 @@ uv run pytest -v
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 99% (1,396 statements)
-- **Tests**: 442 total
-- **Pass Rate**: 100% (442/442 passed)
-- **All modules**: 100% coverage including JobQueue scheduler integration, captcha verification, and anti-spam enforcement
-  - Services: `bot_info.py` (100%), `group_config.py` (97%), `scheduler.py` (100%), `user_checker.py` (100%), `telegram_utils.py` (100%), `captcha_recovery.py` (100%)
-  - Handlers: `anti_spam.py` (100%), `captcha.py` (100%), `check.py` (98%), `dm.py` (100%), `message.py` (100%), `topic_guard.py` (100%), `verify.py` (100%)
-  - Database: `service.py` (100%), `models.py` (100%)
-  - Config: `config.py` (100%)
-  - Constants: `constants.py` (100%)
+- **Coverage**: 99.9% (1,570 statements, 1 unreachable line)
+- **Tests**: 519 total
+- **Pass Rate**: 100% (519/519 passed)
+- **All modules at 100%** except one unreachable line in `anti_spam.py`
+  - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py` — all 100%
+  - Handlers: `anti_spam.py` (99%), `captcha.py`, `check.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`, `duplicate_spam.py` — all 100%
+  - Database: `service.py`, `models.py` — all 100%
+  - Config: `config.py`, `group_config.py`, `constants.py` — all 100%
 
 All modules are fully unit tested with:
 - Mocked async dependencies (telegram bot API calls)
@@ -227,16 +226,18 @@ PythonID/
 │   ├── test_bot_info.py
 │   ├── test_captcha.py
 │   ├── test_captcha_recovery.py
+│   ├── test_check.py
 │   ├── test_config.py
 │   ├── test_constants.py
 │   ├── test_database.py
 │   ├── test_dm_handler.py
+│   ├── test_duplicate_spam.py
+│   ├── test_group_config.py
 │   ├── test_message_handler.py
 │   ├── test_photo_verification.py
 │   ├── test_scheduler.py     # JobQueue scheduler tests
 │   ├── test_telegram_utils.py
 │   ├── test_topic_guard.py
-│   ├── test_group_config.py
 │   ├── test_user_checker.py
 │   ├── test_verify_handler.py
 │   └── test_whitelist.py
@@ -441,14 +442,16 @@ flowchart TD
 
 The bot is organized into clear modules for maintainability:
 
-- **main.py**: Entry point with python-telegram-bot's JobQueue integration and graceful shutdown
-- **handlers/**: Message processing logic
-  - `message.py`: Monitors group messages and sends warnings/restrictions
+- **main.py**: Entry point with python-telegram-bot's JobQueue integration, admin cache refresh, and graceful shutdown
+- **handlers/**: Message processing logic (priority groups -1 through 4)
+  - `topic_guard.py`: Protects warning topic (group=-1, messages + edited messages, fail-closed)
+  - `message.py`: Monitors group messages and sends warnings/restrictions (group=4)
   - `dm.py`: Handles DM unrestriction flow
-  - `topic_guard.py`: Protects warning topic from unauthorized messages
   - `captcha.py`: Captcha verification for new members
-  - `anti_spam.py`: Anti-spam enforcement for users on probation
+  - `anti_spam.py`: Inline keyboard spam (group=1) + new user probation enforcement (group=2)
+  - `duplicate_spam.py`: Repeated message detection (group=3)
   - `verify.py`: /verify and /unverify command handlers
+  - `check.py`: /check command + forwarded message handling
 - **services/**: Business logic and utilities
   - `scheduler.py`: JobQueue background job that runs every 5 minutes for time-based auto-restrictions
   - `user_checker.py`: Profile validation (photo + username check)
@@ -492,6 +495,9 @@ The bot runs a JobQueue background job every 5 minutes that:
 
 This ensures users cannot evade restrictions by simply not sending messages.
 
+### Admin Cache Refresh
+Admin IDs are fetched at startup and refreshed every 10 minutes via a JobQueue job. If the refresh fails for a group, the bot falls back to the previously cached data (never an empty list). Spam handlers use the cached admin IDs for fast lookups, while the topic guard uses live `get_chat_member` API calls for maximum accuracy.
+
 ### Message Templates and Constants
 All warning and restriction messages are centralized in `constants.py` for consistency:
 - `WARNING_MESSAGE_NO_RESTRICTION`: Used in warning-only mode
@@ -504,7 +510,9 @@ All messages are formatted with proper Indonesian language patterns and include 
 
 ### Warning Topic Protection
 - Only group administrators and the bot itself can post in the warning topic
-- Messages from regular users are automatically deleted
+- Messages and edited messages from regular users are automatically deleted
+- Uses `ApplicationHandlerStop` to prevent downstream handlers from processing warning-topic traffic
+- **Fail-closed**: On API errors, messages in the warning topic are deleted (erring on the side of protection)
 
 ### DM Unrestriction Flow
 When a restricted user DMs the bot (or sends `/start`):
