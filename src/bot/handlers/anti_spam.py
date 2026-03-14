@@ -304,19 +304,20 @@ async def handle_contact_spam(
         )
 
     restricted = False
-    try:
-        await context.bot.restrict_chat_member(
-            chat_id=group_config.group_id,
-            user_id=user.id,
-            permissions=RESTRICTED_PERMISSIONS,
-        )
-        restricted = True
-        logger.info(f"Restricted user_id={user.id} for contact spam")
-    except Exception:
-        logger.error(
-            f"Failed to restrict user for contact spam: user_id={user.id}",
-            exc_info=True,
-        )
+    if group_config.contact_spam_restrict:
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=group_config.group_id,
+                user_id=user.id,
+                permissions=RESTRICTED_PERMISSIONS,
+            )
+            restricted = True
+            logger.info(f"Restricted user_id={user.id} for contact spam")
+        except Exception:
+            logger.error(
+                f"Failed to restrict user for contact spam: user_id={user.id}",
+                exc_info=True,
+            )
 
     try:
         template = (

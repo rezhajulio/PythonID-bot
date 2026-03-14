@@ -35,6 +35,7 @@ class GroupConfig(BaseModel):
     new_user_probation_hours: int = 72
     new_user_violation_threshold: int = 3
     rules_link: str = "https://t.me/pythonID/290029/321799"
+    contact_spam_restrict: bool = True
     duplicate_spam_enabled: bool = True
     duplicate_spam_window_seconds: int = 120
     duplicate_spam_threshold: int = 2
@@ -186,6 +187,7 @@ def build_group_registry(settings: object) -> GroupRegistry:
             new_user_probation_hours=settings.new_user_probation_hours,
             new_user_violation_threshold=settings.new_user_violation_threshold,
             rules_link=settings.rules_link,
+            contact_spam_restrict=settings.contact_spam_restrict,
             duplicate_spam_enabled=settings.duplicate_spam_enabled,
             duplicate_spam_window_seconds=settings.duplicate_spam_window_seconds,
             duplicate_spam_threshold=settings.duplicate_spam_threshold,
