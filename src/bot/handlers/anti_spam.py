@@ -16,6 +16,7 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from bot.constants import (
     CONTACT_SPAM_NOTIFICATION,
+    CONTACT_SPAM_NOTIFICATION_NO_RESTRICT,
     INLINE_KEYBOARD_SPAM_NOTIFICATION,
     INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT,
     NEW_USER_SPAM_RESTRICTION,
@@ -302,8 +303,27 @@ async def handle_contact_spam(
             exc_info=True,
         )
 
+    restricted = False
     try:
-        notification_text = CONTACT_SPAM_NOTIFICATION.format(
+        await context.bot.restrict_chat_member(
+            chat_id=group_config.group_id,
+            user_id=user.id,
+            permissions=RESTRICTED_PERMISSIONS,
+        )
+        restricted = True
+        logger.info(f"Restricted user_id={user.id} for contact spam")
+    except Exception:
+        logger.error(
+            f"Failed to restrict user for contact spam: user_id={user.id}",
+            exc_info=True,
+        )
+
+    try:
+        template = (
+            CONTACT_SPAM_NOTIFICATION if restricted
+            else CONTACT_SPAM_NOTIFICATION_NO_RESTRICT
+        )
+        notification_text = template.format(
             user_mention=user_mention,
             rules_link=group_config.rules_link,
         )
