@@ -1225,17 +1225,17 @@ class TestHandleContactSpam:
             rules_link="https://example.com/rules",
         )
 
-    async def test_contact_spam_deleted_and_notified(
+    async def test_contact_spam_deleted_and_restricted(
         self, mock_update, mock_context, group_config
     ):
-        """Test that contact message is deleted + notification sent + ApplicationHandlerStop raised."""
+        """Test that contact message is deleted, user restricted, and notification sent."""
         with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_contact_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
+        mock_context.bot.restrict_chat_member.assert_called_once()
         mock_context.bot.send_message.assert_called_once()
-        mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_no_contact_returns_early(
         self, mock_update, mock_context, group_config
@@ -1304,6 +1304,22 @@ class TestHandleContactSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_contact_spam(mock_update, mock_context)
 
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_continues_when_restrict_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler continues when restrict fails."""
+        mock_context.bot.restrict_chat_member = AsyncMock(
+            side_effect=Exception("Restrict failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
         mock_context.bot.send_message.assert_called_once()
 
     async def test_continues_when_send_notification_fails(
@@ -1319,6 +1335,21 @@ class TestHandleContactSpam:
                 await handle_contact_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
+
+    async def test_notification_without_restrict_on_restrict_failure(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that notification uses different template when restrict fails."""
+        mock_context.bot.restrict_chat_member = AsyncMock(
+            side_effect=Exception("Restrict failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        call_args = mock_context.bot.send_message.call_args
+        assert "dibatasi" not in call_args.kwargs.get("text", call_args[1].get("text", ""))
 
     async def test_raises_application_handler_stop(self, mock_update, mock_context, group_config):
         """Test that handler raises ApplicationHandlerStop after processing spam."""

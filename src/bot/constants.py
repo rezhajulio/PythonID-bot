@@ -216,6 +216,14 @@ CONTACT_SPAM_NOTIFICATION = (
     "🚫 *Kontak Dihapus*\n\n"
     "Pesan kontak dari {user_mention} telah dihapus karena berbagi kontak/"
     "nomor telepon tidak diperbolehkan di grup ini.\n\n"
+    "Pengguna telah dibatasi.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+CONTACT_SPAM_NOTIFICATION_NO_RESTRICT = (
+    "🚫 *Kontak Dihapus*\n\n"
+    "Pesan kontak dari {user_mention} telah dihapus karena berbagi kontak/"
+    "nomor telepon tidak diperbolehkan di grup ini.\n\n"
     "📌 [Peraturan Grup]({rules_link})"
 )
 
