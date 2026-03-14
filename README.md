@@ -22,7 +22,7 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **Captcha verification**: New members must verify they're human before joining (optional)
 - **Captcha timeout recovery**: Automatically recovers pending verifications after bot restart
 - **New user probation**: New members restricted from sending links/forwarded messages for 3 days (configurable)
-- **Contact card blocking**: Prevents all non-admin members from sharing contact cards/phone numbers
+- **Contact card blocking**: Prevents all non-admin members from sharing contact cards/phone numbers (delete + restrict)
 - **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
 
 ### Admin Tools
@@ -196,8 +196,8 @@ uv run pytest -v
 
 The project maintains comprehensive test coverage:
 - **Coverage**: 99.9% (1,570 statements, 1 unreachable line)
-- **Tests**: 531 total
-- **Pass Rate**: 100% (531/531 passed)
+- **Tests**: 533 total
+- **Pass Rate**: 100% (533/533 passed)
 - **All modules at 100%** except one unreachable line in `anti_spam.py`
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py` — all 100%
   - Handlers: `anti_spam.py` (99%), `captcha.py`, `check.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`, `duplicate_spam.py` — all 100%
@@ -303,7 +303,8 @@ flowchart TD
     CheckContact -->|Yes| CheckContactAdmin{Is Admin?}
     CheckContactAdmin -->|Yes| CheckProbation
     CheckContactAdmin -->|No| DeleteContact[Delete Contact Message]
-    DeleteContact --> SendContactNotify[Send Contact<br/>Spam Notification]
+    DeleteContact --> RestrictContact[Restrict User]
+    RestrictContact --> SendContactNotify[Send Contact<br/>Spam Notification]
     CheckContact -->|No| CheckProbation
     CheckProbation{User On<br/>Probation?} -->|No| CheckBot
     CheckProbation -->|Yes| CheckExpired{Probation<br/>Expired?}
@@ -437,7 +438,7 @@ flowchart TD
     class Init,FetchAdmins,RecoverPending,StartJobs,Poll,CheckProfile,CheckDMProfile,RestrictAndChallenge,StorePending,ScheduleTimeout,WaitCaptcha,StartProbation,StartProbationAfter processNode
     class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser,CheckContact,CheckContactAdmin decisionNode
     class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist,IncrementViolation,ClearProbation,DeleteWarnings dataNode
-    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,SendContactNotify actionNode
+    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,RestrictContact,SendContactNotify actionNode
     class End1,End2,End3,End4,End5,End6,End7,End8,End9,End10,EndJob,StartProbation endNode
     class Start startNode
 ```

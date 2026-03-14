@@ -157,7 +157,7 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - **Fixtures**: `mock_update`, `mock_context`, `mock_settings` — copy from existing tests
 - **Database tests**: Use `temp_db` fixture with `tempfile.TemporaryDirectory`
 - **Mocking**: `AsyncMock` for Telegram API; no real network calls
-- **Coverage**: 99.9% maintained (531 tests) — check before committing
+- **Coverage**: 99.9% maintained (533 tests) — check before committing
 
 ## Anti-Patterns (THIS PROJECT)
 
