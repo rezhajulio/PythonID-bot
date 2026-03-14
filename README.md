@@ -22,6 +22,7 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **Captcha verification**: New members must verify they're human before joining (optional)
 - **Captcha timeout recovery**: Automatically recovers pending verifications after bot restart
 - **New user probation**: New members restricted from sending links/forwarded messages for 3 days (configurable)
+- **Contact card blocking**: Prevents all non-admin members from sharing contact cards/phone numbers
 - **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
 
 ### Admin Tools
@@ -195,8 +196,8 @@ uv run pytest -v
 
 The project maintains comprehensive test coverage:
 - **Coverage**: 99.9% (1,570 statements, 1 unreachable line)
-- **Tests**: 519 total
-- **Pass Rate**: 100% (519/519 passed)
+- **Tests**: 531 total
+- **Pass Rate**: 100% (531/531 passed)
 - **All modules at 100%** except one unreachable line in `anti_spam.py`
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py` — all 100%
   - Handlers: `anti_spam.py` (99%), `captcha.py`, `check.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`, `duplicate_spam.py` — all 100%
@@ -209,7 +210,7 @@ All modules are fully unit tested with:
 - Database initialization and schema validation
 - Background job testing (JobQueue integration, job configuration, auto-restriction logic)
 - Captcha verification flow (new member handling, callback verification, timeout handling)
-- Anti-spam protection (forwarded messages, URL whitelisting, external replies)
+- Anti-spam protection (contact cards, inline keyboards, forwarded messages, URL whitelisting, external replies)
 
 ## Project Structure
 
@@ -248,7 +249,7 @@ PythonID/
         ├── constants.py         # Shared constants
         ├── group_config.py      # Multi-group configuration (GroupConfig, GroupRegistry)
         ├── handlers/
-        │   ├── anti_spam.py     # Anti-spam handler for probation users
+        │   ├── anti_spam.py     # Anti-spam (contact cards, inline keyboards, probation)
         │   ├── captcha.py       # Captcha verification handler
         │   ├── dm.py            # DM unrestriction handler
         │   ├── message.py       # Group message handler
@@ -297,9 +298,14 @@ flowchart TD
     CaptchaAnswer -->|Timeout| KickMember[Keep Restricted]
     KickMember --> UpdateMessage[Update Challenge Message]
     
-    %% Anti-Spam Flow (New User Probation)
-    UpdateType -->|Group Message| CheckProbation{User On<br/>Probation?}
-    CheckProbation -->|No| CheckBot
+    %% Anti-Spam Flow (Contact Card + New User Probation)
+    UpdateType -->|Group Message| CheckContact{Has Contact<br/>Card?}
+    CheckContact -->|Yes| CheckContactAdmin{Is Admin?}
+    CheckContactAdmin -->|Yes| CheckProbation
+    CheckContactAdmin -->|No| DeleteContact[Delete Contact Message]
+    DeleteContact --> SendContactNotify[Send Contact<br/>Spam Notification]
+    CheckContact -->|No| CheckProbation
+    CheckProbation{User On<br/>Probation?} -->|No| CheckBot
     CheckProbation -->|Yes| CheckExpired{Probation<br/>Expired?}
     CheckExpired -->|Yes| ClearProbation[(Clear Probation)]
     CheckExpired -->|No| CheckViolation{Forward/Link/<br/>External Reply?}
@@ -429,9 +435,9 @@ flowchart TD
     classDef startNode fill:#1a5f7a,stroke:#16213e,color:#eee
     
     class Init,FetchAdmins,RecoverPending,StartJobs,Poll,CheckProfile,CheckDMProfile,RestrictAndChallenge,StorePending,ScheduleTimeout,WaitCaptcha,StartProbation,StartProbationAfter processNode
-    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser decisionNode
+    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser,CheckContact,CheckContactAdmin decisionNode
     class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist,IncrementViolation,ClearProbation,DeleteWarnings dataNode
-    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify actionNode
+    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,SendContactNotify actionNode
     class End1,End2,End3,End4,End5,End6,End7,End8,End9,End10,EndJob,StartProbation endNode
     class Start startNode
 ```
@@ -445,11 +451,11 @@ The bot is organized into clear modules for maintainability:
 - **main.py**: Entry point with python-telegram-bot's JobQueue integration, admin cache refresh, and graceful shutdown
 - **handlers/**: Message processing logic (priority groups -1 through 4)
   - `topic_guard.py`: Protects warning topic (group=-1, messages + edited messages, fail-closed)
-  - `message.py`: Monitors group messages and sends warnings/restrictions (group=4)
+  - `message.py`: Monitors group messages and sends warnings/restrictions (group=5)
   - `dm.py`: Handles DM unrestriction flow
   - `captcha.py`: Captcha verification for new members
-  - `anti_spam.py`: Inline keyboard spam (group=1) + new user probation enforcement (group=2)
-  - `duplicate_spam.py`: Repeated message detection (group=3)
+  - `anti_spam.py`: Inline keyboard spam (group=1) + contact card spam (group=2) + new user probation enforcement (group=3)
+  - `duplicate_spam.py`: Repeated message detection (group=4)
   - `verify.py`: /verify and /unverify command handlers
   - `check.py`: /check command + forwarded message handling
 - **services/**: Business logic and utilities
