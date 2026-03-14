@@ -11,8 +11,10 @@ from telegram.ext import ApplicationHandlerStop
 
 from bot.handlers.anti_spam import (
     extract_urls,
+    handle_contact_spam,
     handle_inline_keyboard_spam,
     handle_new_user_spam,
+    has_contact,
     has_external_reply,
     has_link,
     has_non_whitelisted_inline_keyboard_urls,
@@ -1163,3 +1165,163 @@ class TestHandleInlineKeyboardSpam:
 
         call_args = mock_context.bot.send_message.call_args
         assert "dibatasi" not in call_args.kwargs.get("text", call_args[1].get("text", ""))
+
+
+class TestHasContact:
+    """Tests for the has_contact helper function."""
+
+    def test_contact_detected(self):
+        """Test that message with contact attribute returns True."""
+        msg = MagicMock(spec=Message)
+        msg.contact = MagicMock()
+
+        assert has_contact(msg) is True
+
+    def test_no_contact_returns_false(self):
+        """Test that message without contact returns False."""
+        msg = MagicMock(spec=Message)
+        msg.contact = None
+
+        assert has_contact(msg) is False
+
+
+class TestHandleContactSpam:
+    """Tests for the handle_contact_spam handler."""
+
+    @pytest.fixture
+    def mock_update(self):
+        """Create a mock update with a message containing a contact."""
+        update = MagicMock()
+        update.message = MagicMock(spec=Message)
+        update.message.from_user = MagicMock(spec=User)
+        update.message.from_user.id = 12345
+        update.message.from_user.is_bot = False
+        update.message.from_user.full_name = "Spam User"
+        update.message.from_user.username = "spamuser"
+        update.effective_chat = MagicMock(spec=Chat)
+        update.effective_chat.id = -100123456
+
+        update.message.contact = MagicMock()
+        update.message.delete = AsyncMock()
+
+        return update
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create a mock context."""
+        context = MagicMock()
+        context.bot = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.restrict_chat_member = AsyncMock()
+        context.bot_data = {"group_admin_ids": {}}
+        return context
+
+    @pytest.fixture
+    def group_config(self):
+        """Create group config for contact spam tests."""
+        return GroupConfig(
+            group_id=-100123456,
+            warning_topic_id=123,
+            rules_link="https://example.com/rules",
+        )
+
+    async def test_contact_spam_deleted_and_notified(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that contact message is deleted + notification sent + ApplicationHandlerStop raised."""
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+        mock_context.bot.send_message.assert_called_once()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+    async def test_no_contact_returns_early(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages without contact are ignored."""
+        mock_update.message.contact = None
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_non_group_message_returns_early(
+        self, mock_update, mock_context
+    ):
+        """Test that non-group messages are ignored."""
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=None):
+            await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_bot_user_returns_early(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that bot messages are ignored."""
+        mock_update.message.from_user.is_bot = True
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_no_message_returns_early(self, mock_context):
+        """Test that update without message is ignored."""
+        mock_update = MagicMock()
+        mock_update.message = None
+
+        await handle_contact_spam(mock_update, mock_context)
+
+    async def test_no_from_user_returns_early(self, mock_context):
+        """Test that message without from_user is ignored."""
+        mock_update = MagicMock()
+        mock_update.message = MagicMock(spec=Message)
+        mock_update.message.from_user = None
+
+        await handle_contact_spam(mock_update, mock_context)
+
+    async def test_admin_user_returns_early(self, mock_update, mock_context, group_config):
+        """Test that admin user with contact is NOT blocked."""
+        mock_context.bot_data = {
+            "group_admin_ids": {group_config.group_id: [mock_update.message.from_user.id]}
+        }
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_continues_when_delete_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler continues when message delete fails."""
+        mock_update.message.delete = AsyncMock(side_effect=Exception("Delete failed"))
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        mock_context.bot.send_message.assert_called_once()
+
+    async def test_continues_when_send_notification_fails(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that handler completes when sending notification fails."""
+        mock_context.bot.send_message = AsyncMock(
+            side_effect=Exception("Send failed")
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    async def test_raises_application_handler_stop(self, mock_update, mock_context, group_config):
+        """Test that handler raises ApplicationHandlerStop after processing spam."""
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)

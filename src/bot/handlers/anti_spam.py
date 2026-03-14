@@ -1,10 +1,10 @@
 """
-Anti-spam handler for new users on probation.
+Anti-spam handlers for group content moderation.
 
-This module enforces anti-spam rules for newly joined users. During the
-probation period, users cannot send forwarded messages or links. Violations
-result in message deletion, a warning on first offense, and restriction
-after exceeding the threshold.
+This module enforces anti-spam rules including:
+- Contact card spam detection (all members)
+- Inline keyboard URL spam detection (all members)
+- Probation enforcement for new users (forwards, links, external replies, stories)
 """
 
 import logging
@@ -15,6 +15,7 @@ from telegram import Message, MessageEntity, Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from bot.constants import (
+    CONTACT_SPAM_NOTIFICATION,
     INLINE_KEYBOARD_SPAM_NOTIFICATION,
     INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT,
     NEW_USER_SPAM_RESTRICTION,
@@ -239,6 +240,87 @@ def has_non_whitelisted_inline_keyboard_urls(message: Message) -> bool:
                     return True
 
     return False
+
+
+def has_contact(message: Message) -> bool:
+    """
+    Check if a message contains a contact card.
+
+    Args:
+        message: Telegram message to check.
+
+    Returns:
+        bool: True if message contains a contact.
+    """
+    return message.contact is not None
+
+
+async def handle_contact_spam(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle contact card sharing in monitored groups.
+
+    Blocks ALL non-admin members from sending contact cards.
+    Deletes the message and sends a notification to the warning topic.
+
+    Args:
+        update: Telegram update containing the message.
+        context: Bot context with helper methods.
+    """
+    if not update.message or not update.message.from_user:
+        return
+
+    group_config = get_group_config_for_update(update)
+    if group_config is None:
+        return
+
+    user = update.message.from_user
+    if user.is_bot:
+        return
+
+    admin_ids = context.bot_data.get("group_admin_ids", {}).get(group_config.group_id, [])
+    if user.id in admin_ids:
+        return
+
+    msg = update.message
+    if not has_contact(msg):
+        return
+
+    user_mention = get_user_mention(user)
+    logger.info(
+        f"Contact spam detected: user_id={user.id}, "
+        f"group_id={group_config.group_id}"
+    )
+
+    try:
+        await msg.delete()
+        logger.info(f"Deleted contact spam from user_id={user.id}")
+    except Exception:
+        logger.error(
+            f"Failed to delete contact spam: user_id={user.id}",
+            exc_info=True,
+        )
+
+    try:
+        notification_text = CONTACT_SPAM_NOTIFICATION.format(
+            user_mention=user_mention,
+            rules_link=group_config.rules_link,
+        )
+        await context.bot.send_message(
+            chat_id=group_config.group_id,
+            message_thread_id=group_config.warning_topic_id,
+            text=notification_text,
+            parse_mode="Markdown",
+        )
+        logger.info(f"Sent contact spam notification for user_id={user.id}")
+    except Exception:
+        logger.error(
+            f"Failed to send contact spam notification: user_id={user.id}",
+            exc_info=True,
+        )
+
+    raise ApplicationHandlerStop
 
 
 async def handle_inline_keyboard_spam(
