@@ -45,7 +45,7 @@ PythonID/
 │   │   ├── captcha.py    # New member verification flow
 │   │   ├── verify.py     # Admin /verify, /unverify commands
 │   │   ├── check.py      # Admin /check command + forwarded message handling
-│   │   ├── anti_spam.py  # Probation enforcement (links/forwards)
+│   │   ├── anti_spam.py  # Anti-spam (contact cards, inline keyboards, probation)
 │   │   ├── message.py    # Profile compliance monitoring
 │   │   ├── dm.py         # DM unrestriction flow
 │   │   └── topic_guard.py # Warning topic protection (group=-1)
@@ -66,7 +66,7 @@ PythonID/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add new handler | `main.py` | Register with appropriate group (-1, 0, 1) |
+| Add new handler | `main.py` | Register with appropriate group (-1, 0, 1-5) |
 | Modify messages | `constants.py` | All Indonesian templates centralized |
 | Add DB table | `database/models.py` → `database/service.py` | Add model, then service methods |
 | Change config | `config.py` | Pydantic BaseSettings with env vars |
@@ -83,7 +83,7 @@ PythonID/
 | `constants.py` | 530 | Templates + massive whitelists (Indonesian tech community) |
 | `handlers/captcha.py` | 375 | New member join → restrict → verify → unrestrict lifecycle |
 | `handlers/verify.py` | 358 | Admin verification commands + inline button callbacks |
-| `handlers/anti_spam.py` | 326 | Probation enforcement with URL whitelisting |
+| `handlers/anti_spam.py` | 420 | Anti-spam: contact cards, inline keyboards, probation enforcement |
 | `main.py` | 315 | Entry point, logging, handler registration, JobQueue setup |
 
 ## Architecture Patterns
@@ -157,7 +157,7 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - **Fixtures**: `mock_update`, `mock_context`, `mock_settings` — copy from existing tests
 - **Database tests**: Use `temp_db` fixture with `tempfile.TemporaryDirectory`
 - **Mocking**: `AsyncMock` for Telegram API; no real network calls
-- **Coverage**: 99.9% maintained (519 tests) — check before committing
+- **Coverage**: 99.9% maintained (531 tests) — check before committing
 
 ## Anti-Patterns (THIS PROJECT)
 
