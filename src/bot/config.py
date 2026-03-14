@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     captcha_timeout_seconds: int = 120
     new_user_probation_hours: int = 72  # 3 days default
     new_user_violation_threshold: int = 3  # restrict after this many violations
+    contact_spam_restrict: bool = True
     duplicate_spam_enabled: bool = True
     duplicate_spam_window_seconds: int = 120
     duplicate_spam_threshold: int = 2

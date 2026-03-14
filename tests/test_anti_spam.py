@@ -1356,3 +1356,24 @@ class TestHandleContactSpam:
         with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_contact_spam(mock_update, mock_context)
+
+    async def test_contact_spam_no_restrict_when_config_disabled(
+        self, mock_update, mock_context
+    ):
+        """Test that user is NOT restricted when contact_spam_restrict is False."""
+        group_config = GroupConfig(
+            group_id=-100123456,
+            warning_topic_id=123,
+            rules_link="https://example.com/rules",
+            contact_spam_restrict=False,
+        )
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_called_once()
+        call_args = mock_context.bot.send_message.call_args
+        assert "dibatasi" not in call_args.kwargs.get("text", call_args[1].get("text", ""))

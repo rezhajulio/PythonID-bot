@@ -196,8 +196,8 @@ uv run pytest -v
 
 The project maintains comprehensive test coverage:
 - **Coverage**: 99.9% (1,570 statements, 1 unreachable line)
-- **Tests**: 533 total
-- **Pass Rate**: 100% (533/533 passed)
+- **Tests**: 534 total
+- **Pass Rate**: 100% (534/534 passed)
 - **All modules at 100%** except one unreachable line in `anti_spam.py`
   - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py` — all 100%
   - Handlers: `anti_spam.py` (99%), `captcha.py`, `check.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`, `duplicate_spam.py` — all 100%
@@ -542,6 +542,7 @@ When a restricted user DMs the bot (or sends `/start`):
 | `CAPTCHA_TIMEOUT_SECONDS` | Seconds before kicking unverified members | `120` (2 minutes) |
 | `NEW_USER_PROBATION_HOURS` | Hours new users can't send links/forwards | `72` (3 days) |
 | `NEW_USER_VIOLATION_THRESHOLD` | Spam violations before restriction | `3` |
+| `CONTACT_SPAM_RESTRICT` | Restrict users who share contact cards | `true` |
 | `DATABASE_PATH` | SQLite database path | `data/bot.db` |
 | `RULES_LINK` | Link to group rules message | `https://t.me/pythonID/290029/321799` |
 | `LOGFIRE_ENABLED` | Enable Logfire logging integration | `true` |
