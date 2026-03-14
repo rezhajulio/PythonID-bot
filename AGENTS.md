@@ -91,12 +91,13 @@ PythonID/
 ### Handler Priority Groups
 ```python
 # main.py - Order matters!
-group=-1  # topic_guard: Runs FIRST, deletes unauthorized warning topic msgs, raises ApplicationHandlerStop
-group=0   # Commands, DM, captcha: Default priority
+group=-1  # topic_guard: Runs FIRST
+group=0   # Commands, DM, captcha
 group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
-group=2   # new_user_spam: Probation enforcement (links/forwards)
-group=3   # duplicate_spam: Repeated message detection
-group=4   # message_handler: Runs LAST, profile compliance check
+group=2   # contact_spam: Blocks contact card sharing
+group=3   # new_user_spam: Probation enforcement (links/forwards)
+group=4   # duplicate_spam: Repeated message detection
+group=5   # message_handler: Runs LAST, profile compliance check
 ```
 
 ### Topic Guard Design

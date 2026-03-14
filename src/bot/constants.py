@@ -211,6 +211,14 @@ INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT = (
     "📌 [Peraturan Grup]({rules_link})"
 )
 
+# Contact spam notification
+CONTACT_SPAM_NOTIFICATION = (
+    "🚫 *Kontak Dihapus*\n\n"
+    "Pesan kontak dari {user_mention} telah dihapus karena berbagi kontak/"
+    "nomor telepon tidak diperbolehkan di grup ini.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
 # Duplicate message spam notification
 DUPLICATE_SPAM_RESTRICTION = (
     "🚫 *Spam Pesan Duplikat*\n\n"
