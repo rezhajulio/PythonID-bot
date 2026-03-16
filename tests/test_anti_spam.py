@@ -17,6 +17,7 @@ from bot.handlers.anti_spam import (
     has_contact,
     has_external_reply,
     has_link,
+    has_media,
     has_non_whitelisted_inline_keyboard_urls,
     has_non_whitelisted_link,
     has_story,
@@ -133,6 +134,101 @@ class TestHasStory:
         msg.story = None
 
         assert has_story(msg) is False
+
+
+class TestHasMedia:
+    """Tests for the has_media helper function."""
+
+    def test_photo_detected(self):
+        """Test that message with photo is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = [MagicMock()]
+        msg.video = None
+        msg.animation = None
+        msg.document = None
+        msg.audio = None
+        msg.voice = None
+        msg.video_note = None
+
+        assert has_media(msg) is True
+
+    def test_video_detected(self):
+        """Test that message with video is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = MagicMock()
+        msg.animation = None
+        msg.document = None
+        msg.audio = None
+        msg.voice = None
+        msg.video_note = None
+
+        assert has_media(msg) is True
+
+    def test_animation_detected(self):
+        """Test that message with animation is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = None
+        msg.animation = MagicMock()
+        msg.document = None
+        msg.audio = None
+        msg.voice = None
+        msg.video_note = None
+
+        assert has_media(msg) is True
+
+    def test_audio_detected(self):
+        """Test that message with audio is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = None
+        msg.animation = None
+        msg.document = None
+        msg.audio = MagicMock()
+        msg.voice = None
+        msg.video_note = None
+
+        assert has_media(msg) is True
+
+    def test_voice_detected(self):
+        """Test that message with voice is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = None
+        msg.animation = None
+        msg.document = None
+        msg.audio = None
+        msg.voice = MagicMock()
+        msg.video_note = None
+
+        assert has_media(msg) is True
+
+    def test_video_note_detected(self):
+        """Test that message with video_note is detected."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = None
+        msg.animation = None
+        msg.document = None
+        msg.audio = None
+        msg.voice = None
+        msg.video_note = MagicMock()
+
+        assert has_media(msg) is True
+
+    def test_no_media_returns_false(self):
+        """Test that message without media returns False."""
+        msg = MagicMock(spec=Message)
+        msg.photo = None
+        msg.video = None
+        msg.animation = None
+        msg.document = None
+        msg.audio = None
+        msg.voice = None
+        msg.video_note = None
+
+        assert has_media(msg) is False
 
 
 class TestUrlWhitelist:
@@ -305,7 +401,7 @@ class TestHandleNewUserSpam:
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100123456  # group_id from group_config
 
-        # Default: not forwarded, no links, no external reply, no story
+        # Default: not forwarded, no links, no external reply, no story, no media
         update.message.forward_origin = None
         update.message.external_reply = None
         update.message.story = None
@@ -313,6 +409,13 @@ class TestHandleNewUserSpam:
         update.message.caption_entities = None
         update.message.text = None
         update.message.caption = None
+        update.message.photo = None
+        update.message.video = None
+        update.message.animation = None
+        update.message.document = None
+        update.message.audio = None
+        update.message.voice = None
+        update.message.video_note = None
         update.message.delete = AsyncMock()
 
         return update
@@ -667,6 +770,162 @@ class TestHandleNewUserSpam:
     ):
         """Test that messages with shared stories are deleted."""
         mock_update.message.story = MagicMock()  # Any non-None value
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_media(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with media attachments are deleted."""
+        mock_update.message.photo = [MagicMock()]  # Any non-None value
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_video(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with video are deleted."""
+        mock_update.message.video = MagicMock()
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_animation(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with animation are deleted."""
+        mock_update.message.animation = MagicMock()
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_audio(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with audio are deleted."""
+        mock_update.message.audio = MagicMock()
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_voice(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with voice are deleted."""
+        mock_update.message.voice = MagicMock()
+
+        mock_record = MagicMock()
+        mock_record.joined_at = datetime.now(UTC)
+
+        updated_record = MagicMock()
+        updated_record.violation_count = 1
+
+        mock_db = MagicMock()
+        mock_db.get_new_user_probation.return_value = mock_record
+        mock_db.increment_new_user_violation.return_value = updated_record
+
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deletes_message_with_video_note(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that messages with video_note are deleted."""
+        mock_update.message.video_note = MagicMock()
 
         mock_record = MagicMock()
         mock_record.joined_at = datetime.now(UTC)

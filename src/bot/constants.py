@@ -182,7 +182,7 @@ ADMIN_WARN_SENT_MESSAGE = "✅ Peringatan telah dikirim ke {user_mention} di gru
 # Anti-spam probation warning for new users
 NEW_USER_SPAM_WARNING = (
     "⚠️ {user_mention} baru bergabung dan sedang dalam masa percobaan.\n"
-    "Selama {probation_display}, kamu tidak boleh meneruskan pesan atau mengirim tautan.\n"
+    "Selama {probation_display}, kamu tidak boleh mengirim media (foto, video, audio, dll.), meneruskan pesan, atau mengirim tautan.\n"
     "Pesan yang melanggar akan dihapus dan kamu bisa dibatasi jika terus mengulang.\n"
     "Hubungi admin jika kamu membutuhkan bantuan.\n\n"
     "📖 [Baca aturan grup]({rules_link})"
@@ -191,7 +191,7 @@ NEW_USER_SPAM_WARNING = (
 # Anti-spam restriction message when user exceeds violation threshold
 NEW_USER_SPAM_RESTRICTION = (
     "🚫 {user_mention} telah dibatasi karena mengirim pesan terlarang "
-    "(forward/link/quote eksternal) sebanyak {violation_count} kali selama masa percobaan.\n\n"
+    "(media/file/forward/link/quote eksternal) sebanyak {violation_count} kali selama masa percobaan.\n\n"
     "📖 [Baca aturan grup]({rules_link})"
 )
 

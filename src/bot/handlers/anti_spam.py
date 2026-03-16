@@ -4,7 +4,7 @@ Anti-spam handlers for group content moderation.
 This module enforces anti-spam rules including:
 - Contact card spam detection (all members)
 - Inline keyboard URL spam detection (all members)
-- Probation enforcement for new users (forwards, links, external replies, stories)
+- Probation enforcement for new users (forwards, links, external replies, stories, media)
 """
 
 import logging
@@ -94,6 +94,31 @@ def has_story(message: Message) -> bool:
         bool: True if message contains a story.
     """
     return message.story is not None
+
+
+def has_media(message: Message) -> bool:
+    """
+    Check if a message contains media attachments.
+
+    Media elements (photos, videos, animations, audio, voice, and video
+    notes) are often used in spam or can be disruptive when sent by brand
+    new users before they have passed their probation period.
+
+    Args:
+        message: Telegram message to check.
+
+    Returns:
+        bool: True if message contains a photo, video, animation, audio,
+              voice, or video note.
+    """
+    return any([
+        message.photo,
+        message.video,
+        message.animation,
+        message.audio,
+        message.voice,
+        message.video_note,
+    ])
 
 
 def extract_urls(message: Message) -> list[str]:
@@ -486,13 +511,14 @@ async def handle_new_user_spam(
     msg = update.message
     user_mention = get_user_mention(user)
 
-    # Check for violations (forwarded message or non-whitelisted link or external reply)
+    # Check for violations (forwarded message or non-whitelisted link or external reply or media)
     if not (
         is_forwarded(msg)
         or has_non_whitelisted_link(msg)
         or has_external_reply(msg)
         or has_story(msg)
         or has_non_whitelisted_inline_keyboard_urls(msg)
+        or has_media(msg)
     ):
         return  # Not a violation
 
@@ -500,7 +526,8 @@ async def handle_new_user_spam(
         f"Probation violation detected: user_id={user.id}, "
         f"forwarded={is_forwarded(msg)}, has_non_whitelisted_link={has_non_whitelisted_link(msg)}, "
         f"external_reply={has_external_reply(msg)}, has_story={has_story(msg)}, "
-        f"inline_keyboard_spam={has_non_whitelisted_inline_keyboard_urls(msg)}"
+        f"inline_keyboard_spam={has_non_whitelisted_inline_keyboard_urls(msg)}, "
+        f"has_media={has_media(msg)}"
     )
 
     # 1. Delete the violating message
