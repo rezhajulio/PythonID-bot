@@ -253,7 +253,7 @@ class TestCaptchaCallbackHandler:
 
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             await captcha_callback_handler(update, mock_context)
 
@@ -283,7 +283,7 @@ class TestCaptchaCallbackHandler:
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             mock_unrestrict.return_value = AsyncMock()
             await captcha_callback_handler(update, mock_context)
@@ -315,7 +315,7 @@ class TestCaptchaCallbackHandler:
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.captcha.unrestrict_user", return_value=AsyncMock()),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             await captcha_callback_handler(update, mock_context)
 
@@ -395,7 +395,7 @@ class TestCaptchaCallbackHandler:
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.captcha.unrestrict_user", return_value=AsyncMock()),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             await captcha_callback_handler(update, mock_context)
 
@@ -428,7 +428,7 @@ class TestCaptchaCallbackHandler:
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             mock_unrestrict.side_effect = Exception("Unrestrict failed")
             await captcha_callback_handler(update, mock_context)
@@ -464,7 +464,7 @@ class TestCaptchaCallbackHandler:
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.captcha.unrestrict_user", return_value=AsyncMock()),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=True, get_missing_items=MagicMock(return_value=[]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
         ):
             await captcha_callback_handler(update, mock_context)
 
@@ -581,7 +581,7 @@ class TestCaptchaCallbackHandler:
 
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=False, get_missing_items=MagicMock(return_value=["foto profil publik"]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=False, has_username=True)),
             patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
         ):
             await captcha_callback_handler(update, mock_context)
@@ -616,7 +616,7 @@ class TestCaptchaCallbackHandler:
 
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=False, get_missing_items=MagicMock(return_value=["foto profil publik", "username"]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=False, has_username=False)),
         ):
             await captcha_callback_handler(update, mock_context)
 
@@ -685,12 +685,62 @@ class TestCaptchaCallbackHandler:
 
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.check_user_profile", return_value=AsyncMock(is_complete=False, get_missing_items=MagicMock(return_value=["foto profil publik"]))),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=False, has_username=True)),
         ):
             await captcha_callback_handler(update, mock_context)
 
         mock_context.job_queue.get_jobs_by_name.assert_not_called()
         mock_job.schedule_removal.assert_not_called()
+
+    async def test_malformed_callback_data_rejected(self, mock_context):
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.data = "captcha_verify_baddata"
+
+        update = MagicMock()
+        update.callback_query = query
+
+        await captcha_callback_handler(update, mock_context)
+
+        query.answer.assert_called_once_with(
+            "Gagal memverifikasi. Silakan coba lagi.", show_alert=True
+        )
+
+    async def test_unrestrict_failure_preserves_timeout_job(
+        self, mock_context, mock_registry, temp_db
+    ):
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+
+        mock_job = MagicMock()
+        mock_job.schedule_removal = MagicMock()
+        mock_context.job_queue.get_jobs_by_name.return_value = [mock_job]
+
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.username = "testuser"
+        query.from_user.full_name = "Test User"
+        query.data = "captcha_verify_-1001234567890_12345"
+        query.edit_message_text = AsyncMock()
+
+        update = MagicMock()
+        update.callback_query = query
+
+        with (
+            patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.captcha.unrestrict_user", side_effect=Exception("API error")),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
+        ):
+            await captcha_callback_handler(update, mock_context)
+
+        mock_job.schedule_removal.assert_not_called()
+        assert db.get_pending_captcha(12345, -1001234567890) is not None
 
 
 class TestGetHandlers:
