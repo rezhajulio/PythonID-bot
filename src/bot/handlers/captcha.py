@@ -21,14 +21,17 @@ from telegram.ext import (
 
 from bot.constants import (
     CAPTCHA_FAILED_VERIFICATION_MESSAGE,
+    CAPTCHA_INCOMPLETE_PROFILE_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
     CAPTCHA_WELCOME_MESSAGE,
     CAPTCHA_WRONG_USER_MESSAGE,
+    MISSING_ITEMS_SEPARATOR,
     RESTRICTED_PERMISSIONS,
 )
 from bot.database.service import get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
+from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -262,8 +265,6 @@ async def captcha_callback_handler(
     if not query or not query.data:
         return
 
-    await query.answer()
-
     callback_user_id = query.from_user.id
     parts = query.data.split("_")
     target_user_id = int(parts[-1])
@@ -273,7 +274,6 @@ async def captcha_callback_handler(
         await query.answer(CAPTCHA_WRONG_USER_MESSAGE, show_alert=True)
         return
 
-    # Look up group config directly using group_id from callback data
     db = get_database()
     registry = get_group_registry()
 
@@ -282,6 +282,21 @@ async def captcha_callback_handler(
     if group_config is None or not db.get_pending_captcha(target_user_id, group_id):
         logger.warning(f"No pending captcha found for user {target_user_id} in group {group_id}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    try:
+        result = await check_user_profile(context.bot, query.from_user)
+    except Exception:
+        logger.error(f"Profile check failed during captcha for user {target_user_id}", exc_info=True)
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    if not result.is_complete:
+        missing_text = MISSING_ITEMS_SEPARATOR.join(result.get_missing_items())
+        await query.answer(
+            CAPTCHA_INCOMPLETE_PROFILE_MESSAGE.format(missing_text=missing_text),
+            show_alert=True,
+        )
         return
 
     job_name = get_captcha_job_name(group_config.group_id, target_user_id)
@@ -296,14 +311,14 @@ async def captcha_callback_handler(
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
-        return  # Stop execution here so user can retry
+        return
 
     db.remove_pending_captcha(target_user_id, group_config.group_id)
-
-    # Start anti-spam probation for verified user
     db.start_new_user_probation(target_user_id, group_config.group_id)
 
     user_mention = get_user_mention(query.from_user)
+
+    await query.answer()
 
     try:
         await query.edit_message_text(
