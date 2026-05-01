@@ -278,6 +278,38 @@ DUPLICATE_SPAM_RESTRICTION_NO_RESTRICT = (
     "📌 [Peraturan Grup]({rules_link})"
 )
 
+# Bio bait spam notification (e.g. "cek bio aku" / "lihat byoh")
+BIO_BAIT_SPAM_NOTIFICATION = (
+    "🚫 *Spam Bio Bait Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena berisi ajakan "
+    "untuk mengecek bio/profil, pola yang umum dipakai untuk spam/promosi/scam.\n\n"
+    "Pengguna telah dibatasi.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+BIO_BAIT_SPAM_NOTIFICATION_NO_RESTRICT = (
+    "🚫 *Spam Bio Bait Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena berisi ajakan "
+    "untuk mengecek bio/profil, pola yang umum dipakai untuk spam/promosi/scam.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+# Bio profile link spam (user's profile bio contains promo/scam links)
+BIO_LINK_SPAM_NOTIFICATION = (
+    "🚫 *Spam Bio Profil Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena akun ini memiliki "
+    "bio profil dengan tautan/mention Telegram mencurigakan.\n\n"
+    "Pengguna telah dibatasi.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
+BIO_LINK_SPAM_NOTIFICATION_NO_RESTRICT = (
+    "🚫 *Spam Bio Profil Terdeteksi*\n\n"
+    "Pesan dari {user_mention} telah dihapus karena akun ini memiliki "
+    "bio profil dengan tautan/mention Telegram mencurigakan.\n\n"
+    "📌 [Peraturan Grup]({rules_link})"
+)
+
 # Whitelisted URL domains for new user probation
 # These domains are allowed even during probation period
 # Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")

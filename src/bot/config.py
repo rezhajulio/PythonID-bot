@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     duplicate_spam_threshold: int = 2
     duplicate_spam_min_length: int = 20
     duplicate_spam_similarity: float = 0.95
+    bio_bait_enabled: bool = True
     groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
