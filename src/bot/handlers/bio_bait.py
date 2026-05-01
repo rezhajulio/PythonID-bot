@@ -11,9 +11,9 @@ This handler covers TWO related vectors:
 
 1. Bait phrase in the message text (e.g. "cek bio aku", "liat byoh").
 2. The user's *Telegram profile bio* itself contains promo/scam links
-   (e.g. "VIP BCL t.me/+KVUG7Nzphek0N2M1"). In this case the group message
-   may be innocuous; the spam is in the bio. We fetch the bio once per
-   hour per user and cache it.
+   (private t.me/+ invite links and/or non-whitelisted @mentions). In
+   this case the group message may be innocuous; the spam is in the bio.
+   We fetch the bio once per hour per user and cache it.
 
 On match the handler deletes the message, restricts the user, and posts a
 notification to the warning topic.
@@ -99,7 +99,7 @@ BIO_BAIT_PATTERNS = (
     ),
 )
 
-# Telegram private invite links (e.g. t.me/+KVUG7Nzphek0N2M1).
+# Telegram private invite links (t.me/+<hash>).
 TELEGRAM_INVITE_LINK_RE = re.compile(
     r"(?:https?://)?(?:t\.me|telegram\.me)/\+[A-Za-z0-9_-]{8,}",
     re.IGNORECASE,
