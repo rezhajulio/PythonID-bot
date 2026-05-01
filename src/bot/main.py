@@ -19,6 +19,7 @@ from bot.database.service import get_database, init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.handlers import captcha
 from bot.handlers.anti_spam import handle_contact_spam, handle_inline_keyboard_spam, handle_new_user_spam
+from bot.handlers.bio_bait import handle_bio_bait_spam
 from bot.handlers.duplicate_spam import handle_duplicate_spam
 from bot.handlers.dm import handle_dm
 from bot.handlers.message import handle_message
@@ -356,15 +357,27 @@ def main() -> None:
     )
     logger.info("Registered handler: inline_keyboard_spam_handler (group=1)")
 
+    # Handler: Bio bait spam handler - catches "cek bio aku" / "lihat byoh" style
+    # messages where spammers point users to their profile bio (which contains
+    # external promo/scam links).
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS & ~filters.COMMAND,
+            handle_bio_bait_spam,
+        ),
+        group=2,
+    )
+    logger.info("Registered handler: bio_bait_spam_handler (group=2)")
+
     # Handler: Contact spam handler - blocks contact card sharing for all members
     application.add_handler(
         MessageHandler(
             filters.ChatType.GROUPS & filters.CONTACT,
             handle_contact_spam,
         ),
-        group=2,
+        group=3,
     )
-    logger.info("Registered handler: contact_spam_handler (group=2)")
+    logger.info("Registered handler: contact_spam_handler (group=3)")
 
     # Handler 9: New-user anti-spam handler - checks for forwards/links from users on probation
     application.add_handler(
@@ -372,9 +385,9 @@ def main() -> None:
             filters.ChatType.GROUPS,
             handle_new_user_spam,
         ),
-        group=3,
+        group=4,
     )
-    logger.info("Registered handler: anti_spam_handler (group=3)")
+    logger.info("Registered handler: anti_spam_handler (group=4)")
 
     # Handler 10: Duplicate message spam handler - detects repeated identical messages
     application.add_handler(
@@ -382,9 +395,9 @@ def main() -> None:
             filters.ChatType.GROUPS & ~filters.COMMAND,
             handle_duplicate_spam,
         ),
-        group=4,
+        group=5,
     )
-    logger.info("Registered handler: duplicate_spam_handler (group=4)")
+    logger.info("Registered handler: duplicate_spam_handler (group=5)")
 
     # Handler 11: Group message handler - monitors messages in monitored
     # groups and warns/restricts users with incomplete profiles
@@ -393,9 +406,9 @@ def main() -> None:
             filters.ChatType.GROUPS & ~filters.COMMAND,
             handle_message,
         ),
-        group=5,
+        group=6,
     )
-    logger.info("Registered handler: message_handler (group=5)")
+    logger.info("Registered handler: message_handler (group=6)")
 
     # Register auto-restriction job to run every 5 minutes
     if application.job_queue:
