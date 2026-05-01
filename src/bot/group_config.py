@@ -41,6 +41,7 @@ class GroupConfig(BaseModel):
     duplicate_spam_threshold: int = 2
     duplicate_spam_min_length: int = 20
     duplicate_spam_similarity: float = 0.95
+    bio_bait_enabled: bool = True
 
     @field_validator("group_id")
     @classmethod
@@ -193,6 +194,7 @@ def build_group_registry(settings: object) -> GroupRegistry:
             duplicate_spam_threshold=settings.duplicate_spam_threshold,
             duplicate_spam_min_length=settings.duplicate_spam_min_length,
             duplicate_spam_similarity=settings.duplicate_spam_similarity,
+            bio_bait_enabled=settings.bio_bait_enabled,
         )
         registry.register(config)
 
