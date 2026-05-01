@@ -119,11 +119,11 @@ class TestHasSuspiciousBioLinks:
         assert has_suspicious_bio_links("") is False
 
     def test_invite_link(self):
-        bio = "VIP BCL t.me/+KVUG7Nzphek0N2M1 ASP"
+        bio = "VIP promo t.me/+exampleinvitehash ASP"
         assert has_suspicious_bio_links(bio) is True
 
     def test_invite_link_with_https(self):
-        assert has_suspicious_bio_links("https://t.me/+abcdefghij") is True
+        assert has_suspicious_bio_links("https://t.me/+exampleinvitehash") is True
 
     def test_non_whitelisted_public_link(self):
         assert has_suspicious_bio_links("Join t.me/somerandomscamchannel") is True
@@ -325,7 +325,7 @@ class TestHandleBioBaitSpam:
     ):
         mock_update.message.text = "halo"
         chat = MagicMock()
-        chat.bio = "VIP BCL t.me/+KVUG7Nzphek0N2M1"
+        chat.bio = "VIP promo t.me/+exampleinvitehash"
         mock_context.bot.get_chat = AsyncMock(return_value=chat)
 
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
@@ -352,7 +352,7 @@ class TestHandleBioBaitSpam:
         mock_update.message.text = None
         mock_update.message.caption = None
         chat = MagicMock()
-        chat.bio = "VIP t.me/+abcdefghij"
+        chat.bio = "VIP t.me/+exampleinvitehash"
         mock_context.bot.get_chat = AsyncMock(return_value=chat)
 
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
@@ -365,7 +365,7 @@ class TestHandleBioBaitSpam:
     ):
         mock_update.message.text = "halo"
         chat = MagicMock()
-        chat.bio = "VIP t.me/+abcdefghij"
+        chat.bio = "VIP t.me/+exampleinvitehash"
         mock_context.bot.get_chat = AsyncMock(return_value=chat)
 
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
@@ -399,7 +399,7 @@ class TestHandleBioBaitSpam:
     ):
         mock_update.message.text = "halo"
         chat = MagicMock()
-        chat.bio = "VIP t.me/+abcdefghij"
+        chat.bio = "VIP t.me/+exampleinvitehash"
         mock_context.bot.get_chat = AsyncMock(return_value=chat)
         mock_context.bot.restrict_chat_member = AsyncMock(side_effect=Exception("fail"))
 
