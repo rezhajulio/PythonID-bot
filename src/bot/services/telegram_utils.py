@@ -12,6 +12,8 @@ from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
 from telegram.helpers import escape_markdown, mention_markdown
 
+from bot.database.service import get_database
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,10 +134,10 @@ async def unrestrict_user(
 def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
     """
     Extract user ID and name from a forwarded message.
-    
+
     Args:
         message: Telegram Message object that was forwarded.
-        
+
     Returns:
         Tuple of (user_id, user_name) if extraction successful, None otherwise.
     """
@@ -148,10 +150,50 @@ def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
 
     if not forwarded_user:
         return None
-    
+
     user_id = forwarded_user.id
     user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
     return user_id, user_name
+
+
+def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bool:
+    """
+    Check whether a user is an admin or trusted user for bypass decisions.
+
+    Args:
+        context: Telegram callback context.
+        group_id: Telegram group ID.
+        user_id: Telegram user ID.
+
+    Returns:
+        bool: True if user should bypass spam checks.
+    """
+    bot_data = getattr(context, "bot_data", {})
+
+    admin_ids = bot_data.get("group_admin_ids", {}).get(group_id, [])
+    if user_id in admin_ids:
+        return True
+
+    trusted_ids = set(bot_data.get("trusted_user_ids", []))
+    if user_id in trusted_ids:
+        return True
+
+    try:
+        db = get_database()
+        if db.is_user_trusted(user_id=user_id, group_id=group_id):
+            trusted_ids.add(user_id)
+            bot_data["trusted_user_ids"] = list(trusted_ids)
+            return True
+    except RuntimeError:
+        return False
+    except Exception:
+        logger.error(
+            f"Failed trusted user lookup: user_id={user_id}, group_id={group_id}",
+            exc_info=True,
+        )
+        return False
+
+    return False
 
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:

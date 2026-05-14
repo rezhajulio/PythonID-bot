@@ -24,11 +24,15 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **New user probation**: New members restricted from sending links/forwarded messages for 3 days (configurable)
 - **Contact card blocking**: Prevents all non-admin members from sharing contact cards/phone numbers (delete + restrict)
 - **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
+- **Trusted users**: Admin-managed trusted list to bypass anti-spam + duplicate-spam checks
 
 ### Admin Tools
 - **/verify command**: Whitelist users with hidden profile pictures (DM only)
 - **/unverify command**: Remove users from verification whitelist (DM only)
 - **Inline verification**: Forward messages to bot for quick verify/unverify buttons
+- **/trust command**: Add trusted users (DM only, supports user ID or forwarded message)
+- **/untrust command**: Remove trusted users from trusted list (DM only)
+- **/trusted command**: List all trusted users (DM only)
 - **Automatic clearance**: Sends notification when verified users' warnings are cleared
 
 ## Requirements

@@ -173,6 +173,7 @@ class TestHandleCheckCommand:
 
         mock_db = MagicMock()
         mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
 
         with (
             patch(
@@ -193,6 +194,58 @@ class TestHandleCheckCommand:
         callback_data = [btn.callback_data for btn in buttons]
         assert any("warn:555666" in data for data in callback_data)
         assert any("verify:555666" in data for data in callback_data)
+
+    async def test_check_command_incomplete_profile_shows_trust_button(
+        self, mock_update, mock_context
+    ):
+        """Shows trust button for incomplete non-trusted users."""
+        mock_context.args = ["555666"]
+
+        incomplete_result = ProfileCheckResult(
+            has_profile_photo=False, has_username=False
+        )
+
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=incomplete_result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_command(mock_update, mock_context)
+
+        keyboard = mock_update.message.reply_text.call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+        buttons = keyboard.inline_keyboard[0]
+        callback_data = [btn.callback_data for btn in buttons]
+        assert any(data == "trust:555666" for data in callback_data)
+
+    async def test_check_command_complete_profile_shows_untrust_button_when_trusted(
+        self, mock_update, mock_context
+    ):
+        """Shows untrust button for trusted users."""
+        mock_context.args = ["555666"]
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = True
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=complete_result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_command(mock_update, mock_context)
+
+        keyboard = mock_update.message.reply_text.call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+        buttons = keyboard.inline_keyboard[0]
+        callback_data = [btn.callback_data for btn in buttons]
+        assert any(data == "untrust:555666" for data in callback_data)
 
     async def test_check_command_only_private(self, mock_update, mock_context):
         """Command only works in private chat."""

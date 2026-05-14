@@ -219,6 +219,21 @@ class TestHandleDuplicateSpam:
             await handle_duplicate_spam(mock_update, mock_context)
         mock_update.message.delete.assert_not_called()
 
+    async def test_skips_trusted_users(self, mock_update, mock_context, group_config):
+        now = datetime.now(UTC)
+        norm = normalize_text(mock_update.message.text)
+        existing_dq = deque([
+            RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
+        ])
+        mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
+        mock_context.bot_data["trusted_user_ids"] = [mock_update.message.from_user.id]
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
     async def test_skips_no_text(self, mock_update, mock_context, group_config):
         mock_update.message.text = None
         mock_update.message.caption = None

@@ -15,7 +15,7 @@ from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from bot.config import get_settings
-from bot.database.service import init_database
+from bot.database.service import get_database, init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.handlers import captcha
 from bot.handlers.anti_spam import handle_contact_spam, handle_inline_keyboard_spam, handle_new_user_spam
@@ -33,6 +33,13 @@ from bot.handlers.check import (
     handle_check_command,
     handle_check_forwarded_message,
     handle_warn_callback,
+)
+from bot.handlers.trust import (
+    handle_trust_callback,
+    handle_trust_command,
+    handle_trusted_list_command,
+    handle_untrust_callback,
+    handle_untrust_command,
 )
 from bot.services.scheduler import auto_restrict_expired_warnings
 from bot.services.telegram_utils import fetch_group_admin_ids
@@ -190,6 +197,12 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     application.bot_data["admin_ids"] = list(all_admin_ids)  # type: ignore[index]
     logger.info(f"Total unique admins across all groups: {len(all_admin_ids)}")
 
+    # Preload trusted users cache
+    db = get_database()
+    trusted_ids = list(db.get_trusted_user_ids())
+    application.bot_data["trusted_user_ids"] = trusted_ids  # type: ignore[index]
+    logger.info(f"Loaded {len(trusted_ids)} trusted user(s) into cache")
+
     # Recover pending captcha verifications for groups with captcha enabled
     has_captcha = any(gc.captcha_enabled for gc in registry.all_groups())
     if has_captcha:
@@ -264,6 +277,24 @@ def main() -> None:
     )
     logger.info("Registered handler: check_command (group=0)")
 
+    # Handler: /trust command - allows admins to trust users for spam bypass in DM
+    application.add_handler(
+        CommandHandler("trust", handle_trust_command)
+    )
+    logger.info("Registered handler: trust_command (group=0)")
+
+    # Handler: /untrust command - allows admins to remove users from trusted list in DM
+    application.add_handler(
+        CommandHandler("untrust", handle_untrust_command)
+    )
+    logger.info("Registered handler: untrust_command (group=0)")
+
+    # Handler: /trusted command - list all trusted users in DM
+    application.add_handler(
+        CommandHandler("trusted", handle_trusted_list_command)
+    )
+    logger.info("Registered handler: trusted_list_command (group=0)")
+
     # Handler: Forwarded message handler - allows admins to check profiles via forward
     application.add_handler(
         MessageHandler(
@@ -286,6 +317,14 @@ def main() -> None:
         CallbackQueryHandler(handle_warn_callback, pattern=r"^warn:\d+:")
     )
     logger.info("Registered handler: warn_callback (group=0)")
+    application.add_handler(
+        CallbackQueryHandler(handle_trust_callback, pattern=r"^trust:\d+$")
+    )
+    logger.info("Registered handler: trust_callback (group=0)")
+    application.add_handler(
+        CallbackQueryHandler(handle_untrust_callback, pattern=r"^untrust:\d+$")
+    )
+    logger.info("Registered handler: untrust_callback (group=0)")
 
     # Handler 6: Captcha handlers - new member verification
     for handler in captcha.get_handlers():
