@@ -179,6 +179,28 @@ ADMIN_WARN_USER_MESSAGE = (
 
 ADMIN_WARN_SENT_MESSAGE = "✅ Peringatan telah dikirim ke {user_mention} di grup."
 
+TRUST_USER_ID_REQUIRED_MESSAGE = (
+    "❌ Penggunaan: /trust USER_ID atau /untrust USER_ID, atau forward pesan user ke bot."
+)
+
+TRUST_USER_ID_INVALID_MESSAGE = "❌ User ID harus berupa angka."
+
+TRUST_ADDED_MESSAGE = (
+    "✅ User `{user_id}` ditambahkan ke trusted list.\n"
+    "• Probation dibersihkan di {probation_clear_count} grup\n"
+    "• Unrestrict dicoba di {unrestrict_count} grup"
+)
+
+TRUST_ALREADY_EXISTS_MESSAGE = "ℹ️ User `{user_id}` sudah ada di trusted list."
+
+TRUST_REMOVED_MESSAGE = "✅ User `{user_id}` dihapus dari trusted list."
+
+TRUST_USER_NOT_FOUND_MESSAGE = "ℹ️ User `{user_id}` tidak ada di trusted list."
+
+TRUST_LIST_EMPTY_MESSAGE = "ℹ️ Trusted list masih kosong."
+
+TRUST_LIST_HEADER = "📋 Trusted Users:\n{trusted_lines}"
+
 # Anti-spam probation warning for new users
 NEW_USER_SPAM_WARNING = (
     "⚠️ {user_mention} baru bergabung dan sedang dalam masa percobaan.\n"

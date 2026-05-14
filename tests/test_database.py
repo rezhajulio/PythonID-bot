@@ -387,3 +387,35 @@ class TestGetWarningsPastTimeThresholdForGroup:
             group_id=-100999, threshold=timedelta(minutes=0)
         )
         assert result == []
+
+
+class TestTrustedUsers:
+    def test_add_trusted_user_and_check_true(self, db_service: DatabaseService):
+        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+
+        assert db_service.is_user_trusted(user_id=123) is True
+
+    def test_add_trusted_user_duplicate_raises(self, db_service: DatabaseService):
+        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+
+        with pytest.raises(ValueError):
+            db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+
+    def test_remove_trusted_user(self, db_service: DatabaseService):
+        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+
+        db_service.remove_trusted_user(user_id=123)
+
+        assert db_service.is_user_trusted(user_id=123) is False
+
+    def test_remove_missing_trusted_user_raises(self, db_service: DatabaseService):
+        with pytest.raises(ValueError):
+            db_service.remove_trusted_user(user_id=123)
+
+    def test_get_trusted_user_ids(self, db_service: DatabaseService):
+        db_service.add_trusted_user(user_id=1001, trusted_by_admin_id=999)
+        db_service.add_trusted_user(user_id=1002, trusted_by_admin_id=999)
+
+        trusted_ids = db_service.get_trusted_user_ids()
+
+        assert trusted_ids == {1001, 1002}

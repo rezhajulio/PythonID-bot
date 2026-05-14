@@ -60,15 +60,20 @@ async def _build_check_response(
 
     db = get_database()
     is_whitelisted = db.is_user_photo_whitelisted(user_id)
+    is_trusted = db.is_user_trusted(user_id) is True
 
     if result.is_complete:
         action_prompt = ADMIN_CHECK_ACTION_COMPLETE
+        buttons: list[InlineKeyboardButton] = []
         if is_whitelisted:
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Unverify User", callback_data=f"unverify:{user_id}")]
-            ])
-        else:
-            keyboard = None
+            buttons.append(
+                InlineKeyboardButton("❌ Unverify User", callback_data=f"unverify:{user_id}")
+            )
+        if is_trusted:
+            buttons.append(
+                InlineKeyboardButton("🤝 Untrust User", callback_data=f"untrust:{user_id}")
+            )
+        keyboard = InlineKeyboardMarkup([buttons]) if buttons else None
     else:
         action_prompt = ADMIN_CHECK_ACTION_INCOMPLETE
         # Store missing items in callback data (photo,username format)
@@ -77,10 +82,18 @@ async def _build_check_response(
             missing_code += "p"
         if not result.has_username:
             missing_code += "u"
+
+        trust_button = (
+            InlineKeyboardButton("🤝 Untrust User", callback_data=f"untrust:{user_id}")
+            if is_trusted
+            else InlineKeyboardButton("🤝 Trust User", callback_data=f"trust:{user_id}")
+        )
+
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("⚠️ Warn User", callback_data=f"warn:{user_id}:{missing_code}"),
                 InlineKeyboardButton("✅ Verify User", callback_data=f"verify:{user_id}"),
+                trust_button,
             ]
         ])
 
