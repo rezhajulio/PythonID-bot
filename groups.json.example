@@ -15,7 +15,10 @@
     "duplicate_spam_window_seconds": 120,
     "duplicate_spam_threshold": 2,
     "duplicate_spam_min_length": 20,
-    "duplicate_spam_similarity": 0.95
+    "duplicate_spam_similarity": 0.95,
+    "bio_bait_enabled": true,
+    "bio_bait_monitor_only": false,
+    "bio_bait_alert_chat_id": null
   },
   {
     "group_id": -1009876543210,
@@ -33,6 +36,9 @@
     "duplicate_spam_window_seconds": 60,
     "duplicate_spam_threshold": 2,
     "duplicate_spam_min_length": 20,
-    "duplicate_spam_similarity": 0.90
+    "duplicate_spam_similarity": 0.90,
+    "bio_bait_enabled": true,
+    "bio_bait_monitor_only": false,
+    "bio_bait_alert_chat_id": null
   }
 ]

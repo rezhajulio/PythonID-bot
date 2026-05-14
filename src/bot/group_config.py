@@ -42,6 +42,8 @@ class GroupConfig(BaseModel):
     duplicate_spam_min_length: int = 20
     duplicate_spam_similarity: float = 0.95
     bio_bait_enabled: bool = True
+    bio_bait_monitor_only: bool = False
+    bio_bait_alert_chat_id: int | None = None
 
     @field_validator("group_id")
     @classmethod
@@ -194,7 +196,9 @@ def build_group_registry(settings: object) -> GroupRegistry:
             duplicate_spam_threshold=settings.duplicate_spam_threshold,
             duplicate_spam_min_length=settings.duplicate_spam_min_length,
             duplicate_spam_similarity=settings.duplicate_spam_similarity,
-            bio_bait_enabled=settings.bio_bait_enabled,
+            bio_bait_enabled=getattr(settings, "bio_bait_enabled", True),
+            bio_bait_monitor_only=getattr(settings, "bio_bait_monitor_only", False),
+            bio_bait_alert_chat_id=getattr(settings, "bio_bait_alert_chat_id", None),
         )
         registry.register(config)
 

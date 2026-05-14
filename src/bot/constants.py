@@ -310,6 +310,19 @@ BIO_LINK_SPAM_NOTIFICATION_NO_RESTRICT = (
     "📌 [Peraturan Grup]({rules_link})"
 )
 
+# Monitor-only alert for owner/admin chat when bio bait match is detected.
+# Sent without parse_mode to preserve raw message/bio content for forensic review.
+BIO_BAIT_MONITOR_ALERT = (
+    "[BIO BAIT MONITOR]\n"
+    "Reason: {reason}\n"
+    "Group ID: {group_id}\n"
+    "User ID: {user_id}\n"
+    "User: {user_name}\n"
+    "Username: {username}\n"
+    "Message:\n{message_text}\n\n"
+    "Profile Bio:\n{profile_bio}"
+)
+
 # Whitelisted URL domains for new user probation
 # These domains are allowed even during probation period
 # Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")
