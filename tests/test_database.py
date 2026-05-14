@@ -419,3 +419,13 @@ class TestTrustedUsers:
         trusted_ids = db_service.get_trusted_user_ids()
 
         assert trusted_ids == {1001, 1002}
+
+    def test_get_trusted_users_returns_metadata(self, db_service: DatabaseService):
+        db_service.add_trusted_user(user_id=2001, trusted_by_admin_id=9001)
+        db_service.add_trusted_user(user_id=2002, trusted_by_admin_id=9002)
+
+        trusted_users = db_service.get_trusted_users()
+
+        assert len(trusted_users) == 2
+        assert {u.user_id for u in trusted_users} == {2001, 2002}
+        assert {u.trusted_by_admin_id for u in trusted_users} == {9001, 9002}

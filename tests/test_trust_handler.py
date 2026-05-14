@@ -276,13 +276,16 @@ class TestTrustCommands:
     async def test_trusted_list_command(self, mock_update, mock_context):
         db = get_database()
         db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
-        db.add_trusted_user(user_id=8002, trusted_by_admin_id=12345)
+        db.add_trusted_user(user_id=8002, trusted_by_admin_id=54321)
 
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
         assert "8001" in message
         assert "8002" in message
+        assert "12345" in message
+        assert "54321" in message
+        assert "UTC" in message
 
 
 class TestTrustCallbacks:

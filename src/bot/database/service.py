@@ -456,6 +456,26 @@ class DatabaseService:
             statement = select(TrustedUser.user_id).where(TrustedUser.group_id == 0)
             return set(session.exec(statement).all())
 
+    def get_trusted_users(self, group_id: int | None = None) -> list[TrustedUser]:
+        """
+        Get trusted user records with metadata.
+
+        Args:
+            group_id: Optional group scope. For v1, only global records are returned.
+
+        Returns:
+            list[TrustedUser]: Trusted user records.
+        """
+        del group_id  # Reserved for future per-group trust behavior.
+
+        with Session(self._engine) as session:
+            statement = (
+                select(TrustedUser)
+                .where(TrustedUser.group_id == 0)
+                .order_by(TrustedUser.trusted_at.desc())
+            )
+            return list(session.exec(statement).all())
+
     def get_warnings_past_time_threshold(
         self, threshold: timedelta
     ) -> list[UserWarning]:

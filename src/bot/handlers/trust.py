@@ -1,6 +1,7 @@
 """Trusted-user command handlers for anti-spam bypass management."""
 
 import logging
+from datetime import UTC
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -199,15 +200,28 @@ async def handle_trusted_list_command(
         return
 
     db = get_database()
-    trusted_ids = sorted(db.get_trusted_user_ids())
+    trusted_users = db.get_trusted_users()
 
-    if not trusted_ids:
+    if not trusted_users:
         await update.message.reply_text(TRUST_LIST_EMPTY_MESSAGE)
         return
 
-    trusted_lines = "\n".join(f"• `{user_id}`" for user_id in trusted_ids)
+    trusted_lines = []
+    for record in trusted_users:
+        trusted_at = record.trusted_at
+        if trusted_at.tzinfo is None:
+            trusted_at = trusted_at.replace(tzinfo=UTC)
+        trusted_at_display = trusted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        trusted_lines.append(
+            "• `{user_id}` — oleh admin `{admin_id}` pada `{trusted_at}`".format(
+                user_id=record.user_id,
+                admin_id=record.trusted_by_admin_id,
+                trusted_at=trusted_at_display,
+            )
+        )
+
     await update.message.reply_text(
-        TRUST_LIST_HEADER.format(trusted_lines=trusted_lines),
+        TRUST_LIST_HEADER.format(trusted_lines="\n".join(trusted_lines)),
         parse_mode="Markdown",
     )
 
