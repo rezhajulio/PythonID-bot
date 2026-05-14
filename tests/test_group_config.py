@@ -28,6 +28,8 @@ class TestGroupConfig:
         assert gc.restrict_failed_users is False
         assert gc.warning_threshold == 3
         assert gc.captcha_enabled is False
+        assert gc.bio_bait_monitor_only is False
+        assert gc.bio_bait_alert_chat_id is None
 
     def test_full_config(self):
         gc = GroupConfig(
@@ -41,10 +43,14 @@ class TestGroupConfig:
             new_user_probation_hours=168,
             new_user_violation_threshold=2,
             rules_link="https://t.me/mygroup/rules",
+            bio_bait_monitor_only=True,
+            bio_bait_alert_chat_id=57747812,
         )
         assert gc.restrict_failed_users is True
         assert gc.warning_threshold == 5
         assert gc.captcha_timeout_seconds == 180
+        assert gc.bio_bait_monitor_only is True
+        assert gc.bio_bait_alert_chat_id == 57747812
 
     def test_group_id_must_be_negative(self):
         with pytest.raises(ValidationError, match="group_id must be negative"):
@@ -277,6 +283,8 @@ class TestBuildGroupRegistry:
         settings.duplicate_spam_window_seconds = 300
         settings.duplicate_spam_threshold = 5
         settings.duplicate_spam_min_length = 50
+        settings.bio_bait_monitor_only = True
+        settings.bio_bait_alert_chat_id = 57747812
 
         registry = build_group_registry(settings)
 
@@ -289,6 +297,8 @@ class TestBuildGroupRegistry:
         assert gc.duplicate_spam_window_seconds == 300
         assert gc.duplicate_spam_threshold == 5
         assert gc.duplicate_spam_min_length == 50
+        assert gc.bio_bait_monitor_only is True
+        assert gc.bio_bait_alert_chat_id == 57747812
 
 
 class TestGetGroupConfigForUpdate:

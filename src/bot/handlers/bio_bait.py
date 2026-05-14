@@ -28,6 +28,7 @@ from telegram import Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from bot.constants import (
+    BIO_BAIT_MONITOR_ALERT,
     BIO_BAIT_SPAM_NOTIFICATION,
     BIO_BAIT_SPAM_NOTIFICATION_NO_RESTRICT,
     BIO_LINK_SPAM_NOTIFICATION,
@@ -47,6 +48,12 @@ BIO_BAIT_MAX_LENGTH = 80
 # Per-user bio cache (TTL in seconds). Stored in context.bot_data.
 USER_BIO_CACHE_KEY = "user_bio_cache"
 USER_BIO_CACHE_TTL_SECONDS = 3600
+
+# Bio bait metrics stored in bot_data.
+BIO_BAIT_METRICS_KEY = "bio_bait_metrics"
+
+# Telegram hard limit per message text.
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
 # Strip common zero-width characters used to break keyword filters.
 ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u2060-\u2064\ufeff]")
@@ -218,6 +225,79 @@ def clear_cached_user_bio(
     """Remove a user's bio cache entry (call after restriction)."""
     _get_user_bio_cache(context).pop(user_id, None)
 
+
+def _get_bio_bait_metrics(context: ContextTypes.DEFAULT_TYPE) -> dict[str, int]:
+    """Get or initialize bio bait metrics stored in bot_data."""
+    return context.bot_data.setdefault(BIO_BAIT_METRICS_KEY, {})
+
+
+def _increment_bio_bait_metric(
+    context: ContextTypes.DEFAULT_TYPE,
+    metric_name: str,
+) -> None:
+    """Increment a named bio bait metric counter."""
+    metrics = _get_bio_bait_metrics(context)
+    metrics[metric_name] = metrics.get(metric_name, 0) + 1
+
+
+def record_bio_bait_detection_metrics(
+    context: ContextTypes.DEFAULT_TYPE,
+    detection_reason: str,
+    monitor_only: bool,
+) -> None:
+    """Record counters for a bio bait detection event."""
+    _increment_bio_bait_metric(context, "detections_total")
+    _increment_bio_bait_metric(context, f"detections_{detection_reason}")
+    if monitor_only:
+        _increment_bio_bait_metric(context, "monitor_only_matches")
+    else:
+        _increment_bio_bait_metric(context, "enforced_matches")
+
+
+def _chunk_telegram_text(text: str, max_length: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:
+    """Split text into Telegram-safe chunks."""
+    if len(text) <= max_length:
+        return [text]
+    return [text[i : i + max_length] for i in range(0, len(text), max_length)]
+
+
+async def send_monitor_alert_to_owner(
+    context: ContextTypes.DEFAULT_TYPE,
+    alert_chat_id: int,
+    group_id: int,
+    user_id: int,
+    user_name: str,
+    username: str | None,
+    detection_reason: str,
+    message_text: str,
+    profile_bio: str | None,
+) -> bool:
+    """Send monitor-only detection details to owner/admin chat ID."""
+    reason_label = "message_bait" if detection_reason == "message_bait" else "bio_links"
+    alert_text = BIO_BAIT_MONITOR_ALERT.format(
+        reason=reason_label,
+        group_id=group_id,
+        user_id=user_id,
+        user_name=user_name,
+        username=f"@{username}" if username else "-",
+        message_text=message_text or "(kosong)",
+        profile_bio=profile_bio or "(kosong)",
+    )
+
+    try:
+        for chunk in _chunk_telegram_text(alert_text):
+            await context.bot.send_message(chat_id=alert_chat_id, text=chunk)
+        return True
+    except Exception:
+        logger.error(
+            "Failed to send bio bait monitor alert: user_id=%s, group_id=%s",
+            user_id,
+            group_id,
+            exc_info=True,
+        )
+        return False
+
+
 async def get_cached_user_bio(
     context: ContextTypes.DEFAULT_TYPE, user_id: int
 ) -> str | None:
@@ -251,10 +331,10 @@ async def handle_bio_bait_spam(
     """
     Handle bio-bait spam (phrase in message OR promo links in user's bio).
 
-    Skips bots and admins. On match, deletes the message, restricts the
-    user, and notifies the warning topic. Always raises ApplicationHandlerStop
-    after handling a detected message to prevent downstream handlers from
-    re-processing it.
+    Skips bots and admins. In enforcement mode, deletes the message,
+    restricts the user, notifies the warning topic, and raises
+    ApplicationHandlerStop. In monitor-only mode, only records metrics and
+    optionally sends owner alerts without affecting user message flow.
 
     Args:
         update: Telegram update containing the message.
@@ -281,6 +361,7 @@ async def handle_bio_bait_spam(
     text = update.message.text or update.message.caption or ""
 
     detection_reason: str | None = None
+    user_bio: str | None = None
     if text and is_bio_bait_spam(text):
         detection_reason = "message_bait"
     else:
@@ -291,11 +372,45 @@ async def handle_bio_bait_spam(
     if detection_reason is None:
         return
 
-    user_mention = get_user_mention(user)
     logger.info(
-        f"Bio bait spam detected: user_id={user.id}, "
-        f"group_id={group_config.group_id}, reason={detection_reason}"
+        "Bio bait spam detected: user_id=%s, group_id=%s, reason=%s",
+        user.id,
+        group_config.group_id,
+        detection_reason,
     )
+
+    monitor_only = group_config.bio_bait_monitor_only
+    record_bio_bait_detection_metrics(context, detection_reason, monitor_only)
+
+    alert_chat_id = group_config.bio_bait_alert_chat_id
+    if alert_chat_id is not None:
+        if user_bio is None:
+            user_bio = await get_cached_user_bio(context, user.id)
+        sent = await send_monitor_alert_to_owner(
+            context=context,
+            alert_chat_id=alert_chat_id,
+            group_id=group_config.group_id,
+            user_id=user.id,
+            user_name=user.full_name,
+            username=user.username,
+            detection_reason=detection_reason,
+            message_text=text,
+            profile_bio=user_bio,
+        )
+        if sent:
+            _increment_bio_bait_metric(context, "owner_alert_sent")
+        else:
+            _increment_bio_bait_metric(context, "owner_alert_failed")
+
+    if monitor_only:
+        logger.info(
+            "Bio bait monitor-only mode: no delete/restrict (user_id=%s, group_id=%s)",
+            user.id,
+            group_config.group_id,
+        )
+        return
+
+    user_mention = get_user_mention(user)
 
     try:
         await update.message.delete()
