@@ -55,7 +55,7 @@ ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u2060-\u2064\ufeff]")
 # Covers: bio, b1o, b!o, b.i.o, b i o, b-i-o, bioh, bioo, bioohh, plus
 # Cyrillic look-alikes ь and і. (Input is already lowercased.)
 BIO_OBFUSCATED_RE = re.compile(
-    r"\b[bь][\s._\-]*[i1!і][\s._\-]*[o0о](?:[\s._\-]*h+)?\b"
+    r"\b[bь][ь\s._\-]*[i1!і][\s._\-]*[o0о](?:[\s._\-]*h+)?\b"
 )
 
 # Canonicalize "byo / byoh / byooh" variants.
@@ -118,9 +118,12 @@ TELEGRAM_USERNAME_RE = re.compile(r"(?<!\w)@([A-Za-z][A-Za-z0-9_]{4,31})\b")
 # escalate a bio to suspicious. Single mentions alone are not enough.
 BIO_PROMO_HINTS = frozenset({
     "vip", "join", "promo", "channel", "grup", "group", "asp", "bcl",
-    "open", "available", "ready",
 })
 
+# Word-boundary regex for promo hints to avoid substring false positives.
+_BIO_PROMO_HINTS_RE = re.compile(
+    r"\b(?:" + "|".join(sorted(BIO_PROMO_HINTS)) + r")\b"
+)
 
 def normalize_bio_bait_text(text: str) -> str:
     """
@@ -145,7 +148,6 @@ def normalize_bio_bait_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
-
 def is_bio_bait_spam(text: str) -> bool:
     """
     Check whether the given text matches any bio bait pattern.
@@ -162,7 +164,6 @@ def is_bio_bait_spam(text: str) -> bool:
     if len(normalized) > BIO_BAIT_MAX_LENGTH:
         return False
     return any(pattern.search(normalized) for pattern in BIO_BAIT_PATTERNS)
-
 
 def has_suspicious_bio_links(bio: str) -> bool:
     """
@@ -200,11 +201,10 @@ def has_suspicious_bio_links(bio: str) -> bool:
     }
     if len(mentions) >= 2:
         return True
-    if mentions and any(hint in lowered for hint in BIO_PROMO_HINTS):
+    if mentions and _BIO_PROMO_HINTS_RE.search(lowered):
         return True
 
     return False
-
 
 def _get_user_bio_cache(
     context: ContextTypes.DEFAULT_TYPE,
@@ -212,13 +212,11 @@ def _get_user_bio_cache(
     """Get or initialize the per-user bio cache stored in bot_data."""
     return context.bot_data.setdefault(USER_BIO_CACHE_KEY, {})
 
-
 def clear_cached_user_bio(
     context: ContextTypes.DEFAULT_TYPE, user_id: int
 ) -> None:
     """Remove a user's bio cache entry (call after restriction)."""
     _get_user_bio_cache(context).pop(user_id, None)
-
 
 async def get_cached_user_bio(
     context: ContextTypes.DEFAULT_TYPE, user_id: int
@@ -246,7 +244,6 @@ async def get_cached_user_bio(
 
     cache[user_id] = (now + USER_BIO_CACHE_TTL_SECONDS, bio)
     return bio
-
 
 async def handle_bio_bait_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
