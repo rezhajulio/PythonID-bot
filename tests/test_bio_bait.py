@@ -9,6 +9,7 @@ from telegram.ext import ApplicationHandlerStop
 from bot.group_config import GroupConfig
 from bot.handlers.bio_bait import (
     BIO_BAIT_MAX_LENGTH,
+    BIO_BAIT_METRICS_KEY,
     USER_BIO_CACHE_KEY,
     USER_BIO_CACHE_TTL_SECONDS,
     clear_cached_user_bio,
@@ -433,3 +434,46 @@ class TestHandleBioBaitSpam:
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_bio_bait_spam(mock_update, mock_context)
+
+    async def test_monitor_only_collects_metrics_and_sends_owner_alert(
+        self, mock_update, mock_context, group_config
+    ):
+        group_config.bio_bait_monitor_only = True
+        group_config.bio_bait_alert_chat_id = 57747812
+        mock_update.message.text = "cek bio aku"
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            await handle_bio_bait_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_called_once()
+
+        kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert kwargs["chat_id"] == 57747812
+        assert "message_thread_id" not in kwargs
+        assert "cek bio aku" in kwargs["text"]
+
+        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
+        assert metrics["detections_total"] == 1
+        assert metrics["detections_message_bait"] == 1
+        assert metrics["monitor_only_matches"] == 1
+        assert metrics["owner_alert_sent"] == 1
+
+    async def test_monitor_only_alert_failure_still_collects_metrics(
+        self, mock_update, mock_context, group_config
+    ):
+        group_config.bio_bait_monitor_only = True
+        group_config.bio_bait_alert_chat_id = 57747812
+        mock_context.bot.send_message = AsyncMock(side_effect=Exception("Send failed"))
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            await handle_bio_bait_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
+        assert metrics["detections_total"] == 1
+        assert metrics["monitor_only_matches"] == 1
+        assert metrics["owner_alert_failed"] == 1

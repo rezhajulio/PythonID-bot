@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     duplicate_spam_min_length: int = 20
     duplicate_spam_similarity: float = 0.95
     bio_bait_enabled: bool = True
+    bio_bait_monitor_only: bool = False
+    bio_bait_alert_chat_id: int | None = None
     groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
@@ -128,6 +130,9 @@ class Settings(BaseSettings):
         logger.debug(f"captcha_timeout_seconds: {self.captcha_timeout_seconds}")
         logger.debug(f"new_user_probation_hours: {self.new_user_probation_hours}")
         logger.debug(f"new_user_violation_threshold: {self.new_user_violation_threshold}")
+        logger.debug(f"bio_bait_enabled: {self.bio_bait_enabled}")
+        logger.debug(f"bio_bait_monitor_only: {self.bio_bait_monitor_only}")
+        logger.debug(f"bio_bait_alert_chat_id: {self.bio_bait_alert_chat_id}")
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
         logger.debug(f"logfire_enabled: {self.logfire_enabled}")
         logger.debug(f"logfire_environment: {self.logfire_environment}")

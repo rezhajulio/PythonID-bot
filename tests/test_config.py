@@ -153,6 +153,28 @@ class TestSettings:
         assert settings.duplicate_spam_threshold == 5
         assert settings.duplicate_spam_min_length == 50
 
+    def test_bio_bait_monitor_defaults(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.bio_bait_monitor_only is False
+        assert settings.bio_bait_alert_chat_id is None
+
+    def test_bio_bait_monitor_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("BIO_BAIT_MONITOR_ONLY", "true")
+        monkeypatch.setenv("BIO_BAIT_ALERT_CHAT_ID", "57747812")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.bio_bait_monitor_only is True
+        assert settings.bio_bait_alert_chat_id == 57747812
+
 
 class TestSettingsValidation:
     def test_group_id_must_be_negative(self, monkeypatch):
