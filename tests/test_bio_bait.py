@@ -19,7 +19,6 @@ from bot.handlers.bio_bait import (
     normalize_bio_bait_text,
 )
 
-
 class TestNormalizeBioBaitText:
     """Tests for the normalize_bio_bait_text function."""
 
@@ -50,6 +49,10 @@ class TestNormalizeBioBaitText:
         # Cyrillic Ь + і + о, gets lowercased then matched.
         assert "bio" in normalize_bio_bait_text("cek Ьіо aku")
 
+    def test_canonicalize_cyrillic_ь_filler(self):
+        # Latin b + Cyrillic ь + Cyrillic і + Cyrillic о
+        assert "bio" in normalize_bio_bait_text("bьіо aku")
+
     def test_strip_punctuation(self):
         assert normalize_bio_bait_text("cek bio, aku!") == "cek bio aku"
 
@@ -58,7 +61,6 @@ class TestNormalizeBioBaitText:
 
     def test_empty_string(self):
         assert normalize_bio_bait_text("") == ""
-
 
 class TestIsBioBaitSpam:
     """Tests for the is_bio_bait_spam function."""
@@ -73,6 +75,7 @@ class TestIsBioBaitSpam:
         "b i o aku",
         "bioooo aku",
         "Ьіо aku",
+        "bьіо aku",
         "open my bio",
         "check my profile",
         "cek\nbio aku",
@@ -111,7 +114,6 @@ class TestIsBioBaitSpam:
     def test_length_cap_constant(self):
         assert BIO_BAIT_MAX_LENGTH > 0
 
-
 class TestHasSuspiciousBioLinks:
     """Tests for has_suspicious_bio_links."""
 
@@ -147,6 +149,21 @@ class TestHasSuspiciousBioLinks:
     def test_plain_bio_no_links(self):
         assert has_suspicious_bio_links("Just a Python developer from Indonesia.") is False
 
+    def test_promo_hint_word_boundary(self):
+        """'vip' should not match inside other words like 'advancement'."""
+        assert has_suspicious_bio_links("advancement @some_user") is False
+
+    def test_generic_words_no_longer_trigger(self):
+        """'open', 'ready', 'available' removed from promo hints."""
+        assert has_suspicious_bio_links("Open source @my_github") is False
+        assert has_suspicious_bio_links("Ready @my_youtube") is False
+        assert has_suspicious_bio_links("Available @my_handle") is False
+
+    def test_strong_promo_hints_still_work(self):
+        """'vip', 'promo', 'join' etc. still trigger with mention."""
+        assert has_suspicious_bio_links("VIP @scam_channel") is True
+        assert has_suspicious_bio_links("promo @scam_channel") is True
+        assert has_suspicious_bio_links("join @scam_channel") is True
 
 class TestUserBioCache:
     """Tests for get_cached_user_bio / clear_cached_user_bio."""
@@ -211,7 +228,6 @@ class TestUserBioCache:
 
     def test_ttl_constant_positive(self):
         assert USER_BIO_CACHE_TTL_SECONDS > 0
-
 
 class TestHandleBioBaitSpam:
     """Tests for the handle_bio_bait_spam handler."""
