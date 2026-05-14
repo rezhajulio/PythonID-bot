@@ -72,6 +72,35 @@ class PhotoVerificationWhitelist(SQLModel, table=True):
     notes: str | None = Field(default=None)
 
 
+class TrustedUser(SQLModel, table=True):
+    """
+    Trusted users who bypass anti-spam and duplicate spam enforcement.
+
+    `group_id=0` is used as a global trust scope. Future per-group trust can
+    use a real Telegram group ID without changing the schema.
+
+    Attributes:
+        id: Primary key (auto-generated).
+        user_id: Telegram user ID.
+        group_id: Scope identifier (0 = global).
+        trusted_by_admin_id: Telegram user ID of admin granting trust.
+        trusted_at: Timestamp when trust was granted.
+        notes: Optional admin notes.
+    """
+
+    __tablename__ = "trusted_users"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'group_id', name='uix_trusted_user_group'),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    group_id: int = Field(default=0, index=True)
+    trusted_by_admin_id: int
+    trusted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    notes: str | None = Field(default=None)
+
+
 class PendingCaptchaValidation(SQLModel, table=True):
     """
     Tracks users who need to complete captcha verification.

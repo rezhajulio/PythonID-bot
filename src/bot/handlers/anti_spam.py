@@ -28,7 +28,7 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
-from bot.services.telegram_utils import get_user_mention
+from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
 
 logger = logging.getLogger(__name__)
 
@@ -305,8 +305,7 @@ async def handle_contact_spam(
     if user.is_bot:
         return
 
-    admin_ids = context.bot_data.get("group_admin_ids", {}).get(group_config.group_id, [])
-    if user.id in admin_ids:
+    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
     msg = update.message
@@ -394,8 +393,7 @@ async def handle_inline_keyboard_spam(
     if user.is_bot:
         return
 
-    admin_ids = context.bot_data.get("group_admin_ids", {}).get(group_config.group_id, [])
-    if user.id in admin_ids:
+    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
     msg = update.message
@@ -486,6 +484,9 @@ async def handle_new_user_spam(
 
     # Ignore bots
     if user.is_bot:
+        return
+
+    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
     db = get_database()

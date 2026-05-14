@@ -17,6 +17,7 @@ from bot.database.models import (
     NewUserProbation,
     PendingCaptchaValidation,
     PhotoVerificationWhitelist,
+    TrustedUser,
     UserWarning,
 )
 
@@ -346,6 +347,114 @@ class DatabaseService:
             session.delete(record)
             session.commit()
             logger.info(f"Removed from photo whitelist: user_id={user_id}")
+
+    def add_trusted_user(
+        self,
+        user_id: int,
+        trusted_by_admin_id: int,
+        group_id: int = 0,
+        notes: str | None = None,
+    ) -> TrustedUser:
+        """
+        Add a user to trusted list.
+
+        Args:
+            user_id: Telegram user ID.
+            trusted_by_admin_id: Telegram user ID of admin granting trust.
+            group_id: Trust scope ID (0 means global).
+            notes: Optional admin notes.
+
+        Returns:
+            TrustedUser: Created trusted record.
+
+        Raises:
+            ValueError: If user is already trusted in the scope.
+        """
+        with Session(self._engine) as session:
+            statement = select(TrustedUser).where(
+                TrustedUser.user_id == user_id,
+                TrustedUser.group_id == group_id,
+            )
+            existing = session.exec(statement).first()
+
+            if existing:
+                raise ValueError(f"User {user_id} is already trusted for scope {group_id}")
+
+            record = TrustedUser(
+                user_id=user_id,
+                group_id=group_id,
+                trusted_by_admin_id=trusted_by_admin_id,
+                notes=notes,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            logger.info(
+                f"Added trusted user: user_id={user_id}, admin_id={trusted_by_admin_id}, scope={group_id}"
+            )
+            return record
+
+    def remove_trusted_user(self, user_id: int, group_id: int = 0) -> None:
+        """
+        Remove a user from trusted list.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Trust scope ID (0 means global).
+
+        Raises:
+            ValueError: If user is not trusted in the scope.
+        """
+        with Session(self._engine) as session:
+            statement = select(TrustedUser).where(
+                TrustedUser.user_id == user_id,
+                TrustedUser.group_id == group_id,
+            )
+            record = session.exec(statement).first()
+
+            if not record:
+                raise ValueError(f"User {user_id} is not trusted for scope {group_id}")
+
+            session.delete(record)
+            session.commit()
+            logger.info(f"Removed trusted user: user_id={user_id}, scope={group_id}")
+
+    def is_user_trusted(self, user_id: int, group_id: int | None = None) -> bool:
+        """
+        Check whether a user is trusted.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Optional group scope. For v1, only global trust is checked.
+
+        Returns:
+            bool: True if user is trusted.
+        """
+        del group_id  # Reserved for future per-group trust behavior.
+
+        with Session(self._engine) as session:
+            statement = select(TrustedUser).where(
+                TrustedUser.user_id == user_id,
+                TrustedUser.group_id == 0,
+            )
+            record = session.exec(statement).first()
+            return record is not None
+
+    def get_trusted_user_ids(self, group_id: int | None = None) -> set[int]:
+        """
+        Get trusted user IDs.
+
+        Args:
+            group_id: Optional group scope. For v1, only global records are returned.
+
+        Returns:
+            set[int]: Trusted user IDs.
+        """
+        del group_id  # Reserved for future per-group trust behavior.
+
+        with Session(self._engine) as session:
+            statement = select(TrustedUser.user_id).where(TrustedUser.group_id == 0)
+            return set(session.exec(statement).all())
 
     def get_warnings_past_time_threshold(
         self, threshold: timedelta

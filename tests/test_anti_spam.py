@@ -465,6 +465,22 @@ class TestHandleNewUserSpam:
         mock_update.message.delete.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_ignores_trusted_users(
+        self, mock_update, mock_context, group_config
+    ):
+        """Test that trusted users bypass probation spam enforcement."""
+        mock_update.message.forward_origin = MagicMock()  # would otherwise violate
+        mock_context.bot_data = {
+            "group_admin_ids": {},
+            "trusted_user_ids": [mock_update.message.from_user.id],
+        }
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_new_user_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_ignores_user_not_on_probation(
         self, mock_update, mock_context, group_config
     ):
@@ -1397,6 +1413,20 @@ class TestHandleInlineKeyboardSpam:
         mock_update.message.delete.assert_not_called()
         mock_context.bot.restrict_chat_member.assert_not_called()
 
+    async def test_trusted_user_returns_early(self, mock_update, mock_context, group_config):
+        """Test that trusted user with inline keyboard spam is NOT restricted."""
+        self._add_spam_inline_keyboard(mock_update)
+        mock_context.bot_data = {
+            "group_admin_ids": {},
+            "trusted_user_ids": [mock_update.message.from_user.id],
+        }
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_inline_keyboard_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
     async def test_raises_application_handler_stop(self, mock_update, mock_context, group_config):
         """Test that handler raises ApplicationHandlerStop after processing spam."""
         from telegram.ext import ApplicationHandlerStop
@@ -1546,6 +1576,18 @@ class TestHandleContactSpam:
         """Test that admin user with contact is NOT blocked."""
         mock_context.bot_data = {
             "group_admin_ids": {group_config.group_id: [mock_update.message.from_user.id]}
+        }
+
+        with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):
+            await handle_contact_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+
+    async def test_trusted_user_returns_early(self, mock_update, mock_context, group_config):
+        """Test that trusted user with contact is NOT blocked."""
+        mock_context.bot_data = {
+            "group_admin_ids": {},
+            "trusted_user_ids": [mock_update.message.from_user.id],
         }
 
         with patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config):

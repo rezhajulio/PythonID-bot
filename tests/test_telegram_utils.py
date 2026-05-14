@@ -9,6 +9,7 @@ from bot.services.telegram_utils import (
     get_user_mention,
     get_user_mention_by_id,
     get_user_status,
+    is_user_admin_or_trusted,
     unrestrict_user,
 )
 
@@ -424,6 +425,52 @@ class TestGetUserStatus:
         mock_bot.get_chat_member.assert_called_once_with(
             chat_id=large_group_id, user_id=large_user_id
         )
+
+
+class TestIsUserAdminOrTrusted:
+    def test_returns_true_for_group_admin(self):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: [123]}, "trusted_user_ids": []}
+
+        assert is_user_admin_or_trusted(context, -100, 123) is True
+
+    def test_returns_true_for_trusted_cache(self):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": [123]}
+
+        assert is_user_admin_or_trusted(context, -100, 123) is True
+
+    @patch("bot.services.telegram_utils.get_database")
+    def test_returns_true_for_db_fallback_and_updates_cache(self, mock_get_database):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
+
+        db = MagicMock()
+        db.is_user_trusted.return_value = True
+        mock_get_database.return_value = db
+
+        assert is_user_admin_or_trusted(context, -100, 321) is True
+        assert 321 in context.bot_data["trusted_user_ids"]
+
+    @patch("bot.services.telegram_utils.get_database")
+    def test_returns_false_when_database_not_initialized(self, mock_get_database):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
+
+        mock_get_database.side_effect = RuntimeError("Database not initialized")
+
+        assert is_user_admin_or_trusted(context, -100, 321) is False
+
+    @patch("bot.services.telegram_utils.get_database")
+    def test_returns_false_on_db_lookup_error(self, mock_get_database):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
+
+        db = MagicMock()
+        db.is_user_trusted.side_effect = Exception("DB error")
+        mock_get_database.return_value = db
+
+        assert is_user_admin_or_trusted(context, -100, 321) is False
 
 
 class TestFetchGroupAdminIds:
