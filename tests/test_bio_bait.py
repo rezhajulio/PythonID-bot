@@ -477,3 +477,144 @@ class TestHandleBioBaitSpam:
         assert metrics["detections_total"] == 1
         assert metrics["monitor_only_matches"] == 1
         assert metrics["owner_alert_failed"] == 1
+
+class TestBioBaitReviewFixes:
+    """Tests for pending bio-bait review fixes (trusted bypass, monitor semantics,
+    warning-topic guard, metrics)."""
+
+    @pytest.fixture
+    def group_config(self):
+        return GroupConfig(
+            group_id=-1001234567890,
+            warning_topic_id=999,
+            bio_bait_enabled=True,
+        )
+
+    @pytest.fixture
+    def mock_update(self):
+        update = MagicMock()
+        update.message = MagicMock(spec=Message)
+        update.message.from_user = MagicMock(spec=User)
+        update.message.from_user.id = 42
+        update.message.from_user.is_bot = False
+        update.message.from_user.full_name = "Test User"
+        update.message.from_user.username = "testuser"
+        update.message.text = "cek bio aku"
+        update.message.caption = None
+        update.message.message_id = 100
+        update.message.delete = AsyncMock()
+        update.effective_chat = MagicMock(spec=Chat)
+        update.effective_chat.id = -1001234567890
+        return update
+
+    @pytest.fixture
+    def mock_context(self):
+        context = MagicMock()
+        context.bot_data = {}
+        context.bot_data["group_admin_ids"] = {-1001234567890: [1, 2]}
+        context.bot = MagicMock()
+        context.bot.restrict_chat_member = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        chat = MagicMock()
+        chat.bio = ""
+        context.bot.get_chat = AsyncMock(return_value=chat)
+        return context
+
+    # ── (a) trusted user bypass ──
+
+    async def test_trusted_user_bypasses_bio_bait(
+        self, mock_update, mock_context, group_config
+    ):
+        """Trusted user (not admin) should bypass bio bait detection."""
+        mock_context.bot_data["trusted_user_ids"] = {42}
+        mock_context.bot_data["group_admin_ids"] = {-1001234567890: [1, 2]}
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            await handle_bio_bait_spam(mock_update, mock_context)
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    # ── (b) enforcement mode + alert_chat_id does NOT send owner alert ──
+
+    async def test_enforcement_mode_alert_chat_id_does_not_send_owner_alert(
+        self, mock_update, mock_context, group_config
+    ):
+        """In enforcement mode, owner alert should NOT be sent even if alert_chat_id is set."""
+        group_config.bio_bait_monitor_only = False
+        group_config.bio_bait_alert_chat_id = 57747812
+        mock_update.message.text = "cek bio aku"
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_bio_bait_spam(mock_update, mock_context)
+
+        # Only the warning-topic notification should be sent, not the owner alert
+        assert mock_context.bot.send_message.call_count == 1
+        kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert kwargs.get("message_thread_id") == 999  # warning topic
+
+        metrics = mock_context.bot_data.get(BIO_BAIT_METRICS_KEY, {})
+        assert "owner_alert_sent" not in metrics
+        assert "owner_alert_failed" not in metrics
+
+    # ── (c) monitor-only + alert target = same group => alert skipped ──
+
+    async def test_monitor_only_alert_target_same_group_skipped(
+        self, mock_update, mock_context, group_config
+    ):
+        """When monitor-only and alert_chat_id equals the monitored group,
+        owner alert should be skipped and skip metric incremented."""
+        group_config.bio_bait_monitor_only = True
+        group_config.bio_bait_alert_chat_id = -1001234567890  # same as group_id
+        mock_update.message.text = "cek bio aku"
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            await handle_bio_bait_spam(mock_update, mock_context)
+
+        # No send_message calls at all
+        mock_context.bot.send_message.assert_not_called()
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
+        assert metrics["owner_alert_skipped_warning_topic"] == 1
+        assert "owner_alert_sent" not in metrics
+        assert "owner_alert_failed" not in metrics
+
+    # ── (d) enforcement metrics ──
+
+    async def test_enforcement_message_bait_records_enforced_matches(
+        self, mock_update, mock_context, group_config
+    ):
+        """Enforcement mode with message bait should record enforced_matches metric."""
+        group_config.bio_bait_monitor_only = False
+        mock_update.message.text = "cek bio aku"
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_bio_bait_spam(mock_update, mock_context)
+
+        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
+        assert metrics["detections_total"] == 1
+        assert metrics["detections_message_bait"] == 1
+        assert metrics["enforced_matches"] == 1
+
+    async def test_enforcement_bio_links_records_enforced_matches_and_bio_links(
+        self, mock_update, mock_context, group_config
+    ):
+        """Enforcement mode with bio_links detection should record enforced_matches
+        and detections_bio_links."""
+        group_config.bio_bait_monitor_only = False
+        mock_update.message.text = "halo"
+        chat = MagicMock()
+        chat.bio = "VIP t.me/+exampleinvitehash777xyz"
+        mock_context.bot.get_chat = AsyncMock(return_value=chat)
+
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_bio_bait_spam(mock_update, mock_context)
+
+        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
+        assert metrics["detections_total"] == 1
+        assert metrics["detections_bio_links"] == 1
+        assert metrics["enforced_matches"] == 1
