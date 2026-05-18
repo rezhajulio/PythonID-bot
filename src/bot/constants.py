@@ -201,6 +201,20 @@ TRUST_LIST_EMPTY_MESSAGE = "ℹ️ Trusted list masih kosong."
 
 TRUST_LIST_HEADER = "📋 Trusted Users:\n{trusted_lines}"
 
+TRUST_DM_ONLY_MESSAGE = (
+    "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
+)
+
+TRUST_NO_PERMISSION_MESSAGE = (
+    "❌ Kamu tidak memiliki izin untuk menggunakan perintah ini."
+)
+
+TRUST_CALLBACK_INVALID_MESSAGE = "❌ Data callback tidak valid."
+
+CHECK_TRUST_BUTTON_LABEL = "🤝 Trust User"
+
+CHECK_UNTRUST_BUTTON_LABEL = "🤝 Untrust User"
+
 # Anti-spam probation warning for new users
 NEW_USER_SPAM_WARNING = (
     "⚠️ {user_mention} baru bergabung dan sedang dalam masa percobaan.\n"

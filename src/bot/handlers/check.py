@@ -19,6 +19,8 @@ from bot.constants import (
     ADMIN_CHECK_PROMPT,
     ADMIN_WARN_SENT_MESSAGE,
     ADMIN_WARN_USER_MESSAGE,
+    CHECK_TRUST_BUTTON_LABEL,
+    CHECK_UNTRUST_BUTTON_LABEL,
     MISSING_ITEMS_SEPARATOR,
 )
 from bot.database.service import get_database
@@ -71,7 +73,11 @@ async def _build_check_response(
             )
         if is_trusted:
             buttons.append(
-                InlineKeyboardButton("🤝 Untrust User", callback_data=f"untrust:{user_id}")
+                InlineKeyboardButton(CHECK_UNTRUST_BUTTON_LABEL, callback_data=f"untrust:{user_id}")
+            )
+        else:
+            buttons.append(
+                InlineKeyboardButton(CHECK_TRUST_BUTTON_LABEL, callback_data=f"trust:{user_id}")
             )
         keyboard = InlineKeyboardMarkup([buttons]) if buttons else None
     else:
@@ -84,9 +90,9 @@ async def _build_check_response(
             missing_code += "u"
 
         trust_button = (
-            InlineKeyboardButton("🤝 Untrust User", callback_data=f"untrust:{user_id}")
+            InlineKeyboardButton(CHECK_UNTRUST_BUTTON_LABEL, callback_data=f"untrust:{user_id}")
             if is_trusted
-            else InlineKeyboardButton("🤝 Trust User", callback_data=f"trust:{user_id}")
+            else InlineKeyboardButton(CHECK_TRUST_BUTTON_LABEL, callback_data=f"trust:{user_id}")
         )
 
         keyboard = InlineKeyboardMarkup([
