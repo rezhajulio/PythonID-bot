@@ -25,7 +25,7 @@ import unicodedata
 from time import monotonic
 
 from telegram import Update
-from telegram.ext import ApplicationHandlerStop, ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes, filters as _filters
 
 from bot.constants import (
     BIO_BAIT_MONITOR_ALERT,
@@ -39,6 +39,12 @@ from bot.constants import (
 from bot.group_config import get_group_config_for_update
 from bot.handlers.anti_spam import is_url_whitelisted
 from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
+
+# Filter for bio-bait handler registration in main.py.
+# Must NOT restrict to TEXT|CAPTION so non-text messages (e.g. photos
+# without caption) reach the handler for bio-link detection.
+BIO_BAIT_FILTER = _filters.ChatType.GROUPS & ~_filters.COMMAND
+
 
 logger = logging.getLogger(__name__)
 
