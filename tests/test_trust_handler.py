@@ -321,6 +321,14 @@ class TestTrustCommands:
         db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
         db.add_trusted_user(user_id=8002, trusted_by_admin_id=54321)
 
+        chats = {
+            8001: MagicMock(full_name="Alice Trusted", username="alice_t"),
+            8002: MagicMock(full_name="Bob Trusted", username=None),
+            12345: MagicMock(full_name="Admin One", username="admin_one"),
+            54321: MagicMock(full_name="Admin Two", username=None),
+        }
+        mock_context.bot.get_chat = AsyncMock(side_effect=lambda uid: chats[uid])
+
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
@@ -329,6 +337,26 @@ class TestTrustCommands:
         assert "12345" in message
         assert "54321" in message
         assert "UTC" in message
+        assert "Alice Trusted" in message
+        assert "@alice\\_t" in message
+        assert "Bob Trusted" in message
+        assert "Admin One" in message
+        assert "@admin\\_one" in message
+        assert "Admin Two" in message
+
+    async def test_trusted_list_command_get_chat_failure_fallback(
+        self, mock_update, mock_context
+    ):
+        db = get_database()
+        db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
+
+        mock_context.bot.get_chat = AsyncMock(side_effect=Exception("not found"))
+
+        await handle_trusted_list_command(mock_update, mock_context)
+
+        message = mock_update.message.reply_text.call_args.args[0]
+        assert "User 8001" in message
+        assert "User 12345" in message
 
 
 class TestTrustCallbacks:
