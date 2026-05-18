@@ -11,8 +11,9 @@ Note on the trust unrestrict policy:
 import logging
 from datetime import UTC
 
-from telegram import Update
+from telegram import Bot, Update
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from bot.constants import (
     TRUST_ADDED_MESSAGE,
@@ -48,6 +49,27 @@ def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> N
         trusted_ids = set()
         context.bot_data["trusted_user_ids"] = trusted_ids
     trusted_ids.discard(user_id)
+
+
+async def _format_user_display(bot: Bot, user_id: int) -> str:
+    """Return a markdown-safe ``Name (@username)`` display for a user.
+
+    Falls back to ``User <id>`` if the bot cannot fetch the user profile
+    (e.g., user has not interacted with the bot or has blocked it).
+    """
+    try:
+        chat = await bot.get_chat(user_id)
+        full_name = chat.full_name or f"User {user_id}"
+        name = escape_markdown(full_name, version=1)
+        if chat.username:
+            username = escape_markdown(chat.username, version=1)
+            return f"{name} (@{username})"
+        return name
+    except Exception:
+        logger.warning(
+            f"Failed to fetch user info for {user_id}", exc_info=True
+        )
+        return f"User {user_id}"
 
 
 def _resolve_target_user_id(
@@ -249,9 +271,15 @@ async def handle_trusted_list_command(
         if trusted_at.tzinfo is None:
             trusted_at = trusted_at.replace(tzinfo=UTC)
         trusted_at_display = trusted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        user_display = await _format_user_display(context.bot, record.user_id)
+        admin_display = await _format_user_display(
+            context.bot, record.trusted_by_admin_id
+        )
         trusted_lines.append(
-            "• `{user_id}` — oleh admin `{admin_id}` pada `{trusted_at}`".format(
+            "• {user_display} (`{user_id}`) — oleh {admin_display} (`{admin_id}`) pada `{trusted_at}`".format(
+                user_display=user_display,
                 user_id=record.user_id,
+                admin_display=admin_display,
                 admin_id=record.trusted_by_admin_id,
                 trusted_at=trusted_at_display,
             )
