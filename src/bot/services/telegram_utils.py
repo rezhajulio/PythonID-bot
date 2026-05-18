@@ -6,12 +6,14 @@ Telegram's API across different handlers and services.
 """
 
 import logging
+from urllib.parse import urlparse
 
 from telegram import Bot, Chat, Message, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
 from telegram.helpers import escape_markdown, mention_markdown
 
+from bot.constants import WHITELISTED_TELEGRAM_PATHS, WHITELISTED_URL_DOMAINS
 from bot.database.service import get_database
 
 logger = logging.getLogger(__name__)
@@ -154,6 +156,53 @@ def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
     user_id = forwarded_user.id
     user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
     return user_id, user_name
+
+
+def is_url_whitelisted(url: str) -> bool:
+    """
+    Check if a URL's domain matches any whitelisted domain.
+
+    Uses suffix-based set lookups for O(hostname labels) performance.
+    Checks if the URL's hostname exactly matches or is a subdomain of
+    a whitelisted domain.
+
+    Args:
+        url: URL to check.
+
+    Returns:
+        bool: True if URL's domain is whitelisted.
+    """
+    try:
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
+        parsed = urlparse(url)
+        hostname = parsed.netloc.lower()
+
+        if ':' in hostname:
+            hostname = hostname.rsplit(':', 1)[0]
+
+        if hostname in {"t.me", "telegram.me"}:
+            path = parsed.path
+            if not path or path == "/":
+                return False
+            parts = path.strip("/").split("/")
+            if not parts:
+                return False
+            first_segment = parts[0].lower()
+            return first_segment in WHITELISTED_TELEGRAM_PATHS
+
+        while hostname:
+            if hostname in WHITELISTED_URL_DOMAINS:
+                return True
+            dot_idx = hostname.find('.')
+            if dot_idx == -1:
+                return False
+            hostname = hostname[dot_idx + 1:]
+
+        return False
+    except Exception:
+        return False
 
 
 def _get_trusted_ids(bot_data: dict) -> set[int]:

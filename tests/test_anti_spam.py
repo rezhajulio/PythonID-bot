@@ -22,8 +22,8 @@ from bot.handlers.anti_spam import (
     has_non_whitelisted_link,
     has_story,
     is_forwarded,
-    is_url_whitelisted,
 )
+from bot.services.telegram_utils import is_url_whitelisted
 
 
 class TestIsForwarded:
@@ -295,7 +295,7 @@ class TestUrlWhitelist:
 
     def test_urlparse_exception_returns_false(self):
         """Test that exceptions during URL parsing return False."""
-        with patch("bot.handlers.anti_spam.urlparse", side_effect=ValueError("parse error")):
+        with patch("bot.services.telegram_utils.urlparse", side_effect=ValueError("parse error")):
             assert is_url_whitelisted("https://github.com/user/repo") is False
 
 

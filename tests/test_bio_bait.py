@@ -11,6 +11,7 @@ from bot.handlers.bio_bait import (
     BIO_BAIT_MAX_LENGTH,
     BIO_BAIT_METRICS_KEY,
     USER_BIO_CACHE_KEY,
+    USER_BIO_CACHE_MAX_SIZE,
     USER_BIO_CACHE_TTL_SECONDS,
     clear_cached_user_bio,
     get_cached_user_bio,
@@ -104,6 +105,11 @@ class TestIsBioBaitSpam:
         "bio aku ada di README",
         "bio aku untuk eksperimen regex",
         "",
+        # Pattern 1 ownership: must end with bio + optional cue
+        "open source bio library",
+        "view bio data structure",
+        "cek bio di website",
+        "lihat bio orang lain",
     ])
     def test_does_not_detect_safe(self, text):
         assert is_bio_bait_spam(text) is False
@@ -140,6 +146,10 @@ class TestHasSuspiciousBioLinks:
 
     def test_two_non_whitelisted_mentions(self):
         assert has_suspicious_bio_links("@channel_one @channel_two") is True
+
+    def test_duplicate_mention_counts(self):
+        """Same @mention repeated counts as 2, not 1."""
+        assert has_suspicious_bio_links("@scamch @scamch") is True
 
     def test_single_mention_with_promo_hint(self):
         assert has_suspicious_bio_links("VIP @channel_one") is True
@@ -226,6 +236,29 @@ class TestUserBioCache:
     def test_clear_cache_missing(self, context):
         # Should not raise even if the entry doesn't exist.
         clear_cached_user_bio(context, 999)
+
+    async def test_cache_eviction(self, context):
+        """Cache eviction removes oldest entries when at max size."""
+        from time import monotonic
+
+        cache = context.bot_data.setdefault(USER_BIO_CACHE_KEY, {})
+        now = monotonic()
+        # Fill cache to max
+        for i in range(USER_BIO_CACHE_MAX_SIZE):
+            cache[i] = (now + 3600, f"bio_{i}")
+
+        # Next fetch should trigger eviction
+        chat = MagicMock()
+        chat.bio = "new bio"
+        context.bot.get_chat = AsyncMock(return_value=chat)
+
+        bio = await get_cached_user_bio(context, 99999)
+        assert bio == "new bio"
+        # Cache should be roughly half size after eviction
+        assert len(cache) <= USER_BIO_CACHE_MAX_SIZE // 2 + 2
+
+    def test_max_size_constant(self):
+        assert USER_BIO_CACHE_MAX_SIZE > 0
 
     def test_ttl_constant_positive(self):
         assert USER_BIO_CACHE_TTL_SECONDS > 0
