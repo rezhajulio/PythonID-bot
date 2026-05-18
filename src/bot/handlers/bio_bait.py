@@ -37,8 +37,7 @@ from bot.constants import (
     WHITELISTED_TELEGRAM_PATHS,
 )
 from bot.group_config import get_group_config_for_update
-from bot.handlers.anti_spam import is_url_whitelisted
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
+from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted, is_url_whitelisted
 
 # Filter for bio-bait handler registration in main.py.
 # Must NOT restrict to TEXT|CAPTION so non-text messages (e.g. photos
@@ -54,6 +53,7 @@ BIO_BAIT_MAX_LENGTH = 80
 # Per-user bio cache (TTL in seconds). Stored in context.bot_data.
 USER_BIO_CACHE_KEY = "user_bio_cache"
 USER_BIO_CACHE_TTL_SECONDS = 3600
+USER_BIO_CACHE_MAX_SIZE = 2000
 
 # Bio bait metrics stored in bot_data.
 BIO_BAIT_METRICS_KEY = "bio_bait_metrics"
@@ -86,14 +86,16 @@ _BIO_SUFFIX_RE = r"(?:\s+\b(?:dong|ya|kak|bro|sis)\b)?"
 
 # Bait phrase patterns matched against the normalized text.
 # Each requires either:
-#   (a) imperative cue + bio (with optional address particle), OR
+#   (a) imperative cue + bio + ownership cue OR end-of-string, OR
 #   (b) bio + first-person possessive at end of message, OR
 #   (c) imperative cue + profil/profile + possessive, OR
 #   (d) imperative cue + my + profile/bio.
 BIO_BAIT_PATTERNS = (
     re.compile(
         r"\b(?:cek|check|liat|lihat|buka|open|view|see|kunjungi|kunjungin)\b"
-        rf"(?:\s+\w+){{0,2}}\s+\bbio\b{_BIO_SUFFIX_RE}"
+        rf"(?:\s+\w+){{0,2}}\s+\bbio\b"
+        rf"(?:\s+{_BIO_OWNER_RE})?"  # optional ownership
+        rf"{_BIO_SUFFIX_RE}$"  # must be at end of message
     ),
     re.compile(
         rf"\bbio\b\s+{_BIO_OWNER_RE}"
@@ -207,14 +209,13 @@ def has_suspicious_bio_links(bio: str) -> bool:
         if not is_url_whitelisted(match.group(1)):
             return True
 
-    mentions = {
-        m.group(1).lower()
-        for m in TELEGRAM_USERNAME_RE.finditer(normalized)
+    mention_count = sum(
+        1 for m in TELEGRAM_USERNAME_RE.finditer(normalized)
         if m.group(1).lower() not in WHITELISTED_TELEGRAM_PATHS
-    }
-    if len(mentions) >= 2:
+    )
+    if mention_count >= 2:
         return True
-    if mentions and _BIO_PROMO_HINTS_RE.search(lowered):
+    if mention_count == 1 and _BIO_PROMO_HINTS_RE.search(lowered):
         return True
 
     return False
@@ -295,12 +296,7 @@ async def send_monitor_alert_to_owner(
             await context.bot.send_message(chat_id=alert_chat_id, text=chunk)
         return True
     except Exception:
-        logger.error(
-            "Failed to send bio bait monitor alert: user_id=%s, group_id=%s",
-            user_id,
-            group_id,
-            exc_info=True,
-        )
+        logger.error(f"Failed to send bio bait monitor alert: user_id={user_id}, group_id={group_id}")
         return False
 
 
@@ -321,11 +317,16 @@ async def get_cached_user_bio(
     if cached and cached[0] > now:
         return cached[1]
 
+    if len(cache) >= USER_BIO_CACHE_MAX_SIZE:
+        sorted_keys = sorted(cache, key=lambda k: cache[k][0])
+        for k in sorted_keys[: USER_BIO_CACHE_MAX_SIZE // 2]:
+            del cache[k]
+
     try:
         chat = await context.bot.get_chat(user_id)
         bio = (getattr(chat, "bio", None) or "").strip() or None
     except Exception:
-        logger.debug("Failed to fetch user bio: user_id=%s", user_id, exc_info=True)
+        logger.debug(f"Failed to fetch user bio: user_id={user_id}", exc_info=True)
         return None
 
     cache[user_id] = (now + USER_BIO_CACHE_TTL_SECONDS, bio)
@@ -378,10 +379,7 @@ async def handle_bio_bait_spam(
         return
 
     logger.info(
-        "Bio bait spam detected: user_id=%s, group_id=%s, reason=%s",
-        user.id,
-        group_config.group_id,
-        detection_reason,
+        f"Bio bait spam detected: user_id={user.id}, group_id={group_config.group_id}, reason={detection_reason}"
     )
 
     monitor_only = group_config.bio_bait_monitor_only
@@ -393,8 +391,7 @@ async def handle_bio_bait_spam(
             # Warning-topic guard: skip owner alert if target equals monitored group
             if alert_chat_id == group_config.group_id:
                 logger.warning(
-                    "Skipping bio bait monitor alert: alert_chat_id matches monitored group (warning topic). group_id=%s",
-                    group_config.group_id,
+                    f"Skipping bio bait monitor alert: alert_chat_id matches monitored group (warning topic). group_id={group_config.group_id}"
                 )
                 _increment_bio_bait_metric(context, "owner_alert_skipped_warning_topic")
             else:
@@ -417,9 +414,7 @@ async def handle_bio_bait_spam(
                     _increment_bio_bait_metric(context, "owner_alert_failed")
 
         logger.info(
-            "Bio bait monitor-only mode: no delete/restrict (user_id=%s, group_id=%s)",
-            user.id,
-            group_config.group_id,
+            f"Bio bait monitor-only mode: no delete/restrict (user_id={user.id}, group_id={group_config.group_id})"
         )
         return
 
@@ -429,10 +424,7 @@ async def handle_bio_bait_spam(
         await update.message.delete()
         logger.info(f"Deleted bio bait spam from user_id={user.id}")
     except Exception:
-        logger.error(
-            f"Failed to delete bio bait spam: user_id={user.id}",
-            exc_info=True,
-        )
+        logger.error(f"Failed to delete bio bait spam: user_id={user.id}", exc_info=True)
 
     restricted = False
     try:
@@ -445,10 +437,7 @@ async def handle_bio_bait_spam(
         clear_cached_user_bio(context, user.id)
         logger.info(f"Restricted user_id={user.id} for bio bait spam")
     except Exception:
-        logger.error(
-            f"Failed to restrict user for bio bait spam: user_id={user.id}",
-            exc_info=True,
-        )
+        logger.error(f"Failed to restrict user for bio bait spam: user_id={user.id}", exc_info=True)
 
     try:
         if detection_reason == "bio_links":
@@ -473,9 +462,6 @@ async def handle_bio_bait_spam(
         )
         logger.info(f"Sent bio bait spam notification for user_id={user.id}")
     except Exception:
-        logger.error(
-            f"Failed to send bio bait spam notification: user_id={user.id}",
-            exc_info=True,
-        )
+        logger.error(f"Failed to send bio bait spam notification: user_id={user.id}", exc_info=True)
 
     raise ApplicationHandlerStop

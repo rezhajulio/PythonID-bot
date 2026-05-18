@@ -9,7 +9,6 @@ This module enforces anti-spam rules including:
 
 import logging
 from datetime import UTC, datetime
-from urllib.parse import urlparse
 
 from telegram import Message, MessageEntity, Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
@@ -22,13 +21,11 @@ from bot.constants import (
     NEW_USER_SPAM_RESTRICTION,
     NEW_USER_SPAM_WARNING,
     RESTRICTED_PERMISSIONS,
-    WHITELISTED_URL_DOMAINS,
-    WHITELISTED_TELEGRAM_PATHS,
     format_hours_display,
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
+from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted, is_url_whitelisted
 
 logger = logging.getLogger(__name__)
 
@@ -142,64 +139,6 @@ def extract_urls(message: Message) -> list[str]:
             urls.append(entity.url)
 
     return urls
-
-
-def is_url_whitelisted(url: str) -> bool:
-    """
-    Check if a URL's domain matches any whitelisted domain.
-
-    Uses suffix-based set lookups for O(hostname labels) performance.
-    Checks if the URL's hostname exactly matches or is a subdomain of
-    a whitelisted domain.
-
-    Args:
-        url: URL to check.
-
-    Returns:
-        bool: True if URL's domain is whitelisted.
-    """
-    try:
-        # Add scheme if missing for proper parsing
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        parsed = urlparse(url)
-        hostname = parsed.netloc.lower()
-
-        # Remove port if present
-        if ':' in hostname:
-            hostname = hostname.rsplit(':', 1)[0]
-
-        # Specific logic for Telegram links
-        # Check against WHITELISTED_TELEGRAM_PATHS instead of WHITELISTED_URL_DOMAINS
-        if hostname in {"t.me", "telegram.me"}:
-            path = parsed.path
-            if not path or path == "/":
-                return False
-
-            # Extract the first segment of the path (the username/channel name)
-            # e.g., "/PythonID/123" -> "pythonid"
-            parts = path.strip("/").split("/")
-            if not parts:
-                return False
-
-            first_segment = parts[0].lower()
-            return first_segment in WHITELISTED_TELEGRAM_PATHS
-
-        # Check suffixes of the hostname against the set
-        # e.g., "sub.example.github.com" checks:
-        # "sub.example.github.com", "example.github.com", "github.com", "com"
-        while hostname:
-            if hostname in WHITELISTED_URL_DOMAINS:
-                return True
-            dot_idx = hostname.find('.')
-            if dot_idx == -1:
-                return False
-            hostname = hostname[dot_idx + 1:]
-
-        return False
-    except Exception:
-        return False
 
 
 def has_non_whitelisted_link(message: Message) -> bool:
