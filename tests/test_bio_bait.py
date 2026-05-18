@@ -618,3 +618,80 @@ class TestBioBaitReviewFixes:
         assert metrics["detections_total"] == 1
         assert metrics["detections_bio_links"] == 1
         assert metrics["enforced_matches"] == 1
+
+
+class TestBioBaitRegistrationFilter:
+    """Tests for bio-bait handler filter registration.
+
+    The handler filter MUST accept non-text messages (e.g., photo without
+    caption) so bio-link detection works for users who post media with
+    no text. If the filter includes TEXT|CAPTION, non-text messages never
+    reach the handler — this test catches that regression.
+    """
+
+    def test_filter_accepts_non_text_group_message(self):
+        """Non-text group message must pass bio-bait filter."""
+        from datetime import datetime
+
+        from telegram import Chat, Message, Update, User
+
+        from bot.handlers.bio_bait import BIO_BAIT_FILTER
+
+        user = User(id=42, is_bot=False, first_name="Test")
+        chat = Chat(id=-100, type=Chat.GROUP, title="Test")
+        msg = Message(
+            message_id=1,
+            date=datetime.now(),
+            chat=chat,
+            from_user=user,
+        )
+        update = Update(update_id=1, message=msg)
+
+        assert BIO_BAIT_FILTER.check_update(update) is True, (
+            "Bio-bait filter MUST accept non-text messages for bio-link detection"
+        )
+
+    def test_filter_accepts_text_group_message(self):
+        """Text group message must still pass bio-bait filter."""
+        from datetime import datetime
+
+        from telegram import Chat, Message, Update, User
+
+        from bot.handlers.bio_bait import BIO_BAIT_FILTER
+
+        user = User(id=42, is_bot=False, first_name="Test")
+        chat = Chat(id=-100, type=Chat.GROUP, title="Test")
+        msg = Message(
+            message_id=2,
+            date=datetime.now(),
+            chat=chat,
+            from_user=user,
+            text="cek bio aku",
+        )
+        update = Update(update_id=2, message=msg)
+
+        assert BIO_BAIT_FILTER.check_update(update) is True
+
+    def test_filter_excludes_group_commands(self):
+        """Command messages must be excluded by bio-bait filter."""
+        from datetime import datetime
+
+        from telegram import Chat, Message, MessageEntity, Update, User
+
+        from bot.handlers.bio_bait import BIO_BAIT_FILTER
+
+        user = User(id=42, is_bot=False, first_name="Test")
+        chat = Chat(id=-100, type=Chat.GROUP, title="Test")
+        msg = Message(
+            message_id=3,
+            date=datetime.now(),
+            chat=chat,
+            from_user=user,
+            text="/start",
+            entities=[MessageEntity(type="bot_command", offset=0, length=6)],
+        )
+        update = Update(update_id=3, message=msg)
+
+        assert BIO_BAIT_FILTER.check_update(update) is False, (
+            "Bio-bait filter MUST exclude commands"
+        )
