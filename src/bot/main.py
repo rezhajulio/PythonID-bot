@@ -362,7 +362,7 @@ def main() -> None:
     # external promo/scam links).
     application.add_handler(
         MessageHandler(
-            filters.ChatType.GROUPS & ~filters.COMMAND,
+            filters.ChatType.GROUPS & ~filters.COMMAND & (filters.TEXT | filters.CAPTION),
             handle_bio_bait_spam,
         ),
         group=2,

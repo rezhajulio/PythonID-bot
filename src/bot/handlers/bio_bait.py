@@ -38,7 +38,7 @@ from bot.constants import (
 )
 from bot.group_config import get_group_config_for_update
 from bot.handlers.anti_spam import is_url_whitelisted
-from bot.services.telegram_utils import get_user_mention
+from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
 
 logger = logging.getLogger(__name__)
 
@@ -354,8 +354,7 @@ async def handle_bio_bait_spam(
     if user.is_bot:
         return
 
-    admin_ids = context.bot_data.get("group_admin_ids", {}).get(group_config.group_id, [])
-    if user.id in admin_ids:
+    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
     text = update.message.text or update.message.caption or ""
@@ -382,27 +381,35 @@ async def handle_bio_bait_spam(
     monitor_only = group_config.bio_bait_monitor_only
     record_bio_bait_detection_metrics(context, detection_reason, monitor_only)
 
-    alert_chat_id = group_config.bio_bait_alert_chat_id
-    if alert_chat_id is not None:
-        if user_bio is None:
-            user_bio = await get_cached_user_bio(context, user.id)
-        sent = await send_monitor_alert_to_owner(
-            context=context,
-            alert_chat_id=alert_chat_id,
-            group_id=group_config.group_id,
-            user_id=user.id,
-            user_name=user.full_name,
-            username=user.username,
-            detection_reason=detection_reason,
-            message_text=text,
-            profile_bio=user_bio,
-        )
-        if sent:
-            _increment_bio_bait_metric(context, "owner_alert_sent")
-        else:
-            _increment_bio_bait_metric(context, "owner_alert_failed")
-
     if monitor_only:
+        alert_chat_id = group_config.bio_bait_alert_chat_id
+        if alert_chat_id is not None:
+            # Warning-topic guard: skip owner alert if target equals monitored group
+            if alert_chat_id == group_config.group_id:
+                logger.warning(
+                    "Skipping bio bait monitor alert: alert_chat_id matches monitored group (warning topic). group_id=%s",
+                    group_config.group_id,
+                )
+                _increment_bio_bait_metric(context, "owner_alert_skipped_warning_topic")
+            else:
+                if user_bio is None:
+                    user_bio = await get_cached_user_bio(context, user.id)
+                sent = await send_monitor_alert_to_owner(
+                    context=context,
+                    alert_chat_id=alert_chat_id,
+                    group_id=group_config.group_id,
+                    user_id=user.id,
+                    user_name=user.full_name,
+                    username=user.username,
+                    detection_reason=detection_reason,
+                    message_text=text,
+                    profile_bio=user_bio,
+                )
+                if sent:
+                    _increment_bio_bait_metric(context, "owner_alert_sent")
+                else:
+                    _increment_bio_bait_metric(context, "owner_alert_failed")
+
         logger.info(
             "Bio bait monitor-only mode: no delete/restrict (user_id=%s, group_id=%s)",
             user.id,
