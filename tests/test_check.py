@@ -106,7 +106,7 @@ class TestHandleCheckCommand:
         assert "angka" in call_args.args[0]
 
     async def test_check_command_complete_profile(self, mock_update, mock_context):
-        """Shows complete profile (no warn button)."""
+        """Shows complete profile with a Trust button for non-trusted users."""
         mock_context.args = ["555666"]
 
         complete_result = ProfileCheckResult(
@@ -115,6 +115,7 @@ class TestHandleCheckCommand:
 
         mock_db = MagicMock()
         mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
 
         with (
             patch(
@@ -129,7 +130,38 @@ class TestHandleCheckCommand:
         call_args = mock_update.message.reply_text.call_args
         assert "555666" in call_args.args[0]
         assert "\u2705" in call_args.args[0]
-        assert call_args.kwargs.get("reply_markup") is None
+        keyboard = call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+        buttons = keyboard.inline_keyboard[0]
+        callback_data = [btn.callback_data for btn in buttons]
+        assert any(data == "trust:555666" for data in callback_data)
+        assert not any("unverify" in data for data in callback_data)
+
+    async def test_check_command_complete_profile_shows_trust_button_when_not_trusted(
+        self, mock_update, mock_context
+    ):
+        """Shows trust button on complete-profile branch for non-trusted users."""
+        mock_context.args = ["555666"]
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=complete_result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_command(mock_update, mock_context)
+
+        keyboard = mock_update.message.reply_text.call_args.kwargs.get("reply_markup")
+        assert keyboard is not None
+        buttons = keyboard.inline_keyboard[0]
+        callback_data = [btn.callback_data for btn in buttons]
+        assert any(data == "trust:555666" for data in callback_data)
 
     async def test_check_command_complete_profile_whitelisted(
         self, mock_update, mock_context

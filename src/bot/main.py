@@ -199,7 +199,7 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
 
     # Preload trusted users cache
     db = get_database()
-    trusted_ids = list(db.get_trusted_user_ids())
+    trusted_ids = db.get_trusted_user_ids()
     application.bot_data["trusted_user_ids"] = trusted_ids  # type: ignore[index]
     logger.info(f"Loaded {len(trusted_ids)} trusted user(s) into cache")
 

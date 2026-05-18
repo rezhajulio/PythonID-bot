@@ -1,4 +1,12 @@
-"""Trusted-user command handlers for anti-spam bypass management."""
+"""Trusted-user command handlers for anti-spam bypass management.
+
+Note on the trust unrestrict policy:
+    Adding a user to the trusted list (via ``/trust`` or the Trust button in
+    ``/check``) ALSO unrestricts that user in every monitored group as a side
+    effect, including restrictions that may have been applied manually by
+    other admins for unrelated reasons. Admins should be aware that trusting
+    a user lifts any active restriction across all groups.
+"""
 
 import logging
 from datetime import UTC
@@ -9,8 +17,11 @@ from telegram.ext import ContextTypes
 from bot.constants import (
     TRUST_ADDED_MESSAGE,
     TRUST_ALREADY_EXISTS_MESSAGE,
+    TRUST_CALLBACK_INVALID_MESSAGE,
+    TRUST_DM_ONLY_MESSAGE,
     TRUST_LIST_EMPTY_MESSAGE,
     TRUST_LIST_HEADER,
+    TRUST_NO_PERMISSION_MESSAGE,
     TRUST_REMOVED_MESSAGE,
     TRUST_USER_ID_INVALID_MESSAGE,
     TRUST_USER_ID_REQUIRED_MESSAGE,
@@ -24,30 +35,43 @@ logger = logging.getLogger(__name__)
 
 
 def _add_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    trusted_ids = set(context.bot_data.get("trusted_user_ids", []))
+    trusted_ids = context.bot_data.get("trusted_user_ids")
+    if trusted_ids is None:
+        trusted_ids = set()
+        context.bot_data["trusted_user_ids"] = trusted_ids
     trusted_ids.add(user_id)
-    context.bot_data["trusted_user_ids"] = list(trusted_ids)
 
 
 def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    trusted_ids = set(context.bot_data.get("trusted_user_ids", []))
+    trusted_ids = context.bot_data.get("trusted_user_ids")
+    if trusted_ids is None:
+        trusted_ids = set()
+        context.bot_data["trusted_user_ids"] = trusted_ids
     trusted_ids.discard(user_id)
-    context.bot_data["trusted_user_ids"] = list(trusted_ids)
 
 
-def _resolve_target_user_id(update: Update, args: list[str]) -> int:
+def _resolve_target_user_id(
+    update: Update, args: list[str]
+) -> tuple[int | None, str | None]:
+    """Resolve the target user ID from CLI args or a forwarded message.
+
+    Returns:
+        tuple[int | None, str | None]: ``(user_id, None)`` on success, or
+            ``(None, error_message)`` where ``error_message`` is a user-facing
+            template from :mod:`bot.constants`.
+    """
     if args:
         try:
-            return int(args[0])
-        except ValueError as exc:
-            raise ValueError(TRUST_USER_ID_INVALID_MESSAGE) from exc
+            return int(args[0]), None
+        except ValueError:
+            return None, TRUST_USER_ID_INVALID_MESSAGE
 
     if update.message:
         forwarded = extract_forwarded_user(update.message)
         if forwarded:
-            return forwarded[0]
+            return forwarded[0], None
 
-    raise ValueError(TRUST_USER_ID_REQUIRED_MESSAGE)
+    return None, TRUST_USER_ID_REQUIRED_MESSAGE
 
 
 async def trust_user(
@@ -57,10 +81,18 @@ async def trust_user(
     target_user_id: int,
     admin_user_id: int,
 ) -> tuple[int, int]:
-    """Add trusted user and apply cleanup side effects.
+    """Add a trusted user and apply cleanup side effects.
+
+    Trust ALSO unrestricts the user in every monitored group as part of the
+    cleanup loop. This intentionally lifts any active restriction — including
+    restrictions previously applied manually by other admins for unrelated
+    reasons.
 
     Returns:
-        tuple[int, int]: (probation_clear_count, unrestrict_attempt_count)
+        tuple[int, int]: (probation_clear_count, unrestrict_attempt_count).
+            Both counts increment independently per group; a probation lookup
+            failure does not prevent the unrestrict attempt for that group,
+            and vice versa.
     """
     db.add_trusted_user(
         user_id=target_user_id,
@@ -74,15 +106,20 @@ async def trust_user(
             if db.get_new_user_probation(target_user_id, group_config.group_id):
                 db.clear_new_user_probation(target_user_id, group_config.group_id)
                 cleared_probation += 1
+        except Exception:
+            logger.warning(
+                f"Probation cleanup failed for user {target_user_id} in group {group_config.group_id}",
+                exc_info=True,
+            )
 
+        try:
             await unrestrict_user(bot, group_config.group_id, target_user_id)
             unrestricted_groups += 1
         except Exception:
             logger.warning(
-                f"Trust side effects failed for user {target_user_id} in group {group_config.group_id}",
+                f"Unrestrict failed for user {target_user_id} in group {group_config.group_id}",
                 exc_info=True,
             )
-            continue
 
     return cleared_probation, unrestricted_groups
 
@@ -98,26 +135,27 @@ async def untrust_user(
 async def handle_trust_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /trust command in bot DM."""
+    """Handle /trust command in bot DM.
+
+    Trusting a user ALSO unrestricts them in every monitored group, including
+    restrictions that may have been applied manually by other admins.
+    """
     if not update.message or not update.message.from_user:
         return
 
     if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+        await update.message.reply_text(TRUST_DM_ONLY_MESSAGE)
         return
 
     admin_user_id = update.message.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
     if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        await update.message.reply_text(TRUST_NO_PERMISSION_MESSAGE)
         return
 
-    try:
-        target_user_id = _resolve_target_user_id(update, context.args)
-    except ValueError as e:
-        await update.message.reply_text(str(e))
+    target_user_id, error_message = _resolve_target_user_id(update, context.args)
+    if error_message is not None:
+        await update.message.reply_text(error_message)
         return
 
     db = get_database()
@@ -133,11 +171,13 @@ async def handle_trust_command(
                 user_id=target_user_id,
                 probation_clear_count=cleared_count,
                 unrestrict_count=unrestricted_count,
-            )
+            ),
+            parse_mode="Markdown",
         )
     except ValueError:
         await update.message.reply_text(
-            TRUST_ALREADY_EXISTS_MESSAGE.format(user_id=target_user_id)
+            TRUST_ALREADY_EXISTS_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
 
 
@@ -149,21 +189,18 @@ async def handle_untrust_command(
         return
 
     if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+        await update.message.reply_text(TRUST_DM_ONLY_MESSAGE)
         return
 
     admin_user_id = update.message.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
     if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        await update.message.reply_text(TRUST_NO_PERMISSION_MESSAGE)
         return
 
-    try:
-        target_user_id = _resolve_target_user_id(update, context.args)
-    except ValueError as e:
-        await update.message.reply_text(str(e))
+    target_user_id, error_message = _resolve_target_user_id(update, context.args)
+    if error_message is not None:
+        await update.message.reply_text(error_message)
         return
 
     db = get_database()
@@ -172,11 +209,13 @@ async def handle_untrust_command(
         await untrust_user(db, target_user_id)
         _remove_trusted_cache(context, target_user_id)
         await update.message.reply_text(
-            TRUST_REMOVED_MESSAGE.format(user_id=target_user_id)
+            TRUST_REMOVED_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
     except ValueError:
         await update.message.reply_text(
-            TRUST_USER_NOT_FOUND_MESSAGE.format(user_id=target_user_id)
+            TRUST_USER_NOT_FOUND_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
 
 
@@ -188,15 +227,13 @@ async def handle_trusted_list_command(
         return
 
     if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+        await update.message.reply_text(TRUST_DM_ONLY_MESSAGE)
         return
 
     admin_user_id = update.message.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
     if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        await update.message.reply_text(TRUST_NO_PERMISSION_MESSAGE)
         return
 
     db = get_database()
@@ -229,7 +266,11 @@ async def handle_trusted_list_command(
 async def handle_trust_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle trust callback button."""
+    """Handle trust callback button.
+
+    Trusting a user ALSO unrestricts them in every monitored group, including
+    restrictions that may have been applied manually by other admins.
+    """
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
@@ -239,13 +280,13 @@ async def handle_trust_callback(
     admin_user_id = query.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
     if admin_user_id not in admin_ids:
-        await query.edit_message_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        await query.edit_message_text(TRUST_NO_PERMISSION_MESSAGE)
         return
 
     try:
         target_user_id = int(query.data.split(":")[1])
     except (IndexError, ValueError):
-        await query.edit_message_text("❌ Data callback tidak valid.")
+        await query.edit_message_text(TRUST_CALLBACK_INVALID_MESSAGE)
         return
 
     db = get_database()
@@ -261,11 +302,13 @@ async def handle_trust_callback(
                 user_id=target_user_id,
                 probation_clear_count=cleared_count,
                 unrestrict_count=unrestricted_count,
-            )
+            ),
+            parse_mode="Markdown",
         )
     except ValueError:
         await query.edit_message_text(
-            TRUST_ALREADY_EXISTS_MESSAGE.format(user_id=target_user_id)
+            TRUST_ALREADY_EXISTS_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
 
 
@@ -282,13 +325,13 @@ async def handle_untrust_callback(
     admin_user_id = query.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
     if admin_user_id not in admin_ids:
-        await query.edit_message_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        await query.edit_message_text(TRUST_NO_PERMISSION_MESSAGE)
         return
 
     try:
         target_user_id = int(query.data.split(":")[1])
     except (IndexError, ValueError):
-        await query.edit_message_text("❌ Data callback tidak valid.")
+        await query.edit_message_text(TRUST_CALLBACK_INVALID_MESSAGE)
         return
 
     db = get_database()
@@ -297,9 +340,11 @@ async def handle_untrust_callback(
         await untrust_user(db, target_user_id)
         _remove_trusted_cache(context, target_user_id)
         await query.edit_message_text(
-            TRUST_REMOVED_MESSAGE.format(user_id=target_user_id)
+            TRUST_REMOVED_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
     except ValueError:
         await query.edit_message_text(
-            TRUST_USER_NOT_FOUND_MESSAGE.format(user_id=target_user_id)
+            TRUST_USER_NOT_FOUND_MESSAGE.format(user_id=target_user_id),
+            parse_mode="Markdown",
         )
