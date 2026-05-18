@@ -428,49 +428,77 @@ class TestGetUserStatus:
 
 
 class TestIsUserAdminOrTrusted:
-    def test_returns_true_for_group_admin(self):
+    @patch("bot.services.telegram_utils.get_database")
+    def test_admin_hit_does_not_touch_db(self, mock_get_database):
         context = MagicMock()
-        context.bot_data = {"group_admin_ids": {-100: [123]}, "trusted_user_ids": []}
+        context.bot_data = {
+            "group_admin_ids": {-100: [123]},
+            "trusted_user_ids": set(),
+        }
 
         assert is_user_admin_or_trusted(context, -100, 123) is True
-
-    def test_returns_true_for_trusted_cache(self):
-        context = MagicMock()
-        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": [123]}
-
-        assert is_user_admin_or_trusted(context, -100, 123) is True
+        mock_get_database.assert_not_called()
 
     @patch("bot.services.telegram_utils.get_database")
-    def test_returns_true_for_db_fallback_and_updates_cache(self, mock_get_database):
+    def test_trusted_cache_hit_does_not_touch_db(self, mock_get_database):
         context = MagicMock()
-        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
+        context.bot_data = {
+            "group_admin_ids": {-100: []},
+            "trusted_user_ids": {123},
+        }
+
+        assert is_user_admin_or_trusted(context, -100, 123) is True
+        mock_get_database.assert_not_called()
+
+    @patch("bot.services.telegram_utils.get_database")
+    def test_missing_cache_lazy_loads_from_db_once(self, mock_get_database):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}}
 
         db = MagicMock()
-        db.is_user_trusted.return_value = True
+        db.get_trusted_user_ids.return_value = {321, 654}
         mock_get_database.return_value = db
 
+        # First call: triggers lazy load.
         assert is_user_admin_or_trusted(context, -100, 321) is True
-        assert 321 in context.bot_data["trusted_user_ids"]
+        assert mock_get_database.call_count == 1
+        assert db.get_trusted_user_ids.call_count == 1
+
+        # Cache is now a set.
+        cached = context.bot_data["trusted_user_ids"]
+        assert isinstance(cached, set)
+        assert cached == {321, 654}
+
+        # Second call: no additional DB calls.
+        assert is_user_admin_or_trusted(context, -100, 654) is True
+        assert mock_get_database.call_count == 1
+        assert db.get_trusted_user_ids.call_count == 1
 
     @patch("bot.services.telegram_utils.get_database")
-    def test_returns_false_when_database_not_initialized(self, mock_get_database):
+    def test_returns_false_for_unknown_user_with_populated_cache(self, mock_get_database):
         context = MagicMock()
-        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
+        context.bot_data = {
+            "group_admin_ids": {-100: []},
+            "trusted_user_ids": {1, 2},
+        }
+
+        assert is_user_admin_or_trusted(context, -100, 999) is False
+        mock_get_database.assert_not_called()
+
+    @patch("bot.services.telegram_utils.get_database")
+    def test_runtime_error_caches_empty_set(self, mock_get_database):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: []}}
 
         mock_get_database.side_effect = RuntimeError("Database not initialized")
 
         assert is_user_admin_or_trusted(context, -100, 321) is False
+        # Empty set cached so retries don't hit DB again.
+        assert context.bot_data["trusted_user_ids"] == set()
 
-    @patch("bot.services.telegram_utils.get_database")
-    def test_returns_false_on_db_lookup_error(self, mock_get_database):
-        context = MagicMock()
-        context.bot_data = {"group_admin_ids": {-100: []}, "trusted_user_ids": []}
-
-        db = MagicMock()
-        db.is_user_trusted.side_effect = Exception("DB error")
-        mock_get_database.return_value = db
-
+        # Second call: no additional DB call attempted.
         assert is_user_admin_or_trusted(context, -100, 321) is False
+        assert mock_get_database.call_count == 1
 
 
 class TestFetchGroupAdminIds:

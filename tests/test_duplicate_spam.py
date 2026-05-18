@@ -226,13 +226,40 @@ class TestHandleDuplicateSpam:
             RecentMessage(timestamp=now, normalized_text=norm, message_id=99),
         ])
         mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
-        mock_context.bot_data["trusted_user_ids"] = [mock_update.message.from_user.id]
+        mock_context.bot_data["trusted_user_ids"] = {mock_update.message.from_user.id}
 
-        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+        with (
+            patch(
+                "bot.handlers.duplicate_spam.get_group_config_for_update",
+                return_value=group_config,
+            ),
+            patch("bot.services.telegram_utils.get_database") as mock_get_db,
+        ):
             await handle_duplicate_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_not_called()
         mock_context.bot.restrict_chat_member.assert_not_called()
+        # Trusted cache hit must not trigger any DB call.
+        mock_get_db.assert_not_called()
+
+    async def test_admin_bypass_does_not_query_database(
+        self, mock_update, mock_context, group_config
+    ):
+        """Admin cache hit must not perform any DB lookup."""
+        mock_update.message.from_user.id = 1  # already in group_admin_ids
+        mock_context.bot_data["trusted_user_ids"] = set()
+
+        with (
+            patch(
+                "bot.handlers.duplicate_spam.get_group_config_for_update",
+                return_value=group_config,
+            ),
+            patch("bot.services.telegram_utils.get_database") as mock_get_db,
+        ):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_get_db.assert_not_called()
 
     async def test_skips_no_text(self, mock_update, mock_context, group_config):
         mock_update.message.text = None

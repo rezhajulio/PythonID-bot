@@ -156,9 +156,41 @@ def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
     return user_id, user_name
 
 
+def _get_trusted_ids(bot_data: dict) -> set[int]:
+    """
+    Return the cached set of trusted user IDs from ``bot_data``.
+
+    If the ``"trusted_user_ids"`` key is missing entirely (``None``), perform a
+    one-time lazy load via :func:`get_database`. If the database is not yet
+    initialised (``RuntimeError``), cache an empty set so the lookup is not
+    retried on every call.
+
+    Args:
+        bot_data: The application's ``bot_data`` mapping.
+
+    Returns:
+        set[int]: The cached trusted user ID set (possibly empty).
+    """
+    trusted_ids = bot_data.get("trusted_user_ids")
+    if trusted_ids is not None:
+        return trusted_ids
+
+    try:
+        loaded = set(get_database().get_trusted_user_ids())
+    except RuntimeError:
+        loaded = set()
+    bot_data["trusted_user_ids"] = loaded
+    return loaded
+
+
 def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bool:
     """
     Check whether a user is an admin or trusted user for bypass decisions.
+
+    Reads exclusively from in-memory caches (``group_admin_ids`` and
+    ``trusted_user_ids`` stored on ``context.bot_data``). The trusted-user
+    cache is lazily initialised once if missing; no database call happens on
+    the hot path beyond that initial load.
 
     Args:
         context: Telegram callback context.
@@ -174,26 +206,8 @@ def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bo
     if user_id in admin_ids:
         return True
 
-    trusted_ids = set(bot_data.get("trusted_user_ids", []))
-    if user_id in trusted_ids:
-        return True
-
-    try:
-        db = get_database()
-        if db.is_user_trusted(user_id=user_id, group_id=group_id):
-            trusted_ids.add(user_id)
-            bot_data["trusted_user_ids"] = list(trusted_ids)
-            return True
-    except RuntimeError:
-        return False
-    except Exception:
-        logger.error(
-            f"Failed trusted user lookup: user_id={user_id}, group_id={group_id}",
-            exc_info=True,
-        )
-        return False
-
-    return False
+    trusted_ids = _get_trusted_ids(bot_data)
+    return user_id in trusted_ids
 
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:

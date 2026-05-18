@@ -429,3 +429,43 @@ class TestTrustedUsers:
         assert len(trusted_users) == 2
         assert {u.user_id for u in trusted_users} == {2001, 2002}
         assert {u.trusted_by_admin_id for u in trusted_users} == {9001, 9002}
+
+    def test_is_user_trusted_non_zero_group_raises(
+        self, db_service: DatabaseService
+    ):
+        with pytest.raises(NotImplementedError):
+            db_service.is_user_trusted(user_id=123, group_id=123)
+
+    def test_get_trusted_user_ids_non_zero_group_raises(
+        self, db_service: DatabaseService
+    ):
+        with pytest.raises(NotImplementedError):
+            db_service.get_trusted_user_ids(group_id=123)
+
+    def test_get_trusted_users_non_zero_group_raises(
+        self, db_service: DatabaseService
+    ):
+        with pytest.raises(NotImplementedError):
+            db_service.get_trusted_users(group_id=123)
+
+    def test_trusted_user_reads_none_and_zero_group_equivalent(
+        self, db_service: DatabaseService
+    ):
+        db_service.add_trusted_user(user_id=3001, trusted_by_admin_id=9001)
+        db_service.add_trusted_user(user_id=3002, trusted_by_admin_id=9002)
+
+        assert db_service.is_user_trusted(
+            user_id=3001, group_id=None
+        ) == db_service.is_user_trusted(user_id=3001, group_id=0)
+        assert db_service.is_user_trusted(
+            user_id=3001, group_id=None
+        ) is True
+
+        assert db_service.get_trusted_user_ids(
+            group_id=None
+        ) == db_service.get_trusted_user_ids(group_id=0)
+        assert db_service.get_trusted_user_ids(group_id=None) == {3001, 3002}
+
+        users_none = db_service.get_trusted_users(group_id=None)
+        users_zero = db_service.get_trusted_users(group_id=0)
+        assert [u.user_id for u in users_none] == [u.user_id for u in users_zero]

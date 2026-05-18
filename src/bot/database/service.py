@@ -423,14 +423,24 @@ class DatabaseService:
         """
         Check whether a user is trusted.
 
+        Currently only global trust (group_id=None or 0) is supported; passing
+        a non-zero group_id raises NotImplementedError.
+
         Args:
             user_id: Telegram user ID.
-            group_id: Optional group scope. For v1, only global trust is checked.
+            group_id: Optional group scope. Must be None or 0 for now.
 
         Returns:
-            bool: True if user is trusted.
+            bool: True if user is trusted globally.
+
+        Raises:
+            NotImplementedError: If a non-zero group_id is provided.
         """
-        del group_id  # Reserved for future per-group trust behavior.
+        if group_id is not None and group_id != 0:
+            raise NotImplementedError(
+                "Per-group trusted user reads are not yet supported; "
+                "only global (group_id=0) trust is implemented."
+            )
 
         with Session(self._engine) as session:
             statement = select(TrustedUser).where(
@@ -444,13 +454,23 @@ class DatabaseService:
         """
         Get trusted user IDs.
 
+        Currently only global trust (group_id=None or 0) is supported; passing
+        a non-zero group_id raises NotImplementedError.
+
         Args:
-            group_id: Optional group scope. For v1, only global records are returned.
+            group_id: Optional group scope. Must be None or 0 for now.
 
         Returns:
-            set[int]: Trusted user IDs.
+            set[int]: Trusted user IDs scoped to global (group_id=0).
+
+        Raises:
+            NotImplementedError: If a non-zero group_id is provided.
         """
-        del group_id  # Reserved for future per-group trust behavior.
+        if group_id is not None and group_id != 0:
+            raise NotImplementedError(
+                "Per-group trusted user reads are not yet supported; "
+                "only global (group_id=0) trust is implemented."
+            )
 
         with Session(self._engine) as session:
             statement = select(TrustedUser.user_id).where(TrustedUser.group_id == 0)
@@ -460,13 +480,23 @@ class DatabaseService:
         """
         Get trusted user records with metadata.
 
+        Currently only global trust (group_id=None or 0) is supported; passing
+        a non-zero group_id raises NotImplementedError.
+
         Args:
-            group_id: Optional group scope. For v1, only global records are returned.
+            group_id: Optional group scope. Must be None or 0 for now.
 
         Returns:
-            list[TrustedUser]: Trusted user records.
+            list[TrustedUser]: Trusted user records scoped to global (group_id=0).
+
+        Raises:
+            NotImplementedError: If a non-zero group_id is provided.
         """
-        del group_id  # Reserved for future per-group trust behavior.
+        if group_id is not None and group_id != 0:
+            raise NotImplementedError(
+                "Per-group trusted user reads are not yet supported; "
+                "only global (group_id=0) trust is implemented."
+            )
 
         with Session(self._engine) as session:
             statement = (
