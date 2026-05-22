@@ -19,7 +19,6 @@ from bot.group_config import (
     reset_group_registry,
 )
 
-
 class TestGroupConfig:
     def test_minimal_config(self):
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=42)
@@ -115,6 +114,29 @@ class TestGroupConfig:
         assert gc.duplicate_spam_threshold == 5
         assert gc.duplicate_spam_min_length == 50
 
+    def test_plugins_none_by_default(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42)
+        assert gc.plugins is None
+
+    def test_plugins_valid_dict(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42, plugins={"captcha": True})
+        assert gc.plugins == {"captcha": True}
+
+    def test_plugins_empty_dict(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42, plugins={})
+        assert gc.plugins == {}
+
+    def test_plugins_rejects_unknown_key(self):
+        with pytest.raises(ValidationError, match="Unknown plugin key"):
+            GroupConfig(group_id=-1, warning_topic_id=42, plugins={"unknown": True})
+
+    def test_plugins_rejects_non_bool(self):
+        with pytest.raises(ValidationError, match="value must be a boolean"):
+            GroupConfig(group_id=-1, warning_topic_id=42, plugins={"captcha": "yes"})
+
+    def test_plugins_rejects_non_dict(self):
+        with pytest.raises(ValidationError, match="plugins must be a dict"):
+            GroupConfig(group_id=-1, warning_topic_id=42, plugins=[1, 2, 3])
 
 class TestGroupRegistry:
     def test_register_and_get(self):
@@ -157,7 +179,6 @@ class TestGroupRegistry:
         assert registry.all_groups() == []
         assert registry.get(-100) is None
         assert registry.is_monitored(-100) is False
-
 
 class TestLoadGroupsFromJson:
     def test_load_valid_json(self):
@@ -246,6 +267,16 @@ class TestLoadGroupsFromJson:
             with pytest.raises(ValidationError, match="group_id must be negative"):
                 load_groups_from_json(f.name)
 
+    def test_load_with_plugins(self):
+        data = [
+            {"group_id": -100, "warning_topic_id": 1, "plugins": {"captcha": True}},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            configs = load_groups_from_json(f.name)
+
+        assert configs[0].plugins == {"captcha": True}
 
 class TestBuildGroupRegistry:
     def test_builds_from_json_file(self):
@@ -285,6 +316,7 @@ class TestBuildGroupRegistry:
         settings.duplicate_spam_min_length = 50
         settings.bio_bait_monitor_only = True
         settings.bio_bait_alert_chat_id = 57747812
+        settings.plugins_default = {}
 
         registry = build_group_registry(settings)
 
@@ -300,6 +332,37 @@ class TestBuildGroupRegistry:
         assert gc.bio_bait_monitor_only is True
         assert gc.bio_bait_alert_chat_id == 57747812
 
+    def test_single_group_fallback_wires_plugins_default(self):
+        plugins = {"captcha": True, "dm": False}
+        settings = MagicMock()
+        settings.groups_config_path = "/nonexistent/groups.json"
+        settings.group_id = -100
+        settings.warning_topic_id = 1
+        settings.restrict_failed_users = False
+        settings.warning_threshold = 3
+        settings.warning_time_threshold_minutes = 180
+        settings.captcha_enabled = False
+        settings.captcha_timeout_seconds = 120
+        settings.new_user_probation_hours = 72
+        settings.new_user_violation_threshold = 3
+        settings.rules_link = "https://t.me/test/rules"
+        settings.contact_spam_restrict = True
+        settings.duplicate_spam_enabled = True
+        settings.duplicate_spam_window_seconds = 120
+        settings.duplicate_spam_threshold = 2
+        settings.duplicate_spam_min_length = 20
+        settings.duplicate_spam_similarity = 0.95
+        settings.bio_bait_enabled = True
+        settings.bio_bait_monitor_only = False
+        settings.bio_bait_alert_chat_id = None
+        settings.plugins_default = plugins
+
+        registry = build_group_registry(settings)
+
+        assert len(registry.all_groups()) == 1
+        gc = registry.get(-100)
+        assert gc is not None
+        assert gc.plugins == plugins
 
 class TestGetGroupConfigForUpdate:
     def test_returns_none_when_registry_not_initialized(self):
@@ -345,7 +408,6 @@ class TestGetGroupConfigForUpdate:
         result = get_group_config_for_update(update)
         assert result is None
 
-
 class TestSingleton:
     def setup_method(self):
         reset_group_registry()
@@ -374,6 +436,7 @@ class TestSingleton:
         settings.duplicate_spam_window_seconds = 120
         settings.duplicate_spam_threshold = 3
         settings.duplicate_spam_min_length = 20
+        settings.plugins_default = {}
 
         registry = init_group_registry(settings)
         assert registry is get_group_registry()
@@ -396,6 +459,7 @@ class TestSingleton:
         settings.duplicate_spam_window_seconds = 120
         settings.duplicate_spam_threshold = 3
         settings.duplicate_spam_min_length = 20
+        settings.plugins_default = {}
 
         init_group_registry(settings)
         reset_group_registry()

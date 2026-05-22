@@ -20,7 +20,6 @@ from bot.group_config import KNOWN_PLUGINS
 
 logger = logging.getLogger(__name__)
 
-
 def get_env_file() -> str | None:
     """
     Determine which .env file to load based on BOT_ENV environment variable.
@@ -45,7 +44,6 @@ def get_env_file() -> str | None:
     else:
         logger.debug(f"No .env file found at {env_file}, loading from environment variables")
         return None
-
 
 class Settings(BaseSettings):
     """
@@ -170,6 +168,7 @@ class Settings(BaseSettings):
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
         logger.debug(f"logfire_enabled: {self.logfire_enabled}")
         logger.debug(f"logfire_environment: {self.logfire_environment}")
+        logger.debug(f"plugins_default: {self.plugins_default}")
 
     @property
     def probation_timedelta(self) -> timedelta:
@@ -182,7 +181,6 @@ class Settings(BaseSettings):
     @property
     def captcha_timeout_timedelta(self) -> timedelta:
         return timedelta(seconds=self.captcha_timeout_seconds)
-
 
 @lru_cache
 def get_settings() -> Settings:
