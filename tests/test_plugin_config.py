@@ -7,7 +7,8 @@ from pydantic import ValidationError
 from pydantic_settings.exceptions import SettingsError
 
 from bot.config import Settings
-from bot.group_config import GroupConfig, KNOWN_PLUGINS
+from bot.group_config import GroupConfig
+from bot.plugins.definitions import PLUGIN_NAMES as KNOWN_PLUGINS
 
 
 class TestKnownPlugins:
