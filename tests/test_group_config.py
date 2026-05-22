@@ -278,6 +278,68 @@ class TestLoadGroupsFromJson:
 
         assert configs[0].plugins == {"captcha": True}
 
+    def test_load_with_plugins_unknown_key_raises(self):
+        """Test loading JSON with unknown plugin key raises ValidationError."""
+        data = [
+            {"group_id": -100, "warning_topic_id": 1, "plugins": {"unknown_plugin": True}},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            with pytest.raises(ValidationError, match="Unknown plugin key"):
+                load_groups_from_json(f.name)
+
+    def test_load_with_plugins_non_bool_raises(self):
+        """Test loading JSON with non-boolean plugin value raises ValidationError."""
+        data = [
+            {"group_id": -100, "warning_topic_id": 1, "plugins": {"captcha": "yes"}},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            with pytest.raises(ValidationError, match="value must be a boolean"):
+                load_groups_from_json(f.name)
+
+    def test_load_with_plugins_multiple_valid(self):
+        """Test loading JSON with multiple valid plugin entries."""
+        data = [
+            {
+                "group_id": -100,
+                "warning_topic_id": 1,
+                "plugins": {"captcha": True, "dm": False, "verify": True},
+            },
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            configs = load_groups_from_json(f.name)
+
+        assert configs[0].plugins == {"captcha": True, "dm": False, "verify": True}
+
+    def test_load_with_plugins_empty_dict(self):
+        """Test loading JSON with empty plugins dict."""
+        data = [
+            {"group_id": -100, "warning_topic_id": 1, "plugins": {}},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            configs = load_groups_from_json(f.name)
+
+        assert configs[0].plugins == {}
+
+    def test_load_with_plugins_absent_is_none(self):
+        """Test loading JSON without plugins field defaults to None."""
+        data = [
+            {"group_id": -100, "warning_topic_id": 1},
+        ]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            configs = load_groups_from_json(f.name)
+
+        assert configs[0].plugins is None
+
 class TestBuildGroupRegistry:
     def test_builds_from_json_file(self):
         data = [
