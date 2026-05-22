@@ -1,9 +1,13 @@
 """Tests for plugin toggle resolver, plugin contracts, definitions, and built-in wrappers."""
 
-from bot.group_config import KNOWN_PLUGINS
+from unittest.mock import MagicMock
+
+
+from bot.group_config import KNOWN_PLUGINS, GroupConfig, GroupRegistry
 from bot.plugins import base
-from bot.plugins.config import is_plugin_enabled, resolve_plugin_toggles
+from bot.plugins.config import is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
+from bot.plugins.manager import PluginManager, compute_effective_plugin_map
 
 
 class TestResolvePluginToggles:
@@ -303,3 +307,173 @@ class TestBuiltinModules:
             assert isinstance(plugin.description, str)
             assert len(plugin.description) > 0
             assert callable(getattr(plugin, "register", None))
+
+
+class TestComputeEffectivePluginMap:
+    """compute_effective_plugin_map: per-group toggle dict from registry + env defaults."""
+
+    def _make_registry(self, *group_configs: GroupConfig) -> GroupRegistry:
+        reg = GroupRegistry()
+        for gc in group_configs:
+            reg.register(gc)
+        return reg
+
+    def test_empty_registry_returns_empty_map(self):
+        """Empty registry => empty map (no groups = nothing to compute)."""
+        reg = self._make_registry()
+        result = compute_effective_plugin_map({}, reg)
+        assert result == {}
+
+    def test_single_group_no_plugin_overrides_uses_env_defaults(self):
+        """Single group with no plugins override uses env defaults."""
+        gc = GroupConfig(group_id=-100111, warning_topic_id=42)
+        reg = self._make_registry(gc)
+        result = compute_effective_plugin_map({"captcha": False, "verify": True}, reg)
+        assert -100111 in result
+        assert result[-100111]["captcha"] is False
+        assert result[-100111]["verify"] is True
+        assert result[-100111]["profile_monitor"] is True  # default
+
+    def test_single_group_with_override_takes_precedence(self):
+        """Group plugins override wins over env defaults."""
+        gc = GroupConfig(group_id=-100222, warning_topic_id=42, plugins={"profile_monitor": False})
+        reg = self._make_registry(gc)
+        result = compute_effective_plugin_map({"profile_monitor": True}, reg)
+        assert result[-100222]["profile_monitor"] is False  # group override wins
+
+    def test_multiple_groups_independent_toggles(self):
+        """Each group gets its own toggle map; one group's override doesn't affect others."""
+        gc1 = GroupConfig(group_id=-100111, warning_topic_id=42)
+        gc2 = GroupConfig(group_id=-100222, warning_topic_id=42, plugins={"profile_monitor": False})
+        gc3 = GroupConfig(group_id=-100333, warning_topic_id=42, plugins={"profile_monitor": True, "captcha": False})
+        reg = self._make_registry(gc1, gc2, gc3)
+        result = compute_effective_plugin_map({"captcha": True}, reg)
+        # gc1: no override, env defaults all True
+        assert result[-100111]["profile_monitor"] is True
+        assert result[-100111]["captcha"] is True
+        # gc2: profile_monitor disabled via group override
+        assert result[-100222]["profile_monitor"] is False
+        assert result[-100222]["captcha"] is True  # from env
+        # gc3: profile_monitor enabled, captcha disabled via group override
+        assert result[-100333]["profile_monitor"] is True
+        assert result[-100333]["captcha"] is False
+        # gc1 unaffected by gc2's disable
+        assert result[-100111]["profile_monitor"] is True
+
+    def test_result_contains_all_groups(self):
+        """Every group in registry has an entry in result."""
+        gc1 = GroupConfig(group_id=-100111, warning_topic_id=42)
+        gc2 = GroupConfig(group_id=-100222, warning_topic_id=42)
+        reg = self._make_registry(gc1, gc2)
+        result = compute_effective_plugin_map({}, reg)
+        assert set(result.keys()) == {-100111, -100222}
+
+    def test_each_group_toggle_has_all_known_plugins(self):
+        """Each group's toggle dict contains all KNOWN_PLUGINS keys."""
+        gc = GroupConfig(group_id=-100111, warning_topic_id=42)
+        reg = self._make_registry(gc)
+        result = compute_effective_plugin_map({}, reg)
+        assert set(result[-100111].keys()) == KNOWN_PLUGINS
+
+    def test_profile_monitor_disabled_for_one_group_only(self):
+        """profile_monitor can be False for group A and True for group B."""
+        gc_a = GroupConfig(group_id=-100111, warning_topic_id=42, plugins={"profile_monitor": False})
+        gc_b = GroupConfig(group_id=-100222, warning_topic_id=42)
+        reg = self._make_registry(gc_a, gc_b)
+        result = compute_effective_plugin_map({}, reg)
+        assert result[-100111]["profile_monitor"] is False
+        assert result[-100222]["profile_monitor"] is True
+
+    def test_none_env_defaults_treated_as_empty(self):
+        """plugins_default=None treated as empty dict."""
+        gc = GroupConfig(group_id=-100111, warning_topic_id=42)
+        reg = self._make_registry(gc)
+        result = compute_effective_plugin_map({}, reg)
+        assert result[-100111]["profile_monitor"] is True
+
+
+class TestIsPluginEnabledForGroup:
+    """Guard utility: is_plugin_enabled_for_group checks effective map."""
+
+    def test_known_group_enabled_plugin_returns_true(self):
+        """Enabled plugin for known group returns True."""
+        effective_map = {-100111: {"profile_monitor": True, "captcha": False}}
+        assert is_plugin_enabled_for_group(effective_map, -100111, "profile_monitor") is True
+
+    def test_known_group_disabled_plugin_returns_false(self):
+        """Disabled plugin for known group returns False."""
+        effective_map = {-100111: {"profile_monitor": False, "captcha": True}}
+        assert is_plugin_enabled_for_group(effective_map, -100111, "profile_monitor") is False
+
+    def test_unknown_group_returns_true_safe_default(self):
+        """Unknown group_id returns True (safe default)."""
+        effective_map = {-100111: {"profile_monitor": True}}
+        assert is_plugin_enabled_for_group(effective_map, -100999, "profile_monitor") is True
+
+    def test_missing_plugin_key_in_toggles_returns_true(self):
+        """Plugin key missing from group toggles returns True (strict defaults)."""
+        effective_map = {-100111: {"captcha": False}}
+        assert is_plugin_enabled_for_group(effective_map, -100111, "profile_monitor") is True
+
+    def test_empty_effective_map_returns_true(self):
+        """Empty effective map returns True for any group/plugin."""
+        assert is_plugin_enabled_for_group({}, -100111, "profile_monitor") is True
+
+
+class TestPluginManagerComputeEffectiveMap:
+    """PluginManager.compute_effective_map stores result in app.bot_data."""
+
+    def test_stores_in_bot_data(self):
+        """compute_effective_map stores result under bot_data['plugin_effective_map']."""
+        gc = GroupConfig(group_id=-100111, warning_topic_id=42)
+        reg = GroupRegistry()
+        reg.register(gc)
+        settings = MagicMock()
+        settings.plugins_default = {}
+        app = MagicMock()
+        app.bot_data = {}
+
+        pm = PluginManager()
+        pm.compute_effective_map(settings, reg, app)
+
+        assert "plugin_effective_map" in app.bot_data
+        assert -100111 in app.bot_data["plugin_effective_map"]
+        assert app.bot_data["plugin_effective_map"][-100111]["profile_monitor"] is True
+
+    def test_stores_returns_effective_map(self):
+        """compute_effective_map returns the computed effective map."""
+        gc = GroupConfig(group_id=-100111, warning_topic_id=42)
+        reg = GroupRegistry()
+        reg.register(gc)
+        settings = MagicMock()
+        settings.plugins_default = {}
+        app = MagicMock()
+        app.bot_data = {}
+
+        pm = PluginManager()
+        result = pm.compute_effective_map(settings, reg, app)
+
+        assert isinstance(result, dict)
+        assert -100111 in result
+        assert result[-100111]["profile_monitor"] is True
+        # bot_data also set
+        assert app.bot_data["plugin_effective_map"] is result
+
+    def test_multiple_groups_in_map(self):
+        """Multiple groups each get correct toggle map in bot_data."""
+        gc1 = GroupConfig(group_id=-100111, warning_topic_id=42)
+        gc2 = GroupConfig(group_id=-100222, warning_topic_id=42, plugins={"profile_monitor": False})
+        reg = GroupRegistry()
+        reg.register(gc1)
+        reg.register(gc2)
+        settings = MagicMock()
+        settings.plugins_default = {}
+        app = MagicMock()
+        app.bot_data = {}
+
+        pm = PluginManager()
+        pm.compute_effective_map(settings, reg, app)
+
+        map_ = app.bot_data["plugin_effective_map"]
+        assert map_[-100111]["profile_monitor"] is True
+        assert map_[-100222]["profile_monitor"] is False
