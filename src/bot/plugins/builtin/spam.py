@@ -42,7 +42,7 @@ def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]
     return [handler]
 
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register bio bait spam handler (group=2).
+    """Register bio bait spam handler (group=6).
 
     Callback wrapped with ``guard_plugin("bio_bait_spam")``.
     """
@@ -50,12 +50,12 @@ def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # ty
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
     )
-    application.add_handler(handler, group=2)
-    logger.info("Registered handler: bio_bait_spam_handler (group=2)")
+    application.add_handler(handler, group=6)
+    logger.info("Registered handler: bio_bait_spam_handler (group=6)")
     return [handler]
 
 def register_contact_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register contact spam handler (group=3).
+    """Register contact spam handler (group=2).
 
     Callback wrapped with ``guard_plugin("contact_spam")``.
     """
@@ -63,12 +63,12 @@ def register_contact_spam(application: Application) -> list[BaseHandler]:  # typ
         filters.ChatType.GROUPS & filters.CONTACT,
         guard_plugin("contact_spam")(handle_contact_spam),
     )
-    application.add_handler(handler, group=3)
-    logger.info("Registered handler: contact_spam_handler (group=3)")
+    application.add_handler(handler, group=2)
+    logger.info("Registered handler: contact_spam_handler (group=2)")
     return [handler]
 
 def register_new_user_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register new user spam handler (probation, group=4).
+    """Register new user spam handler (probation, group=3).
 
     Callback wrapped with ``guard_plugin("new_user_spam")``.
     """
@@ -76,12 +76,12 @@ def register_new_user_spam(application: Application) -> list[BaseHandler]:  # ty
         filters.ChatType.GROUPS,
         guard_plugin("new_user_spam")(handle_new_user_spam),
     )
-    application.add_handler(handler, group=4)
-    logger.info("Registered handler: anti_spam_handler (group=4)")
+    application.add_handler(handler, group=3)
+    logger.info("Registered handler: anti_spam_handler (group=3)")
     return [handler]
 
 def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register duplicate message spam handler (group=5).
+    """Register duplicate message spam handler (group=4).
 
     Callback wrapped with ``guard_plugin("duplicate_spam")``.
     """
@@ -89,12 +89,13 @@ def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # t
         filters.ChatType.GROUPS & ~filters.COMMAND,
         guard_plugin("duplicate_spam")(handle_duplicate_spam),
     )
-    application.add_handler(handler, group=5)
-    logger.info("Registered handler: duplicate_spam_handler (group=5)")
+    application.add_handler(handler, group=4)
+    logger.info("Registered handler: duplicate_spam_handler (group=4)")
     return [handler]
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _SpamPlugin:
     """Plugin wrapper for all anti-spam handlers."""
 

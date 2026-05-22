@@ -1,7 +1,7 @@
 """Built-in plugin: profile_monitor.
 
 Wraps ``bot.handlers.message.handle_message`` for profile compliance
-monitoring. Registers at group=6 with GROUPS & ~COMMAND filter.
+monitoring. Registers at group=5 with GROUPS & ~COMMAND filter.
 Applies runtime gating via ``guard_plugin("profile_monitor")``.
 
 Also exposes individual registrar function ``register_profile_monitor``
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # --- Individual registrar function ---
 
 def register_profile_monitor(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register profile monitor handler onto application (group=6).
+    """Register profile monitor handler onto application (group=5).
 
     The callback is wrapped with ``guard_plugin("profile_monitor")`` for
     runtime per-group enable/disable gating.
@@ -35,18 +35,19 @@ def register_profile_monitor(application: Application) -> list[BaseHandler]:  # 
         filters.ChatType.GROUPS & ~filters.COMMAND,
         guard_plugin("profile_monitor")(handle_message),
     )
-    application.add_handler(handler, group=6)
-    logger.info("Registered handler: message_handler (group=6)")
+    application.add_handler(handler, group=5)
+    logger.info("Registered handler: message_handler (group=5)")
     return [handler]
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _ProfileMonitorPlugin:
     """Plugin wrapper for profile compliance monitor."""
 
     name: str = "profile_monitor"
     description: str = "Profile compliance monitoring"
-    handler_group: int = 6
+    handler_group: int = 5
 
     def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
         """Register profile monitor handler onto application."""
