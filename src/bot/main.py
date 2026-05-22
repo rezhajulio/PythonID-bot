@@ -17,6 +17,7 @@ from bot.group_config import get_group_registry, init_group_registry
 from bot.plugins.manager import PluginManager
 from bot.services.telegram_utils import fetch_group_admin_ids
 
+
 def configure_logging() -> None:
     """
     Configure logging with Logfire integration.
@@ -85,7 +86,9 @@ def configure_logging() -> None:
     else:
         logger.info("Logfire disabled - console output only")
 
+
 logger = logging.getLogger(__name__)
+
 
 async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -113,6 +116,7 @@ async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.bot_data["admin_ids"] = list(all_admin_ids)
     logger.info(f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)")
 
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle errors in the bot.
@@ -131,6 +135,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     logger.error("Unhandled exception:", exc_info=context.error)
+
 
 async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     """
@@ -176,7 +181,9 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     if has_captcha:
         logger.info("Recovering pending captcha verifications from database")
         from bot.services.captcha_recovery import recover_pending_captchas
+
         await recover_pending_captchas(application)
+
 
 def main() -> None:
     """
@@ -188,7 +195,8 @@ def main() -> None:
     3. Initializes the group registry (from groups.json or .env fallback)
     4. Initializes the SQLite database
     5. Registers all handlers and jobs via PluginManager in MANIFEST_ORDER
-    6. Starts the bot polling loop
+    6. Computes per-group effective plugin toggle map for runtime gating
+    7. Starts the bot polling loop
     """
     # Configure logging first
     configure_logging()
@@ -220,10 +228,15 @@ def main() -> None:
 
     logger.info(f"Registered {sum(len(h) for h in plugin_handlers.values())} handler(s) across {len(plugin_handlers)} plugin(s)")
 
+    # Compute and store per-group effective plugin toggle map for runtime gating
+    pm.compute_effective_map(settings, registry, application)
+    logger.info("Computed per-group effective plugin toggle map")
+
     logger.info(f"Starting bot polling for {group_count} group(s)")
     logger.info("All handlers registered successfully")
 
     application.run_polling(allowed_updates=["message", "edited_message", "callback_query", "chat_member"])
+
 
 if __name__ == "__main__":
     main()

@@ -9,6 +9,10 @@ Usage inside ``main.py``::
     pm = PluginManager()
     plugin_handlers = pm.register_all(application)
     # plugin_handlers dict stored in application.bot_data["plugin_handlers"]
+
+    # After init_group_registry:
+    pm.compute_effective_map(settings, get_group_registry(), application)
+    # Per-group toggles stored in application.bot_data["plugin_effective_map"]
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from bot.plugins.builtin import jobs as jobs_mod
 from bot.plugins.builtin import profile_monitor as pm_mod
 from bot.plugins.builtin import spam as spam_mod
 from bot.plugins.builtin import topic_guard as tg_mod
+from bot.plugins.config import resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
 
 if TYPE_CHECKING:
@@ -34,6 +39,36 @@ logger = logging.getLogger(__name__)
 # Accepts an Application, returns a list of registered BaseHandler instances.
 # Use string forward ref because BaseHandler is only imported under TYPE_CHECKING.
 Registrar = Callable[..., list["BaseHandler"]]
+
+
+def compute_effective_plugin_map(
+    plugins_default: dict[str, bool],
+    registry: object,
+) -> dict[int, dict[str, bool]]:
+    """Compute per-group effective plugin toggle maps for all registry groups.
+
+    For each group in the registry, resolves plugin enabled/disabled state
+    using ``resolve_plugin_toggles`` with env defaults and per-group overrides.
+
+    Args:
+        plugins_default: Env-wide default toggles from Settings.plugins_default.
+        registry: GroupRegistry instance with all monitored groups.
+
+    Returns:
+        Dict mapping group_id -> resolved toggle dict (all KNOWN_PLUGINS keys).
+        Empty dict if registry has no groups.
+    """
+    from bot.group_config import GroupRegistry
+
+    if not isinstance(registry, GroupRegistry):
+        logger.warning("compute_effective_plugin_map: registry is not a GroupRegistry")
+        return {}
+
+    result: dict[int, dict[str, bool]] = {}
+    for gc in registry.all_groups():
+        result[gc.group_id] = resolve_plugin_toggles(plugins_default, gc.plugins)
+
+    return result
 
 
 class PluginManager:
@@ -125,3 +160,31 @@ class PluginManager:
         application.bot_data["plugin_handlers"] = metadata  # type: ignore[index]
 
         return result
+
+    def compute_effective_map(
+        self,
+        settings: object,
+        registry: object,
+        application: Application,  # type: ignore[type-arg]
+    ) -> dict[int, dict[str, bool]]:
+        """Compute and store per-group effective plugin toggle map.
+
+        Resolves plugin enabled/disabled state for every group in the
+        registry and stores the result in
+        ``application.bot_data["plugin_effective_map"]``.
+
+        Args:
+            settings: Application Settings instance (must have
+                ``plugins_default`` attribute).
+            registry: GroupRegistry instance.
+            application: PTB Application instance.
+
+        Returns:
+            Dict mapping group_id -> resolved toggle dict. Also stored
+            in ``bot_data["plugin_effective_map"]``.
+        """
+        plugins_default = getattr(settings, "plugins_default", {})
+        effective_map = compute_effective_plugin_map(plugins_default, registry)
+        application.bot_data["plugin_effective_map"] = effective_map  # type: ignore[index]
+        logger.info("Computed effective plugin map for %d group(s)", len(effective_map))
+        return effective_map
