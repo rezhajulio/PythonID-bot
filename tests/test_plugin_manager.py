@@ -1,8 +1,9 @@
-"""Tests for plugin toggle resolver and plugin contracts."""
+"""Tests for plugin toggle resolver, plugin contracts, and definitions."""
 
 from bot.group_config import KNOWN_PLUGINS
 from bot.plugins import base
 from bot.plugins.config import is_plugin_enabled, resolve_plugin_toggles
+from bot.plugins.definitions import get_plugin_definitions
 
 
 class TestResolvePluginToggles:
@@ -88,3 +89,39 @@ class TestPluginContracts:
         assert "description" in base.PluginProtocol.__annotations__
         assert "handler_group" in base.PluginProtocol.__annotations__
         assert hasattr(base.PluginProtocol, "register")
+
+
+class TestPluginDefinitions:
+    """Verify plugin definitions match KNOWN_PLUGINS and have correct types."""
+
+    def test_names_match_known_plugins(self):
+        """Every definition name is in KNOWN_PLUGINS and every KNOWN_PLUGINS has a definition."""
+        defs = get_plugin_definitions()
+        def_names = {d["name"] for d in defs}
+        assert def_names == KNOWN_PLUGINS
+
+    def test_each_definition_has_required_keys(self):
+        """Each definition dict contains name, handler_group, description."""
+        for d in get_plugin_definitions():
+            assert "name" in d
+            assert "handler_group" in d
+            assert "description" in d
+
+    def test_handler_group_is_int(self):
+        """handler_group value is int, not str."""
+        for d in get_plugin_definitions():
+            assert isinstance(d["handler_group"], int), f"{d['name']}: handler_group={d['handler_group']!r}"
+
+    def test_returned_copy_isolation(self):
+        """Mutating returned list or dicts doesn't affect internal definitions."""
+        defs1 = get_plugin_definitions()
+        defs2 = get_plugin_definitions()
+        # List-level isolation: clearing defs1 doesn't affect defs2
+        defs1.clear()
+        assert len(defs2) > 0
+        # Dict-level isolation: mutating a dict in defs2 doesn't affect future calls
+        defs2[0]["name"] = "hacked"
+        defs3 = get_plugin_definitions()
+        assert defs3[0]["name"] != "hacked"
+        # Calling again still works
+        assert len(defs3) == len(KNOWN_PLUGINS)
