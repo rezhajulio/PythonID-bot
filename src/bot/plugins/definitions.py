@@ -1,8 +1,8 @@
 """Plugin definitions and manifest for the PythonID bot.
 
 Provides the canonical mapping from plugin names to human-readable
-metadata. The plugin names must stay in sync with ``KNOWN_PLUGINS``
-in ``bot.group_config``, which is the authoritative source.
+metadata.  ``PLUGIN_NAMES`` is the single source of truth for all known
+built-in plugin identifiers -- other modules import from here.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ PluginManifest = list[dict[str, str | int]]
 """Type alias for a list of plugin descriptor dicts."""
 
 # Human-readable metadata for each known built-in plugin.
-# ``name`` must be present in ``KNOWN_PLUGINS``.
 # Order matches main.py registration order (topic_guard first).
 # handler_group values match the PTB group argument used in main.py.
 _PLUGIN_DEFINITIONS: PluginManifest = [
@@ -41,6 +40,14 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "auto_restrict_job", "handler_group": 6, "description": "Periodic auto-restriction job (every 5 min)"},
     {"name": "refresh_admin_ids_job", "handler_group": 6, "description": "Periodic admin cache refresh job (every 10 min)"},
 ]
+
+# Single source of truth: canonical set of all known plugin names.
+PLUGIN_NAMES: frozenset[str] = frozenset(d["name"] for d in _PLUGIN_DEFINITIONS)  # type: ignore[arg-type]
+"""Canonical set of all known built-in plugin names.
+
+Derived automatically from ``_PLUGIN_DEFINITIONS``.  This is the
+single source of truth -- other modules should import from here.
+"""
 
 # Deterministic registration order matching main.py.
 # topic_guard first (group=-1), refresh_admin_ids_job last.
