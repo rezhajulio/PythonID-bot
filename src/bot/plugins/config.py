@@ -12,7 +12,7 @@ import functools
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
-from bot.group_config import KNOWN_PLUGINS
+from bot.plugins.definitions import PLUGIN_NAMES
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -36,11 +36,11 @@ def resolve_plugin_toggles(
         overrides: Per-group overrides from GroupConfig.plugins (or None).
 
     Returns:
-        Dict mapping every ``KNOWN_PLUGINS`` name to its resolved bool.
+        Dict mapping every ``PLUGIN_NAMES`` name to its resolved bool.
     """
     result: dict[str, bool] = {}
 
-    for name in KNOWN_PLUGINS:
+    for name in PLUGIN_NAMES:
         # Priority 1: group override (if present)
         if overrides is not None and name in overrides:
             result[name] = overrides[name]
@@ -84,7 +84,7 @@ def is_plugin_enabled_for_group(
             ``compute_effective_plugin_map``, stored in
             ``bot_data["plugin_effective_map"]``.
         group_id: Telegram group ID to check.
-        plugin_name: Plugin name from ``MANIFEST_ORDER`` / ``KNOWN_PLUGINS``.
+        plugin_name: Plugin name from ``MANIFEST_ORDER`` / ``PLUGIN_NAMES``.
 
     Returns:
         True if plugin is enabled for the given group.
@@ -93,7 +93,6 @@ def is_plugin_enabled_for_group(
     if group_toggles is None:
         return True  # Unknown group => safe default
     return group_toggles.get(plugin_name, True)  # Missing key => safe default
-
 
 def guard_plugin(
     plugin_name: str,
@@ -120,7 +119,7 @@ def guard_plugin(
             ...
 
     Args:
-        plugin_name: Plugin name from ``MANIFEST_ORDER`` / ``KNOWN_PLUGINS``.
+        plugin_name: Plugin name from ``MANIFEST_ORDER`` / ``PLUGIN_NAMES``.
 
     Returns:
         Decorator that wraps an async handler callback with runtime gating.

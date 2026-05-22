@@ -2,10 +2,10 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from bot.group_config import KNOWN_PLUGINS, GroupConfig, GroupRegistry
+from bot.group_config import GroupConfig, GroupRegistry
 from bot.plugins import base
 from bot.plugins.config import guard_plugin, is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
-from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
+from bot.plugins.definitions import MANIFEST_ORDER, PLUGIN_NAMES as KNOWN_PLUGINS, get_plugin_definitions
 from bot.plugins.manager import PluginManager, compute_effective_plugin_map
 
 
@@ -97,6 +97,12 @@ class TestPluginContracts:
 class TestPluginDefinitions:
     """Verify plugin definitions match KNOWN_PLUGINS and have correct types."""
 
+    def test_plugin_names_exists(self):
+        """PLUGIN_NAMES is exported from definitions module."""
+        from bot.plugins.definitions import PLUGIN_NAMES
+        assert isinstance(PLUGIN_NAMES, frozenset)
+        assert "topic_guard" in PLUGIN_NAMES
+
     def test_names_match_known_plugins(self):
         """Every definition name is in KNOWN_PLUGINS and every KNOWN_PLUGINS has a definition."""
         defs = get_plugin_definitions()
@@ -128,6 +134,7 @@ class TestPluginDefinitions:
         assert defs3[0]["name"] != "hacked"
         # Calling again still works
         assert len(defs3) == len(KNOWN_PLUGINS)
+
 
 class TestManifestOrder:
     """MANIFEST_ORDER defines deterministic handler registration order matching main.py."""
