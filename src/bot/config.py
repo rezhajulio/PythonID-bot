@@ -6,13 +6,17 @@ variables using Pydantic Settings. It supports multiple environments
 (production, staging) via the BOT_ENV environment variable.
 """
 
+import json
 import logging
 import os
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from bot.group_config import KNOWN_PLUGINS
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +36,7 @@ def get_env_file() -> str | None:
         "staging": ".env.staging",
     }
     env_file = env_files.get(env, ".env")
-    
+
     # Return path only if file exists, otherwise return None
     # Pydantic will load from environment variables if no .env file
     if Path(env_file).exists():
@@ -94,12 +98,42 @@ class Settings(BaseSettings):
     logfire_environment: str = "production"
     logfire_enabled: bool = True
     log_level: str = "INFO"
+    plugins_default: dict[str, bool] = {}
 
     model_config = SettingsConfigDict(
         env_file=get_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("plugins_default", mode="before")
+    @classmethod
+    def parse_and_validate_plugins_default(cls, v: object) -> dict[str, bool]:
+        """Parse PLUGINS_DEFAULT env var as JSON object and validate keys/values."""
+        if isinstance(v, dict):
+            parsed = v
+        elif isinstance(v, str):
+            if not v.strip():
+                return {}
+            try:
+                parsed = json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError("PLUGINS_DEFAULT must be a valid JSON string")
+            if not isinstance(parsed, dict):
+                raise ValueError("PLUGINS_DEFAULT must be a JSON object")
+        elif isinstance(v, list):
+            raise ValueError("PLUGINS_DEFAULT must be a JSON object, got array")
+        else:
+            return {}
+        for key, val in parsed.items():
+            if key not in KNOWN_PLUGINS:
+                raise ValueError(f"Unknown plugin key in PLUGINS_DEFAULT: '{key}'")
+            if not isinstance(val, bool):
+                raise ValueError(
+                    f"Plugin '{key}' in PLUGINS_DEFAULT must be a boolean, "
+                    f"got {type(val).__name__}"
+                )
+        return parsed
 
     def model_post_init(self, __context):
         """Validate and log non-sensitive configuration values after initialization."""
@@ -118,7 +152,7 @@ class Settings(BaseSettings):
         env = os.getenv("BOT_ENV", "production")
         if self.logfire_environment == "production" and env == "staging":
             self.logfire_environment = "staging"
-        
+
         logger.info("Configuration loaded successfully")
         logger.debug(f"group_id: {self.group_id}")
         logger.debug(f"warning_topic_id: {self.warning_topic_id}")

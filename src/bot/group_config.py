@@ -17,6 +17,34 @@ from telegram import Update
 
 logger = logging.getLogger(__name__)
 
+# Set of all known built-in plugin names.
+# Must match the plugin manifest order from the plugin system design spec.
+KNOWN_PLUGINS: frozenset[str] = frozenset({
+    "topic_guard",
+    "verify",
+    "unverify",
+    "check",
+    "trust",
+    "untrust",
+    "trusted_list",
+    "check_forwarded_message",
+    "verify_callback",
+    "unverify_callback",
+    "warn_callback",
+    "trust_callback",
+    "untrust_callback",
+    "captcha",
+    "dm",
+    "inline_keyboard_spam",
+    "bio_bait_spam",
+    "contact_spam",
+    "new_user_spam",
+    "duplicate_spam",
+    "profile_monitor",
+    "auto_restrict_job",
+    "refresh_admin_ids_job",
+})
+
 
 class GroupConfig(BaseModel):
     """
@@ -44,6 +72,7 @@ class GroupConfig(BaseModel):
     bio_bait_enabled: bool = True
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
+    plugins: dict[str, bool] | None = None
 
     @field_validator("group_id")
     @classmethod
@@ -78,6 +107,20 @@ class GroupConfig(BaseModel):
     def probation_hours_must_be_non_negative(cls, v: int) -> int:
         if v < 0:
             raise ValueError("new_user_probation_hours must be >= 0")
+        return v
+
+    @field_validator("plugins", mode="before")
+    @classmethod
+    def validate_plugins(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("plugins must be a dict or None")
+        for key, val in v.items():
+            if key not in KNOWN_PLUGINS:
+                raise ValueError(f"Unknown plugin key: '{key}'")
+            if not isinstance(val, bool):
+                raise ValueError(f"Plugin '{key}' value must be a boolean, got {type(val).__name__}")
         return v
 
     @property
