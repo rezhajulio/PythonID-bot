@@ -1,12 +1,24 @@
-"""Plugin toggle resolution.
+"""Plugin toggle resolution and runtime guard wrapper.
 
 Provides deterministic resolution of plugin enabled/disabled state
-from environment-level defaults and per-group overrides.
+from environment-level defaults and per-group overrides, plus a
+reusable ``guard_plugin`` decorator for runtime gating of group-scoped
+handler callbacks.
 """
 
 from __future__ import annotations
 
+import functools
+import logging
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
+
 from bot.group_config import KNOWN_PLUGINS
+
+if TYPE_CHECKING:
+    from telegram import Update
+    from telegram.ext import ContextTypes
+
+logger = logging.getLogger(__name__)
 
 def resolve_plugin_toggles(
     defaults: dict[str, bool],
@@ -56,7 +68,6 @@ def is_plugin_enabled(toggles: dict[str, bool], name: str) -> bool:
     """
     return toggles[name]
 
-
 def is_plugin_enabled_for_group(
     effective_map: dict[int, dict[str, bool]],
     group_id: int,
@@ -82,3 +93,61 @@ def is_plugin_enabled_for_group(
     if group_toggles is None:
         return True  # Unknown group => safe default
     return group_toggles.get(plugin_name, True)  # Missing key => safe default
+
+
+def guard_plugin(
+    plugin_name: str,
+) -> Callable[
+    [Callable[..., Coroutine[Any, Any, None]]],
+    Callable[..., Coroutine[Any, Any, None]],
+]:
+    """Return decorator that gates a handler callback on plugin enable state.
+
+    Checks ``context.bot_data["plugin_effective_map"]`` by group id and
+    ``plugin_name``.  If the plugin is disabled for the group, the
+    decorated callback early-returns (no-op).
+
+    Safe defaults (pass through):
+    - Unknown group id (not in effective_map)
+    - Missing plugin key in group toggles
+    - Empty / missing ``plugin_effective_map`` in bot_data
+    - Non-group chat (private, channel)
+
+    Usage::
+
+        @guard_plugin("profile_monitor")
+        async def my_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            ...
+
+    Args:
+        plugin_name: Plugin name from ``MANIFEST_ORDER`` / ``KNOWN_PLUGINS``.
+
+    Returns:
+        Decorator that wraps an async handler callback with runtime gating.
+    """
+    def decorator(
+        callback: Callable[..., Coroutine[Any, Any, None]],
+    ) -> Callable[..., Coroutine[Any, Any, None]]:
+        @functools.wraps(callback)
+        async def wrapper(
+            update: "Update",
+            context: "ContextTypes.DEFAULT_TYPE",
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            # Only gate group/supergroup updates
+            if update.effective_chat is None or update.effective_chat.type not in ("group", "supergroup"):
+                await callback(update, context, *args, **kwargs)
+                return
+
+            group_id = update.effective_chat.id
+            effective_map: dict[int, dict[str, bool]] = context.bot_data.get("plugin_effective_map", {})
+
+            if not is_plugin_enabled_for_group(effective_map, group_id, plugin_name):
+                logger.debug("Plugin '%s' disabled for group %d, skipping", plugin_name, group_id)
+                return
+
+            await callback(update, context, *args, **kwargs)
+
+        return wrapper
+    return decorator
