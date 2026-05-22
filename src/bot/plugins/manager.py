@@ -148,7 +148,8 @@ class PluginManager:
             registrar = self._registry[name]
             handlers = registrar(application)
             result[name] = handlers
-            logger.info("Registered plugin: %s (group=%d, %d handler(s))", name, defs_by_name[name]["handler_group"], len(handlers))  # type: ignore[arg-type]
+            noun = "job(s)" if name.endswith("_job") else "handler(s)"
+            logger.info("Registered plugin: %s (group=%d, %d %s)", name, defs_by_name[name]["handler_group"], len(handlers), noun)  # type: ignore[arg-type]
 
         # Store metadata for later gating
         metadata: dict[str, dict] = {}

@@ -41,6 +41,7 @@ def register_topic_guard(application: Application) -> list[BaseHandler]:  # type
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _TopicGuardPlugin:
     """Plugin wrapper for topic_guard handler."""
 
