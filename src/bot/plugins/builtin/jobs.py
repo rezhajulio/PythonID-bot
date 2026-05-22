@@ -12,13 +12,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from bot.services.admin_cache import refresh_admin_ids
 from bot.services.scheduler import auto_restrict_expired_warnings
 
 if TYPE_CHECKING:
     from telegram.ext import Application, BaseHandler
 
 logger = logging.getLogger(__name__)
-
 
 # --- Individual registrar functions ---
 
@@ -35,12 +35,8 @@ def register_auto_restrict_job(application: Application) -> list[BaseHandler]:  
         logger.info("JobQueue registered: auto_restrict_job (every 5 minutes, first run in 5 minutes)")
     return handlers
 
-
 def register_refresh_admin_ids_job(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register admin cache refresh job (every 10 minutes)."""
-    # Lazy import to avoid circular dependency (main -> manager -> jobs -> main)
-    from bot.main import refresh_admin_ids
-
     handlers: list[BaseHandler] = []
     if application.job_queue:
         application.job_queue.run_repeating(
@@ -52,9 +48,9 @@ def register_refresh_admin_ids_job(application: Application) -> list[BaseHandler
         logger.info("JobQueue registered: refresh_admin_ids_job (every 10 minutes)")
     return handlers
 
-
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _JobsPlugin:
     """Plugin wrapper for periodic job handlers."""
 
@@ -68,6 +64,5 @@ class _JobsPlugin:
         handlers.extend(register_auto_restrict_job(application))
         handlers.extend(register_refresh_admin_ids_job(application))
         return handlers
-
 
 plugin = _JobsPlugin()

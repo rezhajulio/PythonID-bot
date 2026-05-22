@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from bot.group_config import GroupConfig, GroupRegistry
+import pytest
+
 from bot.plugins import base
 from bot.plugins.config import guard_plugin, is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, PLUGIN_NAMES as KNOWN_PLUGINS, get_plugin_definitions
@@ -134,6 +136,12 @@ class TestPluginDefinitions:
         assert defs3[0]["name"] != "hacked"
         # Calling again still works
         assert len(defs3) == len(KNOWN_PLUGINS)
+    def test_verify_callback_description(self):
+        """verify_callback description says 'Admin verify confirm button callback' not 'Captcha verify'."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["verify_callback"]["description"] == "Admin verify confirm button callback"
+
 
 
 class TestManifestOrder:
@@ -201,30 +209,30 @@ class TestManifestOrder:
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["topic_guard"]["handler_group"] == -1
 
-    def test_manifest_order_bio_bait_spam_in_group_two(self):
-        """bio_bait_spam entry has handler_group=2 (matches main.py)."""
+    def test_manifest_order_bio_bait_spam_in_group_six(self):
+        """bio_bait_spam entry has handler_group=6 (new, does not conflict with pre-refactor)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["bio_bait_spam"]["handler_group"] == 2
+        assert defs["bio_bait_spam"]["handler_group"] == 6
 
-    def test_manifest_order_contact_spam_in_group_three(self):
-        """contact_spam entry has handler_group=3 (matches main.py)."""
+    def test_manifest_order_contact_spam_in_group_two(self):
+        """contact_spam entry has handler_group=2 (matches pre-refactor main.py)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["contact_spam"]["handler_group"] == 3
+        assert defs["contact_spam"]["handler_group"] == 2
 
-    def test_manifest_order_new_user_spam_in_group_four(self):
-        """new_user_spam entry has handler_group=4 (matches main.py)."""
+    def test_manifest_order_new_user_spam_in_group_three(self):
+        """new_user_spam entry has handler_group=3 (matches pre-refactor main.py)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["new_user_spam"]["handler_group"] == 4
+        assert defs["new_user_spam"]["handler_group"] == 3
 
-    def test_manifest_order_duplicate_spam_in_group_five(self):
-        """duplicate_spam entry has handler_group=5 (matches main.py)."""
+    def test_manifest_order_duplicate_spam_in_group_four(self):
+        """duplicate_spam entry has handler_group=4 (matches pre-refactor main.py)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["duplicate_spam"]["handler_group"] == 5
+        assert defs["duplicate_spam"]["handler_group"] == 4
 
-    def test_manifest_order_profile_monitor_in_group_six(self):
-        """profile_monitor entry has handler_group=6 (matches main.py)."""
+    def test_manifest_order_profile_monitor_in_group_five(self):
+        """profile_monitor entry has handler_group=5 (matches pre-refactor main.py)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["profile_monitor"]["handler_group"] == 6
+        assert defs["profile_monitor"]["handler_group"] == 5
 
 
 class TestBuiltinModules:
@@ -674,3 +682,131 @@ class TestGuardPlugin:
 
         assert wrapped.__name__ == "my_handler"
         assert wrapped.__wrapped__ is my_handler
+class TestPluginInitExports:
+    """Verify bot.plugins.__init__ exports the full public API."""
+
+    def test_is_plugin_enabled_for_group_exported(self):
+        """is_plugin_enabled_for_group is exported from bot.plugins."""
+        from bot.plugins import is_plugin_enabled_for_group
+        assert callable(is_plugin_enabled_for_group)
+
+    def test_compute_effective_plugin_map_exported(self):
+        """compute_effective_plugin_map is exported from bot.plugins."""
+        from bot.plugins import compute_effective_plugin_map
+        assert callable(compute_effective_plugin_map)
+
+    def test_all_includes_new_exports(self):
+        """__all__ includes is_plugin_enabled_for_group and compute_effective_plugin_map."""
+        import bot.plugins
+        assert "is_plugin_enabled_for_group" in bot.plugins.__all__
+        assert "compute_effective_plugin_map" in bot.plugins.__all__
+
+
+class TestIsPluginEnabledEdgeCases:
+    """Edge cases for is_plugin_enabled."""
+
+    def test_is_plugin_enabled_missing_key_raises_key_error(self):
+        """Missing plugin name in toggles raises KeyError."""
+        toggles = {"captcha": True, "verify": False}
+        with pytest.raises(KeyError):
+            is_plugin_enabled(toggles, "non_existent_plugin")
+
+
+class TestComputeEffectivePluginMapEdgeCases:
+    """Edge cases for compute_effective_plugin_map."""
+
+    def test_non_group_registry_returns_empty_map(self):
+        """Non-GroupRegistry input returns empty dict."""
+        result = compute_effective_plugin_map({}, "not_a_registry")
+        assert result == {}
+
+    def test_none_registry_returns_empty_map(self):
+        """None input returns empty dict."""
+        result = compute_effective_plugin_map({}, None)
+        assert result == {}
+
+    def test_list_registry_returns_empty_map(self):
+        """List input returns empty dict."""
+        result = compute_effective_plugin_map({}, [1, 2, 3])
+        assert result == {}
+
+
+class TestHandlerGroupsMatchPreRefactor:
+    """Each pre-refactor handler group must match original main.py values.
+
+    Pre-refactor groups (from main branch):
+    - topic_guard: -1
+    - commands, captcha, dm: 0
+    - inline_keyboard_spam: 1
+    - contact_spam: 2
+    - new_user_spam: 3
+    - duplicate_spam: 4
+    - profile_monitor: 5
+    """
+
+    def test_topic_guard_group_negative_one(self):
+        """topic_guard must be in group -1."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["topic_guard"]["handler_group"] == -1
+
+    def test_commands_group_zero(self):
+        """All command/callback plugins must be in group 0."""
+        command_plugins = [
+            "verify", "unverify", "check", "trust", "untrust",
+            "trusted_list", "check_forwarded_message",
+            "verify_callback", "unverify_callback", "warn_callback",
+            "trust_callback", "untrust_callback",
+        ]
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        for name in command_plugins:
+            assert defs_by_name[name]["handler_group"] == 0, f"{name} not in group 0"
+
+    def test_captcha_group_zero(self):
+        """captcha must be in group 0."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["captcha"]["handler_group"] == 0
+
+    def test_dm_group_zero(self):
+        """dm must be in group 0."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["dm"]["handler_group"] == 0
+
+    def test_inline_keyboard_spam_group_one(self):
+        """inline_keyboard_spam must be in group 1."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["inline_keyboard_spam"]["handler_group"] == 1
+
+    def test_contact_spam_group_two(self):
+        """contact_spam must be in group 2 (was shifted to 3)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["contact_spam"]["handler_group"] == 2
+
+    def test_new_user_spam_group_three(self):
+        """new_user_spam must be in group 3 (was shifted to 4)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["new_user_spam"]["handler_group"] == 3
+
+    def test_duplicate_spam_group_four(self):
+        """duplicate_spam must be in group 4 (was shifted to 5)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["duplicate_spam"]["handler_group"] == 4
+
+    def test_profile_monitor_group_five(self):
+        """profile_monitor must be in group 5 (was shifted to 6)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["profile_monitor"]["handler_group"] == 5
+
+    def test_bio_bait_spam_not_in_group_two(self):
+        """bio_bait_spam must NOT use group 2 (that was contact_spam's original group)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["bio_bait_spam"]["handler_group"] != 2

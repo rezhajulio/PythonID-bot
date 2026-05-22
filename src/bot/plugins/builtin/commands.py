@@ -4,6 +4,11 @@ Wraps all command and callback handlers (verify, unverify, check, trust,
 untrust, trusted_list, check_forwarded_message, and their callbacks).
 All register at group=0.
 
+Note: guard_plugin is intentionally NOT applied to admin
+commands/callbacks. Admin overrides must work in every group regardless
+of plugin toggle state. This matches pre-refactor behavior where admin
+commands were never gated.
+
 Also exposes individual registrar functions (register_verify,
 register_unverify, etc.) for fine-grained plugin registration.
 """
@@ -99,7 +104,12 @@ def register_check_forwarded_message(application: Application) -> list[BaseHandl
 
 def register_verify_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register verify callback handler."""
-    handler: BaseHandler = CallbackQueryHandler(handle_verify_callback, pattern=r"^verify:\d+$")
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_verify_callback,
+        # User IDs are always positive in Telegram, so \d+ (no negative lookbehind) is correct.
+        # Group IDs can be negative, but callback data only encodes user IDs.
+        pattern=r"^verify:\d+$",
+    )
     application.add_handler(handler)
     logger.info("Registered handler: verify_callback (group=0)")
     return [handler]
@@ -139,6 +149,7 @@ def register_untrust_callback(application: Application) -> list[BaseHandler]:  #
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _CommandsPlugin:
     """Plugin wrapper for command and callback handlers."""
 
