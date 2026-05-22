@@ -2,6 +2,9 @@
 
 Wraps ``bot.handlers.dm.handle_dm`` for DM unrestriction flow.
 Registers at group=0 with PRIVATE & TEXT filter.
+
+Also exposes individual registrar function ``register_dm`` for
+fine-grained plugin registration.
 """
 
 from __future__ import annotations
@@ -19,6 +22,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# --- Individual registrar function ---
+
+def register_dm(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register DM handler onto application."""
+    handler: BaseHandler = MessageHandler(
+        filters.ChatType.PRIVATE & filters.TEXT,
+        handle_dm,
+    )
+    application.add_handler(handler)
+    logger.info("Registered handler: dm_handler (group=0)")
+    return [handler]
+
+
+# --- Coarse plugin class (keeps existing API) ---
+
 class _DmPlugin:
     """Plugin wrapper for DM handler."""
 
@@ -28,13 +46,7 @@ class _DmPlugin:
 
     def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
         """Register DM handler onto application."""
-        handler: BaseHandler = MessageHandler(
-            filters.ChatType.PRIVATE & filters.TEXT,
-            handle_dm,
-        )
-        application.add_handler(handler)
-        logger.info("Registered handler: dm_handler (group=0)")
-        return [handler]
+        return register_dm(application)
 
 
 plugin = _DmPlugin()
