@@ -18,7 +18,7 @@ from telegram import Update
 logger = logging.getLogger(__name__)
 
 # Set of all known built-in plugin names.
-# Must match the plugin manifest order from the plugin system design spec.
+# Must match the plugin manifest from the plugin system design spec.
 KNOWN_PLUGINS: frozenset[str] = frozenset({
     "topic_guard",
     "verify",
@@ -44,7 +44,6 @@ KNOWN_PLUGINS: frozenset[str] = frozenset({
     "auto_restrict_job",
     "refresh_admin_ids_job",
 })
-
 
 class GroupConfig(BaseModel):
     """
@@ -111,9 +110,9 @@ class GroupConfig(BaseModel):
 
     @field_validator("plugins", mode="before")
     @classmethod
-    def validate_plugins(cls, v: dict | None) -> dict | None:
+    def validate_plugins(cls, v: object) -> dict[str, bool] | None:
         if v is None:
-            return v
+            return None
         if not isinstance(v, dict):
             raise ValueError("plugins must be a dict or None")
         for key, val in v.items():
@@ -134,7 +133,6 @@ class GroupConfig(BaseModel):
     @property
     def captcha_timeout_timedelta(self) -> timedelta:
         return timedelta(seconds=self.captcha_timeout_seconds)
-
 
 class GroupRegistry:
     """
@@ -160,7 +158,6 @@ class GroupRegistry:
 
     def is_monitored(self, group_id: int) -> bool:
         return group_id in self._groups
-
 
 def load_groups_from_json(path: str) -> list[GroupConfig]:
     """
@@ -196,7 +193,6 @@ def load_groups_from_json(path: str) -> list[GroupConfig]:
         seen_ids.add(config.group_id)
 
     return configs
-
 
 def build_group_registry(settings: object) -> GroupRegistry:
     """
@@ -242,11 +238,11 @@ def build_group_registry(settings: object) -> GroupRegistry:
             bio_bait_enabled=getattr(settings, "bio_bait_enabled", True),
             bio_bait_monitor_only=getattr(settings, "bio_bait_monitor_only", False),
             bio_bait_alert_chat_id=getattr(settings, "bio_bait_alert_chat_id", None),
+            plugins=getattr(settings, "plugins_default", None),
         )
         registry.register(config)
 
     return registry
-
 
 def get_group_config_for_update(update: Update) -> GroupConfig | None:
     """
@@ -268,10 +264,8 @@ def get_group_config_for_update(update: Update) -> GroupConfig | None:
         logger.error("Group registry not initialized; skipping update")
         return None
 
-
 # Module-level singleton
 _registry: GroupRegistry | None = None
-
 
 def init_group_registry(settings: object) -> GroupRegistry:
     """
@@ -289,7 +283,6 @@ def init_group_registry(settings: object) -> GroupRegistry:
     _registry = build_group_registry(settings)
     return _registry
 
-
 def get_group_registry() -> GroupRegistry:
     """
     Get the global group registry singleton.
@@ -303,7 +296,6 @@ def get_group_registry() -> GroupRegistry:
     if _registry is None:
         raise RuntimeError("Group registry not initialized. Call init_group_registry() first.")
     return _registry
-
 
 def reset_group_registry() -> None:
     """Reset the group registry singleton (for testing)."""
