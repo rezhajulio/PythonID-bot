@@ -1,11 +1,10 @@
 """Tests for plugin toggle resolver, plugin contracts, definitions, and built-in wrappers."""
 
-from unittest.mock import MagicMock
-
+from unittest.mock import AsyncMock, MagicMock
 
 from bot.group_config import KNOWN_PLUGINS, GroupConfig, GroupRegistry
 from bot.plugins import base
-from bot.plugins.config import is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
+from bot.plugins.config import guard_plugin, is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
 from bot.plugins.manager import PluginManager, compute_effective_plugin_map
 
@@ -129,7 +128,6 @@ class TestPluginDefinitions:
         assert defs3[0]["name"] != "hacked"
         # Calling again still works
         assert len(defs3) == len(KNOWN_PLUGINS)
-
 
 class TestManifestOrder:
     """MANIFEST_ORDER defines deterministic handler registration order matching main.py."""
@@ -477,3 +475,195 @@ class TestPluginManagerComputeEffectiveMap:
         map_ = app.bot_data["plugin_effective_map"]
         assert map_[-100111]["profile_monitor"] is True
         assert map_[-100222]["profile_monitor"] is False
+
+
+class TestGuardPlugin:
+    """guard_plugin decorator: gated runtime enable/disable per group."""
+
+    @staticmethod
+    def _make_mock_update(chat_id: int, chat_type: str = "supergroup") -> MagicMock:
+        """Create a mock update with effective_chat."""
+        update = MagicMock()
+        chat = MagicMock()
+        chat.id = chat_id
+        chat.type = chat_type
+        update.effective_chat = chat
+        return update
+
+    @staticmethod
+    def _make_mock_context(effective_map: dict | None = None) -> MagicMock:
+        """Create a mock context with bot_data."""
+        context = MagicMock()
+        context.bot_data = {}
+        if effective_map is not None:
+            context.bot_data["plugin_effective_map"] = effective_map
+        return context
+
+    async def test_enabled_plugin_calls_callback(self):
+        """Enabled plugin for group -> callback called normally."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"profile_monitor": True}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_disabled_plugin_skips_callback(self):
+        """Disabled plugin for group -> callback NOT called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"profile_monitor": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_not_awaited()
+
+    async def test_unknown_group_passes_through(self):
+        """Unknown group_id -> safe default True -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100999)
+        context = self._make_mock_context({-100111: {"profile_monitor": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_empty_effective_map_passes_through(self):
+        """Empty effective_map -> safe defaults -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_missing_effective_map_passes_through(self):
+        """bot_data missing plugin_effective_map -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = MagicMock()
+        context.bot_data = {}
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_private_chat_passes_through(self):
+        """Private chat -> bypass gating -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(12345, chat_type="private")
+        context = self._make_mock_context({-100111: {"profile_monitor": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_no_effective_chat_passes_through(self):
+        """No effective_chat in update -> bypass gating -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = MagicMock()
+        update.effective_chat = None
+        context = self._make_mock_context({-100111: {"profile_monitor": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_group_a_disabled_group_b_enabled(self):
+        """Group A disabled -> no-op. Group B enabled -> callback called."""
+        callback_a = AsyncMock()
+        callback_b = AsyncMock()
+        wrapped_a = guard_plugin("profile_monitor")(callback_a)
+        wrapped_b = guard_plugin("profile_monitor")(callback_b)
+
+        effective_map = {-100111: {"profile_monitor": False}, -100222: {"profile_monitor": True}}
+
+        # Group A: disabled
+        update_a = self._make_mock_update(-100111)
+        context_a = self._make_mock_context(effective_map)
+        await wrapped_a(update_a, context_a)
+        callback_a.assert_not_awaited()
+
+        # Group B: enabled
+        update_b = self._make_mock_update(-100222)
+        context_b = self._make_mock_context(effective_map)
+        await wrapped_b(update_b, context_b)
+        callback_b.assert_awaited_once_with(update_b, context_b)
+
+    async def test_topic_guard_enabled_calls_callback(self):
+        """topic_guard plugin enabled -> topic_guard callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("topic_guard")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"topic_guard": True}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_topic_guard_disabled_skips_callback(self):
+        """topic_guard plugin disabled -> topic_guard callback NOT called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("topic_guard")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"topic_guard": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_not_awaited()
+
+    async def test_inline_keyboard_spam_disabled_skips_callback(self):
+        """inline_keyboard_spam disabled -> callback NOT called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("inline_keyboard_spam")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"inline_keyboard_spam": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_not_awaited()
+
+    async def test_guard_plugin_import_exported(self):
+        """guard_plugin is importable from bot.plugins.config."""
+        assert callable(guard_plugin)
+
+    async def test_no_effective_map_key_all_true(self):
+        """Toggle absent in effective_map -> safe default True."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("some_unknown_plugin")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"profile_monitor": True}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_decorated_function_name_preserved(self):
+        """guard_plugin preserves __name__ and __wrapped__ of original callback."""
+        async def my_handler(update, context):
+            pass
+
+        wrapped = guard_plugin("profile_monitor")(my_handler)
+
+        assert wrapped.__name__ == "my_handler"
+        assert wrapped.__wrapped__ is my_handler
