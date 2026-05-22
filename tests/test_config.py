@@ -1,6 +1,9 @@
+"""Tests for the config module."""
+
 from datetime import timedelta
 
 import pytest
+from pydantic_settings.exceptions import SettingsError
 
 from bot.config import Settings, get_settings, get_env_file
 
@@ -34,7 +37,6 @@ class TestGetEnvFile:
         monkeypatch.delenv("BOT_ENV", raising=False)
         monkeypatch.chdir(tmp_path)
         assert get_env_file() is None
-
 
 class TestSettings:
     def test_settings_from_env(self, monkeypatch):
@@ -175,6 +177,155 @@ class TestSettings:
         assert settings.bio_bait_monitor_only is True
         assert settings.bio_bait_alert_chat_id == 57747812
 
+class TestPluginsDefault:
+    def test_default_empty_dict(self, monkeypatch):
+        """Test plugins_default defaults to empty dict when not set."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.plugins_default == {}
+
+    def test_valid_json_string(self, monkeypatch):
+        """Test valid JSON string with known plugins."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"captcha": true, "dm": false}')
+
+        settings = Settings(_env_file=None)
+
+        assert settings.plugins_default == {"captcha": True, "dm": False}
+
+    def test_empty_string_raises(self, monkeypatch):
+        """Test empty string env var raises SettingsError (invalid JSON)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", "")
+
+        with pytest.raises(SettingsError, match="error parsing value"):
+            Settings(_env_file=None)
+
+    def test_whitespace_only_string_raises(self, monkeypatch):
+        """Test whitespace-only string env var raises SettingsError (invalid JSON)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", "   ")
+
+        with pytest.raises(SettingsError, match="error parsing value"):
+            Settings(_env_file=None)
+
+    def test_single_plugin(self, monkeypatch):
+        """Test single plugin entry."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"captcha": false}')
+
+        settings = Settings(_env_file=None)
+
+        assert settings.plugins_default == {"captcha": False}
+
+    def test_all_known_plugins(self, monkeypatch):
+        """Test dict with all known plugin names (using a subset)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv(
+            "PLUGINS_DEFAULT",
+            '{"captcha": true, "dm": true, "verify": false, "check": true}',
+        )
+
+        settings = Settings(_env_file=None)
+
+        assert settings.plugins_default == {
+            "captcha": True,
+            "dm": True,
+            "verify": False,
+            "check": True,
+        }
+
+    def test_invalid_json_string_raises(self, monkeypatch):
+        """Test invalid JSON string env var raises SettingsError."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", "not valid json")
+
+        with pytest.raises(SettingsError, match="error parsing value"):
+            Settings(_env_file=None)
+
+    def test_invalid_json_string_via_constructor_raises(self, monkeypatch):
+        """Test invalid JSON string passed via constructor raises our ValueError."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        with pytest.raises(ValueError, match="PLUGINS_DEFAULT must be a valid JSON string"):
+            Settings(_env_file=None, plugins_default="not valid json")
+
+    def test_empty_string_via_constructor_is_accepted(self, monkeypatch):
+        """Test empty string passed via constructor is accepted (bypasses env source)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None, plugins_default="")
+        assert settings.plugins_default == {}
+
+    def test_json_array_raises(self, monkeypatch):
+        """Test JSON array raises ValueError (must be object)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '["captcha", "dm"]')
+
+        with pytest.raises(ValueError, match="PLUGINS_DEFAULT must be a JSON object"):
+            Settings(_env_file=None)
+
+    def test_unknown_plugin_key_raises(self, monkeypatch):
+        """Test unknown plugin key raises ValueError."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"nonexistent_plugin": true}')
+
+        with pytest.raises(ValueError, match="Unknown plugin key.*nonexistent_plugin"):
+            Settings(_env_file=None)
+
+    def test_non_bool_value_raises(self, monkeypatch):
+        """Test non-boolean value raises ValueError."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"captcha": "yes"}')
+
+        with pytest.raises(ValueError, match="must be a boolean"):
+            Settings(_env_file=None)
+
+    def test_integer_value_raises(self, monkeypatch):
+        """Test integer value raises ValueError (must be boolean)."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"captcha": 1}')
+
+        with pytest.raises(ValueError, match="must be a boolean"):
+            Settings(_env_file=None)
+
+    def test_null_value_raises(self, monkeypatch):
+        """Test null value raises ValueError."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("PLUGINS_DEFAULT", '{"captcha": null}')
+
+        with pytest.raises(ValueError, match="must be a boolean"):
+            Settings(_env_file=None)
 
 class TestSettingsValidation:
     def test_group_id_must_be_negative(self, monkeypatch):
