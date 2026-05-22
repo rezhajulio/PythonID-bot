@@ -18,7 +18,12 @@
     "duplicate_spam_similarity": 0.95,
     "bio_bait_enabled": true,
     "bio_bait_monitor_only": false,
-    "bio_bait_alert_chat_id": null
+    "bio_bait_alert_chat_id": null,
+    "plugins": {
+      "captcha": false,
+      "dm": true,
+      "verify": true
+    }
   },
   {
     "group_id": -1009876543210,
@@ -39,6 +44,11 @@
     "duplicate_spam_similarity": 0.90,
     "bio_bait_enabled": true,
     "bio_bait_monitor_only": false,
-    "bio_bait_alert_chat_id": null
+    "bio_bait_alert_chat_id": null,
+    "plugins": {
+      "contact_spam": false,
+      "duplicate_spam": false,
+      "profile_monitor": true
+    }
   }
 ]
