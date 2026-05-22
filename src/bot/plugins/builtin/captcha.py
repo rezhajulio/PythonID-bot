@@ -40,6 +40,7 @@ def register_captcha(application: Application) -> list[BaseHandler]:  # type: ig
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _CaptchaPlugin:
     """Plugin wrapper for captcha handlers."""
 

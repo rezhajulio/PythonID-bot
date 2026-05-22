@@ -37,6 +37,7 @@ def register_dm(application: Application) -> list[BaseHandler]:  # type: ignore[
 
 # --- Coarse plugin class (keeps existing API) ---
 
+# Coarse plugin class for API compatibility. Unused by PluginManager.
 class _DmPlugin:
     """Plugin wrapper for DM handler."""
 
