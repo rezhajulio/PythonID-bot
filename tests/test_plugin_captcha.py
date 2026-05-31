@@ -1,5 +1,5 @@
 """Tests for the captcha plugin handler registration."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from bot.plugins.builtin.captcha import register_captcha
 from bot.handlers.captcha import get_handlers
