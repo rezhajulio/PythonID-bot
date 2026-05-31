@@ -15,8 +15,7 @@ from bot.config import get_settings
 from bot.database.service import get_database, init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.plugins.manager import PluginManager
-from bot.services.telegram_utils import fetch_group_admin_ids
-
+from bot.services.admin_cache import preload_admin_ids
 
 def configure_logging() -> None:
     """
@@ -86,9 +85,7 @@ def configure_logging() -> None:
     else:
         logger.info("Logfire disabled - console output only")
 
-
 logger = logging.getLogger(__name__)
-
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -109,39 +106,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
     logger.error("Unhandled exception:", exc_info=context.error)
 
-
 async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     """
     Post-initialization callback to fetch and cache group admin IDs.
 
     This runs once after the bot starts and before polling begins.
-    Fetches admin list from all monitored groups and stores per-group
-    and union admin IDs in bot_data. Also recovers pending captchas.
-
-    Args:
-        application: The Application instance.
+    Uses ``preload_admin_ids`` which preserves existing cached data
+    for groups that fail to fetch, preventing admin cache wipe on
+    startup failures.
     """
     logger.info("Starting post_init: fetching admin IDs and recovering captcha state")
     registry = get_group_registry()
 
-    # Fetch admin IDs for all monitored groups
-    group_admin_ids: dict[int, list[int]] = {}
-    all_admin_ids: set[int] = set()
-
-    for gc in registry.all_groups():
-        logger.info(f"Fetching admin IDs for group {gc.group_id}")
-        try:
-            ids = await fetch_group_admin_ids(application.bot, gc.group_id)  # type: ignore[arg-type]
-            group_admin_ids[gc.group_id] = ids
-            all_admin_ids.update(ids)
-            logger.info(f"Fetched {len(ids)} admin(s) from group {gc.group_id}")
-        except Exception as e:
-            logger.error(f"Failed to fetch admin IDs for group {gc.group_id}: {e}")
-            group_admin_ids[gc.group_id] = []
-
-    application.bot_data["group_admin_ids"] = group_admin_ids  # type: ignore[index]
-    application.bot_data["admin_ids"] = list(all_admin_ids)  # type: ignore[index]
-    logger.info(f"Total unique admins across all groups: {len(all_admin_ids)}")
+    # Use preload_admin_ids which preserves cache on failures
+    await preload_admin_ids(application)
 
     # Preload trusted users cache
     db = get_database()
@@ -156,7 +134,6 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
         from bot.services.captcha_recovery import recover_pending_captchas
 
         await recover_pending_captchas(application)
-
 
 def main() -> None:
     """
@@ -209,7 +186,6 @@ def main() -> None:
     logger.info("All handlers registered successfully")
 
     application.run_polling(allowed_updates=["message", "edited_message", "callback_query", "chat_member"])
-
 
 if __name__ == "__main__":
     main()
