@@ -225,8 +225,11 @@ class TestUserBioCache:
         context.bot.get_chat = AsyncMock(side_effect=Exception("boom"))
         bio = await get_cached_user_bio(context, 13)
         assert bio is None
-        # Failures are NOT cached so we retry next time.
-        assert 13 not in context.bot_data.get(USER_BIO_CACHE_KEY, {})
+        # Failures ARE cached (with shorter TTL) to prevent repeated API calls.
+        assert 13 in context.bot_data.get(USER_BIO_CACHE_KEY, {})
+        # Verify it's a failure sentinel
+        cached = context.bot_data[USER_BIO_CACHE_KEY][13]
+        assert cached[1] == "__FAILURE__"
 
     def test_clear_cache(self, context):
         context.bot_data[USER_BIO_CACHE_KEY] = {42: (123.0, "x")}
@@ -728,3 +731,50 @@ class TestBioBaitRegistrationFilter:
         assert BIO_BAIT_FILTER.check_update(update) is False, (
             "Bio-bait filter MUST exclude commands"
         )
+
+
+class TestGetCachedUserBio:
+    """Tests for the get_cached_user_bio function with negative caching."""
+
+    @pytest.mark.asyncio
+    async def test_caches_failures(self):
+        """Test that bio fetch failures are cached to prevent repeated API calls."""
+        mock_context = MagicMock()
+        mock_context.bot_data = {}
+        mock_context.bot = AsyncMock()
+
+        # First call fails
+        mock_context.bot.get_chat.side_effect = Exception("API error")
+        result1 = await get_cached_user_bio(mock_context, user_id=123)
+        assert result1 is None
+
+        # Second call should use cached failure, not call API again
+        mock_context.bot.get_chat.reset_mock()
+        result2 = await get_cached_user_bio(mock_context, user_id=123)
+        assert result2 is None
+        mock_context.bot.get_chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failure_cache_expires(self):
+        """Test that cached failures expire and retry after TTL."""
+        mock_context = MagicMock()
+        mock_context.bot_data = {}
+        mock_context.bot = AsyncMock()
+
+        # First call fails
+        mock_context.bot.get_chat.side_effect = Exception("API error")
+        await get_cached_user_bio(mock_context, user_id=123)
+
+        # Advance time past failure TTL
+        cache = mock_context.bot_data[USER_BIO_CACHE_KEY]
+        cached_entry = cache[123]
+        # Set TTL to past (negative value means expired)
+        cache[123] = (cached_entry[0] - 400, cached_entry[1])  # 400 seconds ago
+
+        # Should retry after cache expires
+        mock_context.bot.get_chat.reset_mock()
+        mock_context.bot.get_chat.side_effect = None  # Clear side_effect
+        mock_context.bot.get_chat.return_value = MagicMock(bio="new bio")
+        result = await get_cached_user_bio(mock_context, user_id=123)
+        assert result == "new bio"
+        mock_context.bot.get_chat.assert_called_once()

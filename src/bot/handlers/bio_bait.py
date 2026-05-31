@@ -55,6 +55,12 @@ USER_BIO_CACHE_KEY = "user_bio_cache"
 USER_BIO_CACHE_TTL_SECONDS = 3600
 USER_BIO_CACHE_MAX_SIZE = 2000
 
+# Failure cache TTL (shorter than success TTL)
+USER_BIO_FAILURE_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+# Sentinel value to indicate a cached failure
+_BIO_CACHE_FAILURE = "__FAILURE__"
+
 # Bio bait metrics stored in bot_data.
 BIO_BAIT_METRICS_KEY = "bio_bait_metrics"
 
@@ -307,15 +313,18 @@ async def get_cached_user_bio(
     Fetch the user's profile bio with a per-user TTL cache.
 
     Returns the cached bio if the entry is still fresh. Otherwise calls
-    bot.get_chat(user_id) and stores the result. Errors are swallowed and
-    cause this function to return None for that call.
+    bot.get_chat(user_id) and stores the result. Failures are cached for
+    a shorter TTL (5 min) to prevent repeated API calls.
     """
     cache = _get_user_bio_cache(context)
     now = monotonic()
 
     cached = cache.get(user_id)
-    if cached and cached[0] > now:
-        return cached[1]
+    if cached:
+        ttl, value = cached
+        if ttl > now:
+            # Return None for cached failures, bio string for cached successes
+            return None if value is _BIO_CACHE_FAILURE else value
 
     if len(cache) >= USER_BIO_CACHE_MAX_SIZE:
         sorted_keys = sorted(cache, key=lambda k: cache[k][0])
@@ -325,12 +334,13 @@ async def get_cached_user_bio(
     try:
         chat = await context.bot.get_chat(user_id)
         bio = (getattr(chat, "bio", None) or "").strip() or None
+        cache[user_id] = (now + USER_BIO_CACHE_TTL_SECONDS, bio)
+        return bio
     except Exception:
         logger.debug(f"Failed to fetch user bio: user_id={user_id}", exc_info=True)
+        # Cache failure with shorter TTL
+        cache[user_id] = (now + USER_BIO_FAILURE_CACHE_TTL_SECONDS, _BIO_CACHE_FAILURE)
         return None
-
-    cache[user_id] = (now + USER_BIO_CACHE_TTL_SECONDS, bio)
-    return bio
 
 async def handle_bio_bait_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
