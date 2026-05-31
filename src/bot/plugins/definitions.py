@@ -41,6 +41,15 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "refresh_admin_ids_job", "handler_group": 6, "description": "Periodic admin cache refresh job (every 10 min)"},
 ]
 
+# Admin command plugins that intentionally skip guard_plugin wrapping.
+# These handlers must work in every group regardless of plugin toggle state.
+# Documented here to make the architecture decision explicit.
+ADMIN_COMMANDS: frozenset[str] = frozenset({
+    "verify", "unverify", "check", "trust", "untrust", "trusted_list",
+    "check_forwarded_message", "verify_callback", "unverify_callback",
+    "warn_callback", "trust_callback", "untrust_callback",
+})
+
 # Single source of truth: canonical set of all known plugin names.
 PLUGIN_NAMES: frozenset[str] = frozenset(d["name"] for d in _PLUGIN_DEFINITIONS)  # type: ignore[arg-type]
 """Canonical set of all known built-in plugin names.
