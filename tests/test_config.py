@@ -199,8 +199,13 @@ class TestPluginsDefault:
 
         assert settings.plugins_default == {"captcha": True, "dm": False}
 
-    def test_empty_string_raises(self, monkeypatch):
-        """Test empty string env var raises SettingsError (invalid JSON)."""
+    def test_empty_string_raises_from_env(self, monkeypatch):
+        """Test empty string env var raises SettingsError from env source.
+
+        Note: Pydantic's EnvSettingsSource raises before the validator runs.
+        This is consistent behavior for env vars - empty strings are not valid JSON.
+        The validator handles empty strings correctly for direct constructor calls.
+        """
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GROUP_ID", "-100999")
         monkeypatch.setenv("WARNING_TOPIC_ID", "1")
@@ -209,8 +214,13 @@ class TestPluginsDefault:
         with pytest.raises(SettingsError, match="error parsing value"):
             Settings(_env_file=None)
 
-    def test_whitespace_only_string_raises(self, monkeypatch):
-        """Test whitespace-only string env var raises SettingsError (invalid JSON)."""
+    def test_whitespace_only_string_raises_from_env(self, monkeypatch):
+        """Test whitespace-only string env var raises SettingsError from env source.
+
+        Note: Pydantic's EnvSettingsSource raises before the validator runs.
+        This is consistent behavior for env vars - empty strings are not valid JSON.
+        The validator handles empty strings correctly for direct constructor calls.
+        """
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
         monkeypatch.setenv("GROUP_ID", "-100999")
         monkeypatch.setenv("WARNING_TOPIC_ID", "1")
@@ -218,6 +228,18 @@ class TestPluginsDefault:
 
         with pytest.raises(SettingsError, match="error parsing value"):
             Settings(_env_file=None)
+
+    def test_empty_string_from_constructor_returns_empty_dict(self, monkeypatch):
+        """Test empty string from constructor returns empty dict.
+
+        The validator handles empty strings correctly when called directly.
+        """
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+
+        settings = Settings(_env_file=None, plugins_default="")
+        assert settings.plugins_default == {}
 
     def test_single_plugin(self, monkeypatch):
         """Test single plugin entry."""
