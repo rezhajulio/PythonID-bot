@@ -11,6 +11,7 @@ fine-grained plugin registration.
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import TYPE_CHECKING
 
@@ -27,16 +28,19 @@ logger = logging.getLogger(__name__)
 def register_captcha(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register captcha handlers onto application.
 
-    Each handler's callback is wrapped with ``guard_plugin("captcha")``
-    for runtime per-group enable/disable gating.
+    Each handler is CLONED before wrapping to avoid mutating the original
+    handler objects returned by ``get_handlers()``.
     """
     handlers = captcha.get_handlers()
+    registered = []
     for h in handlers:
-        # Wrap the handler callback with runtime guard
-        h.callback = guard_plugin("captcha")(h.callback)  # type: ignore[method-assign]
-        application.add_handler(h)
+        # Clone the handler to avoid mutating the original
+        cloned = copy.copy(h)
+        cloned.callback = guard_plugin("captcha")(cloned.callback)  # type: ignore[method-assign]
+        application.add_handler(cloned)
+        registered.append(cloned)
     logger.info("Registered handler: captcha_handlers (group=0)")
-    return handlers
+    return registered
 
 # --- Coarse plugin class (keeps existing API) ---
 
