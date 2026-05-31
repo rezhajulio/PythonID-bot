@@ -1,7 +1,7 @@
 """Tests for bot.services.admin_cache module.
 
-Verifies that refresh_admin_ids is importable from the new location
-and behaves correctly.
+Verifies that refresh_admin_ids and preload_admin_ids are importable
+from the new location and behave correctly.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.group_config import GroupConfig, GroupRegistry
-
 
 @pytest.fixture
 def mock_registry():
@@ -20,7 +19,6 @@ def mock_registry():
         warning_topic_id=42,
     ))
     return registry
-
 
 class TestRefreshAdminIds:
     """refresh_admin_ids: fetch admin IDs for all groups, cache in bot_data."""
@@ -123,3 +121,87 @@ class TestRefreshAdminIds:
 
             jobs_mod.register_refresh_admin_ids_job(app)
             app.job_queue.run_repeating.assert_called_once()
+
+
+class TestPreloadAdminIds:
+    """preload_admin_ids: startup cache with fallback to existing data."""
+
+    async def test_preload_admin_ids_all_succeed(self):
+        """preload_admin_ids updates all groups when all fetches succeed."""
+        from bot.services.admin_cache import preload_admin_ids
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+        registry.register(GroupConfig(group_id=-1002, warning_topic_id=2))
+
+        mock_bot = AsyncMock()
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+        mock_context.bot_data = {
+            "group_admin_ids": {-1001: [111], -1002: [333]},
+            "admin_ids": [111, 333],
+        }
+
+        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
+             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+            mock_fetch.side_effect = [
+                [555, 666],   # -1001 success
+                [777],        # -1002 success
+            ]
+            await preload_admin_ids(mock_context)
+
+        assert mock_context.bot_data["group_admin_ids"][-1001] == [555, 666]
+        assert mock_context.bot_data["group_admin_ids"][-1002] == [777]
+        assert set(mock_context.bot_data["admin_ids"]) == {555, 666, 777}
+
+    async def test_preload_admin_ids_preserves_cache_on_failure(self):
+        """On fetch failure, preserve existing cached data for that group."""
+        from bot.services.admin_cache import preload_admin_ids
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+        registry.register(GroupConfig(group_id=-1002, warning_topic_id=2))
+
+        mock_bot = AsyncMock()
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+        mock_context.bot_data = {
+            "group_admin_ids": {-1001: [111, 222], -1002: [333]},
+            "admin_ids": [111, 222, 333],
+        }
+
+        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
+             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+            # First group succeeds, second fails
+            mock_fetch.side_effect = [
+                [444, 555],           # -1001 success
+                Exception("API error"), # -1002 failure
+            ]
+            await preload_admin_ids(mock_context)
+
+        # -1001 updated with new data
+        assert mock_context.bot_data["group_admin_ids"][-1001] == [444, 555]
+        # -1002 preserved from existing cache (not empty list)
+        assert mock_context.bot_data["group_admin_ids"][-1002] == [333]
+        # admin_ids includes both new (-1001) and preserved (-1002)
+        assert set(mock_context.bot_data["admin_ids"]) == {333, 444, 555}
+
+    async def test_preload_admin_ids_no_existing_cache(self):
+        """On failure with no existing cache, store empty list."""
+        from bot.services.admin_cache import preload_admin_ids
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+
+        mock_bot = AsyncMock()
+        mock_context = MagicMock()
+        mock_context.bot = mock_bot
+        mock_context.bot_data = {}
+
+        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
+             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+            mock_fetch.side_effect = Exception("API error")
+            await preload_admin_ids(mock_context)
+
+        assert mock_context.bot_data["group_admin_ids"][-1001] == []
+        assert mock_context.bot_data["admin_ids"] == []
