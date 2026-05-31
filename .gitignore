@@ -11,3 +11,6 @@ data/
 .vscode
 # AGENTS.md
 .worktrees/
+
+# Agent/planning docs
+docs/

@@ -212,3 +212,7 @@ if user.id not in admin_ids:
 - Captcha callback data encodes group_id: `captcha_verify_{group_id}_{user_id}` to avoid ambiguity
 - Scheduler iterates all groups with per-group exception isolation
 - DM handler scans all groups in registry for user membership and unrestriction
+
+## Policy
+
+- Never mention AI usage, code generation tools, or automated assistance in commit messages, PR descriptions, code comments, or documentation
