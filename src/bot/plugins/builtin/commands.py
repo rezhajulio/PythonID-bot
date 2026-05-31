@@ -9,6 +9,9 @@ commands/callbacks. Admin overrides must work in every group regardless
 of plugin toggle state. This matches pre-refactor behavior where admin
 commands were never gated.
 
+See ``bot.plugins.definitions.ADMIN_COMMANDS`` for the canonical set
+of admin-only plugins that skip runtime gating.
+
 Also exposes individual registrar functions (register_verify,
 register_unverify, etc.) for fine-grained plugin registration.
 """
