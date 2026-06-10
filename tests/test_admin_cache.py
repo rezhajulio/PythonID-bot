@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.group_config import GroupConfig, GroupRegistry
+from bot.services.telegram_utils import TelegramAdminFetchError
 
 @pytest.fixture
 def mock_registry():
@@ -94,7 +95,7 @@ class TestRefreshAdminIds:
 
         with patch("bot.services.admin_cache.get_group_registry", return_value=mock_registry):
             with patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
-                mock_fetch.side_effect = Exception("API error")
+                mock_fetch.side_effect = TelegramAdminFetchError("API error")
                 await refresh_admin_ids(context)
 
         assert context.bot_data["group_admin_ids"][-1001234567890] == [999]
@@ -112,7 +113,6 @@ class TestRefreshAdminIds:
 
         # Verify the import source directly (no reload needed)
         assert jobs_mod.refresh_admin_ids is admin_cache_mod.refresh_admin_ids
-
 
 class TestPreloadAdminIds:
     """preload_admin_ids: startup cache with fallback to existing data."""
@@ -165,8 +165,8 @@ class TestPreloadAdminIds:
              patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
             # First group succeeds, second fails
             mock_fetch.side_effect = [
-                [444, 555],           # -1001 success
-                Exception("API error"), # -1002 failure
+                [444, 555],                     # -1001 success
+                TelegramAdminFetchError("API error"),  # -1002 failure
             ]
             await preload_admin_ids(mock_context)
 
@@ -191,7 +191,7 @@ class TestPreloadAdminIds:
 
         with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
              patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
-            mock_fetch.side_effect = Exception("API error")
+            mock_fetch.side_effect = TelegramAdminFetchError("API error")
             await preload_admin_ids(mock_context)
 
         assert mock_context.bot_data["group_admin_ids"][-1001] == []

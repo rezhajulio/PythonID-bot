@@ -18,6 +18,9 @@ from bot.database.service import get_database
 
 logger = logging.getLogger(__name__)
 
+class TelegramAdminFetchError(Exception):
+    """Raised when fetching admin IDs from a Telegram group fails."""
+    pass
 
 def get_user_mention(user: User | Chat) -> str:
     """
@@ -36,7 +39,6 @@ def get_user_mention(user: User | Chat) -> str:
         escaped = escape_markdown(user.username.lstrip("@"), version=1)
         return f"@{escaped}"
     return mention_markdown(user.id, user.full_name, version=1)
-
 
 def get_user_mention_by_id(
     user_id: int,
@@ -60,7 +62,6 @@ def get_user_mention_by_id(
         escaped = escape_markdown(username.lstrip("@"), version=1)
         return f"@{escaped}"
     return mention_markdown(user_id, user_full_name, version=1)
-
 
 async def get_user_status(
     bot: Bot,
@@ -92,7 +93,6 @@ async def get_user_status(
             exc_info=True,
         )
         return None
-
 
 async def unrestrict_user(
     bot: Bot,
@@ -132,7 +132,6 @@ async def unrestrict_user(
         )
         raise
 
-
 def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
     """
     Extract user ID and name from a forwarded message.
@@ -156,7 +155,6 @@ def extract_forwarded_user(message: Message) -> tuple[int, str] | None:
     user_id = forwarded_user.id
     user_name = forwarded_user.full_name if hasattr(forwarded_user, 'full_name') else forwarded_user.first_name
     return user_id, user_name
-
 
 def is_url_whitelisted(url: str) -> bool:
     """
@@ -204,7 +202,6 @@ def is_url_whitelisted(url: str) -> bool:
     except Exception:
         return False
 
-
 def _get_trusted_ids(bot_data: dict) -> set[int]:
     """
     Return the cached set of trusted user IDs from ``bot_data``.
@@ -230,7 +227,6 @@ def _get_trusted_ids(bot_data: dict) -> set[int]:
         loaded = set()
     bot_data["trusted_user_ids"] = loaded
     return loaded
-
 
 def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bool:
     """
@@ -258,7 +254,6 @@ def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bo
     trusted_ids = _get_trusted_ids(bot_data)
     return user_id in trusted_ids
 
-
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
     """
     Fetch all administrator user IDs from a group.
@@ -271,7 +266,7 @@ async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
         list[int]: List of admin user IDs (including creator and administrators).
 
     Raises:
-        Exception: If unable to fetch administrators (bot not in group, etc.).
+        TelegramAdminFetchError: If unable to fetch administrators (bot not in group, etc.).
     """
     try:
         admins = await bot.get_chat_administrators(group_id)
@@ -283,4 +278,4 @@ async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
             f"Failed to fetch admins from group_id={group_id}: {e}",
             exc_info=True,
         )
-        raise Exception(f"Failed to fetch admins from group {group_id}: {e}")
+        raise TelegramAdminFetchError(f"Failed to fetch admins from group {group_id}: {e}") from e

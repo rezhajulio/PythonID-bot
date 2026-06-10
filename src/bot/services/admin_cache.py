@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from bot.group_config import get_group_registry
-from bot.services.telegram_utils import fetch_group_admin_ids
+from bot.services.telegram_utils import TelegramAdminFetchError, fetch_group_admin_ids
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -35,7 +35,7 @@ async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
             ids = await fetch_group_admin_ids(context.bot, gc.group_id)
             group_admin_ids[gc.group_id] = ids
             all_admin_ids.update(ids)
-        except Exception as e:
+        except TelegramAdminFetchError as e:
             logger.error(f"Failed to refresh admin IDs for group {gc.group_id}: {e}")
             existing = context.bot_data.get("group_admin_ids", {}).get(gc.group_id, [])
             group_admin_ids[gc.group_id] = existing
@@ -44,7 +44,6 @@ async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.bot_data["group_admin_ids"] = group_admin_ids
     context.bot_data["admin_ids"] = list(all_admin_ids)
     logger.info(f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)")
-
 
 async def preload_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -64,7 +63,7 @@ async def preload_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
             ids = await fetch_group_admin_ids(context.bot, gc.group_id)
             group_admin_ids[gc.group_id] = ids
             all_admin_ids.update(ids)
-        except Exception as e:
+        except TelegramAdminFetchError as e:
             logger.error(f"Failed to fetch admin IDs for group {gc.group_id}: {e}")
             existing = group_admin_ids.get(gc.group_id, [])
             group_admin_ids[gc.group_id] = existing
