@@ -736,7 +736,6 @@ class TestBioBaitRegistrationFilter:
 class TestGetCachedUserBio:
     """Tests for the get_cached_user_bio function with negative caching."""
 
-    @pytest.mark.asyncio
     async def test_caches_failures(self):
         """Test that bio fetch failures are cached to prevent repeated API calls."""
         mock_context = MagicMock()
@@ -754,7 +753,6 @@ class TestGetCachedUserBio:
         assert result2 is None
         mock_context.bot.get_chat.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_failure_cache_expires(self):
         """Test that cached failures expire and retry after TTL."""
         mock_context = MagicMock()
