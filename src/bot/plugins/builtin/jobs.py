@@ -33,6 +33,7 @@ def register_auto_restrict_job(application: Application) -> list[BaseHandler]:  
             name="auto_restrict_job",
         )
         logger.info("JobQueue registered: auto_restrict_job (every 5 minutes, first run in 5 minutes)")
+    # Jobs don't return handler objects
     return handlers
 
 def register_refresh_admin_ids_job(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
@@ -46,6 +47,7 @@ def register_refresh_admin_ids_job(application: Application) -> list[BaseHandler
             name="refresh_admin_ids_job",
         )
         logger.info("JobQueue registered: refresh_admin_ids_job (every 10 minutes)")
+    # Jobs don't return handler objects
     return handlers
 
 # --- Coarse plugin class (keeps existing API) ---
