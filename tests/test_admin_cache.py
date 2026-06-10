@@ -108,19 +108,10 @@ class TestRefreshAdminIds:
     async def test_jobs_imports_from_admin_cache(self):
         """jobs.py imports refresh_admin_ids from bot.services.admin_cache."""
         import bot.plugins.builtin.jobs as jobs_mod
+        import bot.services.admin_cache as admin_cache_mod
 
-        with patch("bot.services.admin_cache.refresh_admin_ids"):
-            import importlib
-            importlib.reload(jobs_mod)
-
-            app = MagicMock()
-            app.job_queue = MagicMock()
-            app.job_queue.run_repeating = MagicMock()
-            app.bot_data = {}
-            app.add_handler = MagicMock()
-
-            jobs_mod.register_refresh_admin_ids_job(app)
-            app.job_queue.run_repeating.assert_called_once()
+        # Verify the import source directly (no reload needed)
+        assert jobs_mod.refresh_admin_ids is admin_cache_mod.refresh_admin_ids
 
 
 class TestPreloadAdminIds:
