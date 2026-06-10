@@ -1,42 +1,44 @@
 """Tests for the captcha plugin handler registration."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from bot.plugins.builtin.captcha import register_captcha
-from bot.handlers.captcha import get_handlers
 
 
 def test_register_captcha_clones_handlers():
     """Test that register_captcha clones handlers before wrapping."""
     mock_app = MagicMock()
 
-    # Track original handler objects
-    original_handlers = get_handlers()
-    original_ids = [id(h) for h in original_handlers]
+    # Create fixed handler objects that get_handlers will return
+    handler1 = MagicMock()
+    handler1.callback = MagicMock()
+    handler2 = MagicMock()
+    handler2.callback = MagicMock()
+    fixed_handlers = [handler1, handler2]
 
-    # Register - should clone, not mutate originals
-    registered = register_captcha(mock_app)
+    with patch("bot.plugins.builtin.captcha.captcha.get_handlers", return_value=fixed_handlers):
+        registered = register_captcha(mock_app)
 
-    # Registered handlers should be different objects than originals
-    for reg, orig_id in zip(registered, original_ids):
-        assert id(reg) != orig_id, "Handler should be cloned, not original"
-
-    # Verify wrappers were applied to clones
+    # Registered handlers must be different objects (cloned)
     for reg in registered:
-        # The callback should be wrapped (guard_plugin wrapper)
-        assert reg.callback is not None
+        assert reg is not handler1 and reg is not handler2, (
+            "Handler should be cloned, not original"
+        )
 
 
 def test_register_captcha_does_not_mutate_original_handlers():
     """Test that register_captcha clones handlers instead of mutating originals."""
     mock_app = MagicMock()
 
-    # Get fresh handlers to capture original callbacks
-    original_handlers = get_handlers()
-    original_callbacks = [h.callback for h in original_handlers]
+    # Create fixed handler objects
+    handler1 = MagicMock()
+    original_cb1 = handler1.callback
+    handler2 = MagicMock()
+    original_cb2 = handler2.callback
+    fixed_handlers = [handler1, handler2]
 
-    # Register - should not affect original handler objects
-    register_captcha(mock_app)
+    with patch("bot.plugins.builtin.captcha.captcha.get_handlers", return_value=fixed_handlers):
+        register_captcha(mock_app)
 
-    # Original handler objects should still have their original callbacks
-    for h, orig_cb in zip(original_handlers, original_callbacks):
-        assert h.callback is orig_cb, "Original handler callback should not be mutated"
+    # Original handler callbacks must be unchanged
+    assert handler1.callback is original_cb1, "Original handler callback should not be mutated"
+    assert handler2.callback is original_cb2, "Original handler callback should not be mutated"
