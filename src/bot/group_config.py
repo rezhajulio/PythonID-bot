@@ -15,10 +15,7 @@ from pathlib import Path
 from pydantic import BaseModel, field_validator
 from telegram import Update
 
-from bot.plugins.definitions import PLUGIN_NAMES as KNOWN_PLUGINS
-
 logger = logging.getLogger(__name__)
-
 
 class GroupConfig(BaseModel):
     """
@@ -86,16 +83,13 @@ class GroupConfig(BaseModel):
     @field_validator("plugins", mode="before")
     @classmethod
     def validate_plugins(cls, v: object) -> dict[str, bool] | None:
+        from bot.plugins.config import validate_plugin_map
+
         if v is None:
             return None
         if not isinstance(v, dict):
             raise ValueError("plugins must be a dict or None")
-        for key, val in v.items():
-            if key not in KNOWN_PLUGINS:
-                raise ValueError(f"Unknown plugin key: '{key}'")
-            if not isinstance(val, bool):
-                raise ValueError(f"Plugin '{key}' value must be a boolean, got {type(val).__name__}")
-        return v
+        return validate_plugin_map(v)
 
     @property
     def probation_timedelta(self) -> timedelta:
@@ -108,7 +102,6 @@ class GroupConfig(BaseModel):
     @property
     def captcha_timeout_timedelta(self) -> timedelta:
         return timedelta(seconds=self.captcha_timeout_seconds)
-
 
 class GroupRegistry:
     """
@@ -134,7 +127,6 @@ class GroupRegistry:
 
     def is_monitored(self, group_id: int) -> bool:
         return group_id in self._groups
-
 
 def load_groups_from_json(path: str) -> list[GroupConfig]:
     """
@@ -170,7 +162,6 @@ def load_groups_from_json(path: str) -> list[GroupConfig]:
         seen_ids.add(config.group_id)
 
     return configs
-
 
 def build_group_registry(settings: object) -> GroupRegistry:
     """
@@ -222,7 +213,6 @@ def build_group_registry(settings: object) -> GroupRegistry:
 
     return registry
 
-
 def get_group_config_for_update(update: Update) -> GroupConfig | None:
     """
     Get the GroupConfig for the group in the given Update.
@@ -243,10 +233,8 @@ def get_group_config_for_update(update: Update) -> GroupConfig | None:
         logger.error("Group registry not initialized; skipping update")
         return None
 
-
 # Module-level singleton
 _registry: GroupRegistry | None = None
-
 
 def init_group_registry(settings: object) -> GroupRegistry:
     """
@@ -264,7 +252,6 @@ def init_group_registry(settings: object) -> GroupRegistry:
     _registry = build_group_registry(settings)
     return _registry
 
-
 def get_group_registry() -> GroupRegistry:
     """
     Get the global group registry singleton.
@@ -278,7 +265,6 @@ def get_group_registry() -> GroupRegistry:
     if _registry is None:
         raise RuntimeError("Group registry not initialized. Call init_group_registry() first.")
     return _registry
-
 
 def reset_group_registry() -> None:
     """Reset the group registry singleton (for testing)."""

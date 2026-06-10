@@ -16,8 +16,6 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from bot.group_config import KNOWN_PLUGINS
-
 logger = logging.getLogger(__name__)
 
 def get_env_file() -> str | None:
@@ -123,15 +121,8 @@ class Settings(BaseSettings):
             raise ValueError("PLUGINS_DEFAULT must be a JSON object, got array")
         else:
             return {}
-        for key, val in parsed.items():
-            if key not in KNOWN_PLUGINS:
-                raise ValueError(f"Unknown plugin key in PLUGINS_DEFAULT: '{key}'")
-            if not isinstance(val, bool):
-                raise ValueError(
-                    f"Plugin '{key}' in PLUGINS_DEFAULT must be a boolean, "
-                    f"got {type(val).__name__}"
-                )
-        return parsed
+        from bot.plugins.config import validate_plugin_map
+        return validate_plugin_map(parsed)
 
     def model_post_init(self, __context):
         """Validate and log non-sensitive configuration values after initialization."""
