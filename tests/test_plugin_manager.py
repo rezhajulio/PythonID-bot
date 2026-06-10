@@ -167,10 +167,10 @@ class TestManifestOrder:
             "captcha",
             "dm",
             "inline_keyboard_spam",
-            "bio_bait_spam",
             "contact_spam",
             "new_user_spam",
             "duplicate_spam",
+            "bio_bait_spam",
             "profile_monitor",
             "auto_restrict_job",
             "refresh_admin_ids_job",
@@ -234,6 +234,19 @@ class TestManifestOrder:
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["profile_monitor"]["handler_group"] == 5
 
+
+
+class TestManifestOrderConsistency:
+    """MANIFEST_ORDER must be sorted by handler_group."""
+
+    def test_manifest_order_sorted_by_handler_group(self):
+        """Entries in MANIFEST_ORDER appear in non-decreasing handler_group order."""
+        defs = {d["name"]: d for d in get_plugin_definitions()}
+        groups = [defs[name]["handler_group"] for name in MANIFEST_ORDER]
+        assert groups == sorted(groups), (
+            f"MANIFEST_ORDER not sorted by handler_group: "
+            f"{list(zip(MANIFEST_ORDER, groups))}"
+        )
 
 class TestBuiltinModules:
     """Verify built-in wrapper modules exist and export plugin objects."""
