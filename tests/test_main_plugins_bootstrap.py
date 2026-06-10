@@ -172,47 +172,48 @@ class TestMainUsesPluginManager:
                     mock_reg = MagicMock()
                     mock_reg.all_groups.return_value = []
                     mock_init_reg.return_value = mock_reg
-                with patch("bot.main.init_database"):
-                    with patch("bot.main.Application") as mock_app_cls:
-                        mock_app = MagicMock()
-                        mock_app.bot_data = {}
-                        mock_app_cls.builder.return_value.token.return_value.post_init.return_value.build.return_value = mock_app
-
-                        class FakeSettings:
-                            logfire_environment = "test"
-                            database_path = ":memory:"
-                            telegram_bot_token = "test"
-                            groups_config_path = "nonexistent.json"
-                            group_id = -100999
-                            warning_topic_id = 42
-                            restrict_failed_users = True
-                            warning_threshold = 3
-                            warning_time_threshold_minutes = 10080
-                            captcha_enabled = False
-                            captcha_timeout_seconds = 120
-                            new_user_probation_hours = 48
-                            new_user_violation_threshold = 3
-                            rules_link = "https://t.me/rules"
-                            contact_spam_restrict = False
-                            duplicate_spam_enabled = False
-                            duplicate_spam_window_seconds = 30
-                            duplicate_spam_threshold = 3
-                            duplicate_spam_min_length = 10
-                            duplicate_spam_similarity = 0.8
-                            bio_bait_enabled = True
-                            bio_bait_monitor_only = False
-                            bio_bait_alert_chat_id = None
-                            plugins_default = {}
-                            log_level = "INFO"
-                            logfire_enabled = False
-                            logfire_token = None
-                            logfire_service_name = "pythonid-bot"
-
-                        with patch("bot.main.get_settings", return_value=FakeSettings()):
-                            from bot.main import main
-                            main()
-
-                            mock_pm.register_all.assert_called_once()
+                    with patch("bot.main.init_database"):
+                        with patch("bot.main.Application") as mock_app_cls:
+                            mock_app = MagicMock()
+                            mock_app.bot_data = {}
+                            mock_app_cls.builder.return_value.token.return_value.post_init.return_value.build.return_value = mock_app
+    
+                            class FakeSettings:
+                                logfire_environment = "test"
+                                database_path = ":memory:"
+                                telegram_bot_token = "test"
+                                groups_config_path = "nonexistent.json"
+                                group_id = -100999
+                                warning_topic_id = 42
+                                restrict_failed_users = True
+                                warning_threshold = 3
+                                warning_time_threshold_minutes = 10080
+                                captcha_enabled = False
+                                captcha_timeout_seconds = 120
+                                new_user_probation_hours = 48
+                                new_user_violation_threshold = 3
+                                rules_link = "https://t.me/rules"
+                                contact_spam_restrict = False
+                                duplicate_spam_enabled = False
+                                duplicate_spam_window_seconds = 30
+                                duplicate_spam_threshold = 3
+                                duplicate_spam_min_length = 10
+                                duplicate_spam_similarity = 0.8
+                                bio_bait_enabled = True
+                                bio_bait_monitor_only = False
+                                bio_bait_alert_chat_id = None
+                                plugins_default = {}
+                                log_level = "INFO"
+                                logfire_enabled = False
+                                logfire_token = None
+                                logfire_service_name = "pythonid-bot"
+    
+                            with patch("bot.main.get_settings", return_value=FakeSettings()):
+                                from bot.main import main
+                                main()
+    
+                                mock_pm.register_all.assert_called_once()
+                    mock_init_reg.assert_called_once()
 
 
 class TestRefactoredBuiltinModules:
@@ -414,4 +415,9 @@ class TestIndividualRegistrars:
         app.add_handler = MagicMock()
         handlers = register_inline_keyboard_spam(app)
         assert len(handlers) >= 1
-        app.add_handler.assert_called_with(app.add_handler.call_args[0][0], group=1)
+        assert app.add_handler.call_count == 1
+        call_args, call_kwargs = app.add_handler.call_args
+        assert len(call_args) == 1
+        assert call_kwargs["group"] == 1
+        from telegram.ext import MessageHandler
+        assert isinstance(call_args[0], MessageHandler)
