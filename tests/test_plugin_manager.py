@@ -10,7 +10,6 @@ from bot.plugins.config import guard_plugin, is_plugin_enabled, is_plugin_enable
 from bot.plugins.definitions import MANIFEST_ORDER, PLUGIN_NAMES as KNOWN_PLUGINS, get_plugin_definitions
 from bot.plugins.manager import PluginManager, compute_effective_plugin_map
 
-
 class TestResolvePluginToggles:
     """Resolver: defaults True, group override wins."""
 
@@ -80,7 +79,6 @@ class TestResolvePluginToggles:
         assert toggles["verify"] is False    # from env
         assert toggles["profile_monitor"] is True  # default True
 
-
 class TestPluginContracts:
     """Verify plugin base contracts are importable and well-typed."""
 
@@ -94,7 +92,6 @@ class TestPluginContracts:
         assert "description" in base.PluginProtocol.__annotations__
         assert "handler_group" in base.PluginProtocol.__annotations__
         assert hasattr(base.PluginProtocol, "register")
-
 
 class TestPluginDefinitions:
     """Verify plugin definitions match KNOWN_PLUGINS and have correct types."""
@@ -141,8 +138,6 @@ class TestPluginDefinitions:
         defs = get_plugin_definitions()
         defs_by_name = {d["name"]: d for d in defs}
         assert defs_by_name["verify_callback"]["description"] == "Admin verify confirm button callback"
-
-
 
 class TestManifestOrder:
     """MANIFEST_ORDER defines deterministic handler registration order matching main.py."""
@@ -233,8 +228,6 @@ class TestManifestOrder:
         """profile_monitor entry has handler_group=5 (matches pre-refactor main.py)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["profile_monitor"]["handler_group"] == 5
-
-
 
 class TestManifestOrderConsistency:
     """MANIFEST_ORDER must be sorted by handler_group."""
@@ -334,7 +327,6 @@ class TestBuiltinModules:
             assert len(plugin.description) > 0
             assert callable(getattr(plugin, "register", None))
 
-
 class TestComputeEffectivePluginMap:
     """compute_effective_plugin_map: per-group toggle dict from registry + env defaults."""
 
@@ -417,7 +409,6 @@ class TestComputeEffectivePluginMap:
         result = compute_effective_plugin_map({}, reg)
         assert result[-100111]["profile_monitor"] is True
 
-
 class TestIsPluginEnabledForGroup:
     """Guard utility: is_plugin_enabled_for_group checks effective map."""
 
@@ -437,14 +428,13 @@ class TestIsPluginEnabledForGroup:
         assert is_plugin_enabled_for_group(effective_map, -100999, "profile_monitor") is True
 
     def test_missing_plugin_key_in_toggles_returns_true(self):
-        """Plugin key missing from group toggles returns True (strict defaults)."""
+        """Plugin key missing from group toggles returns True (fail-open defaults)."""
         effective_map = {-100111: {"captcha": False}}
         assert is_plugin_enabled_for_group(effective_map, -100111, "profile_monitor") is True
 
     def test_empty_effective_map_returns_true(self):
         """Empty effective map returns True for any group/plugin."""
         assert is_plugin_enabled_for_group({}, -100111, "profile_monitor") is True
-
 
 class TestPluginManagerComputeEffectiveMap:
     """PluginManager.compute_effective_map stores result in app.bot_data."""
@@ -503,7 +493,6 @@ class TestPluginManagerComputeEffectiveMap:
         map_ = app.bot_data["plugin_effective_map"]
         assert map_[-100111]["profile_monitor"] is True
         assert map_[-100222]["profile_monitor"] is False
-
 
 class TestGuardPlugin:
     """guard_plugin decorator: gated runtime enable/disable per group."""
@@ -695,6 +684,31 @@ class TestGuardPlugin:
 
         assert wrapped.__name__ == "my_handler"
         assert wrapped.__wrapped__ is my_handler
+
+    async def test_channel_chat_passes_through(self):
+        """Channel chat -> bypass gating -> callback called."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111, chat_type="channel")
+        context = self._make_mock_context({-100111: {"profile_monitor": False}})
+
+        await wrapped(update, context)
+
+        callback.assert_awaited_once_with(update, context)
+
+    async def test_args_and_kwargs_forwarded_to_callback(self):
+        """Extra args/kwargs are forwarded to the underlying callback."""
+        callback = AsyncMock()
+        wrapped = guard_plugin("profile_monitor")(callback)
+
+        update = self._make_mock_update(-100111)
+        context = self._make_mock_context({-100111: {"profile_monitor": True}})
+
+        await wrapped(update, context, "extra_arg", key="value")
+
+        callback.assert_awaited_once_with(update, context, "extra_arg", key="value")
+
 class TestPluginInitExports:
     """Verify bot.plugins.__init__ exports the full public API."""
 
@@ -714,7 +728,6 @@ class TestPluginInitExports:
         assert "is_plugin_enabled_for_group" in bot.plugins.__all__
         assert "compute_effective_plugin_map" in bot.plugins.__all__
 
-
 class TestIsPluginEnabledEdgeCases:
     """Edge cases for is_plugin_enabled."""
 
@@ -723,7 +736,6 @@ class TestIsPluginEnabledEdgeCases:
         toggles = {"captcha": True, "verify": False}
         with pytest.raises(KeyError):
             is_plugin_enabled(toggles, "non_existent_plugin")
-
 
 class TestComputeEffectivePluginMapEdgeCases:
     """Edge cases for compute_effective_plugin_map."""
@@ -742,7 +754,6 @@ class TestComputeEffectivePluginMapEdgeCases:
         """List input returns empty dict."""
         result = compute_effective_plugin_map({}, [1, 2, 3])
         assert result == {}
-
 
 class TestHandlerGroupsMatchPreRefactor:
     """Each pre-refactor handler group must match original main.py values.
@@ -830,3 +841,22 @@ class TestHandlerGroupsMatchPreRefactor:
         defs_by_name = {d["name"]: d for d in defs}
         assert defs_by_name["bio_bait_spam"]["handler_group"] < defs_by_name["profile_monitor"]["handler_group"], \
             f"bio_bait_spam (group={defs_by_name['bio_bait_spam']['handler_group']}) must be < profile_monitor (group=5)"
+
+class TestRegisterAllErrorHandling:
+    """register_all must handle registrar failures gracefully."""
+
+    def test_register_all_propagates_registrar_exception(self):
+        """If a registrar raises, the exception propagates to caller."""
+        from bot.plugins.manager import PluginManager
+
+        app = MagicMock()
+        app.bot_data = {}
+
+        pm = PluginManager()
+
+        def failing_registrar(application):
+            raise RuntimeError("captcha registrar failed")
+        pm._registry["captcha"] = failing_registrar
+
+        with pytest.raises(RuntimeError, match="captcha registrar failed"):
+            pm.register_all(app)
