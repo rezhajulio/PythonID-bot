@@ -42,7 +42,7 @@ def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]
     return [handler]
 
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register bio bait spam handler (group=6).
+    """Register bio bait spam handler (group=4).
 
     Callback wrapped with ``guard_plugin("bio_bait_spam")``.
     """
@@ -50,8 +50,8 @@ def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # ty
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
     )
-    application.add_handler(handler, group=6)
-    logger.info("Registered handler: bio_bait_spam_handler (group=6)")
+    application.add_handler(handler, group=4)
+    logger.info("Registered handler: bio_bait_spam_handler (group=4)")
     return [handler]
 
 def register_contact_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
