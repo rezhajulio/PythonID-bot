@@ -209,10 +209,10 @@ class TestManifestOrder:
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["topic_guard"]["handler_group"] == -1
 
-    def test_manifest_order_bio_bait_spam_in_group_six(self):
-        """bio_bait_spam entry has handler_group=6 (new, does not conflict with pre-refactor)."""
+    def test_manifest_order_bio_bait_spam_in_group_four(self):
+        """bio_bait_spam entry has handler_group=4 (runs before profile_monitor)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["bio_bait_spam"]["handler_group"] == 6
+        assert defs["bio_bait_spam"]["handler_group"] == 4
 
     def test_manifest_order_contact_spam_in_group_two(self):
         """contact_spam entry has handler_group=2 (matches pre-refactor main.py)."""
@@ -810,3 +810,10 @@ class TestHandlerGroupsMatchPreRefactor:
         defs = get_plugin_definitions()
         defs_by_name = {d["name"]: d for d in defs}
         assert defs_by_name["bio_bait_spam"]["handler_group"] != 2
+
+    def test_bio_bait_spam_group_less_than_profile_monitor(self):
+        """bio_bait_spam must run before profile_monitor (group < 5)."""
+        defs = get_plugin_definitions()
+        defs_by_name = {d["name"]: d for d in defs}
+        assert defs_by_name["bio_bait_spam"]["handler_group"] < defs_by_name["profile_monitor"]["handler_group"], \
+            f"bio_bait_spam (group={defs_by_name['bio_bait_spam']['handler_group']}) must be < profile_monitor (group=5)"
