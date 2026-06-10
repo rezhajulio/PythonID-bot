@@ -75,9 +75,9 @@ def is_plugin_enabled_for_group(
 ) -> bool:
     """Check if a plugin is enabled for a specific group using the effective map.
 
-    Safe defaults:
+    Fail-open defaults:
     - Unknown group_id => True (allow through)
-    - Missing plugin key in group toggles => True (strict defaults)
+    - Missing plugin key in group toggles => True (fail-open)
 
     Args:
         effective_map: Per-group plugin toggle map from
@@ -91,8 +91,27 @@ def is_plugin_enabled_for_group(
     """
     group_toggles = effective_map.get(group_id)
     if group_toggles is None:
-        return True  # Unknown group => safe default
-    return group_toggles.get(plugin_name, True)  # Missing key => safe default
+        return True  # Unknown group => fail-open
+    return group_toggles.get(plugin_name, True)  # Missing key => fail-open
+
+def validate_plugin_map(parsed: dict[str, bool]) -> dict[str, bool]:
+    """Validate that all keys are known plugin names and all values are bools.
+
+    Args:
+        parsed: Dict mapping plugin names to enabled/disabled state.
+
+    Returns:
+        The validated dict (unchanged).
+
+    Raises:
+        ValueError: If unknown plugin key or non-bool value found.
+    """
+    for key, val in parsed.items():
+        if key not in PLUGIN_NAMES:
+            raise ValueError(f"Unknown plugin key: '{key}'")
+        if not isinstance(val, bool):
+            raise ValueError(f"Plugin '{key}' value must be a boolean, got {type(val).__name__}")
+    return parsed
 
 def guard_plugin(
     plugin_name: str,
