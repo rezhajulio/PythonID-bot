@@ -8,6 +8,9 @@ Usage:
     python scripts/query_logs.py user --user-id 12345
     python scripts/query_logs.py group --group-id -1001234567
     python scripts/query_logs.py sql "SELECT * FROM records LIMIT 10"
+
+Note: Global flags (--json, --limit, --minutes) must appear BEFORE the subcommand:
+    python scripts/query_logs.py --minutes 60 --limit 100 errors
 """
 
 from __future__ import annotations
@@ -62,7 +65,6 @@ ORDER BY start_timestamp DESC
 LIMIT {limit}""",
 }
 
-
 def get_config() -> tuple[str, str]:
     """Read config from environment variables.
 
@@ -84,7 +86,6 @@ def get_config() -> tuple[str, str]:
 
     api_url = os.environ.get("LOGFIRE_API_URL", DEFAULT_API_URL)
     return api_url, token
-
 
 def query_logfire(api_url: str, token: str, sql: str) -> list[dict]:
     """Execute a SQL query against Logfire API.
@@ -122,7 +123,6 @@ def query_logfire(api_url: str, token: str, sql: str) -> list[dict]:
     if isinstance(data, list):
         return data
     return []
-
 
 def format_text(records: list[dict]) -> str:
     """Format records as human-readable text.
@@ -163,7 +163,6 @@ def format_text(records: list[dict]) -> str:
 
     return "\n".join(lines).rstrip()
 
-
 def build_query(command: str, args: argparse.Namespace) -> str:
     """Build SQL query from command and arguments.
 
@@ -194,7 +193,6 @@ def build_query(command: str, args: argparse.Namespace) -> str:
         params["group_id"] = args.group_id
 
     return template.format(**params)
-
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments.
@@ -241,16 +239,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     user_parser = subparsers.add_parser("user", help="Activity by user ID")
-    user_parser.add_argument("--user-id", required=True, help="Telegram user ID")
+    user_parser.add_argument("--user-id", required=True, type=int, help="Telegram user ID")
 
     group_parser = subparsers.add_parser("group", help="Activity by group ID")
-    group_parser.add_argument("--group-id", required=True, help="Telegram group ID")
+    group_parser.add_argument("--group-id", required=True, type=int, help="Telegram group ID")
 
     sql_parser = subparsers.add_parser("sql", help="Free-form SQL query")
     sql_parser.add_argument("query", help="SQL query to execute")
 
     return parser.parse_args(argv)
-
 
 def main(argv: list[str] | None = None) -> None:
     """Main entry point.
@@ -267,7 +264,6 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(records, indent=2, default=str))
     else:
         print(format_text(records))
-
 
 if __name__ == "__main__":
     main()
