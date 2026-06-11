@@ -81,14 +81,14 @@ class TestBuildQuery:
         args = parse_args(["sql", "SELECT * FROM records LIMIT 10"])
         sql, min_ts = build_query("sql", args)
         assert sql == "SELECT * FROM records LIMIT 10"
-        assert min_ts is not None
+        assert min_ts is None  # sql command uses default 2020-01-01
 
     def test_sql_query_adds_limit_if_missing(self):
         """SQL command adds LIMIT if not in query."""
         args = parse_args(["sql", "SELECT * FROM records"])
         sql, min_ts = build_query("sql", args)
         assert "LIMIT 50" in sql
-        assert min_ts is not None
+        assert min_ts is None  # sql command uses default 2020-01-01
 
     def test_sql_query_preserves_existing_limit(self):
         """SQL command keeps existing LIMIT."""
@@ -96,7 +96,7 @@ class TestBuildQuery:
         sql, min_ts = build_query("sql", args)
         assert "LIMIT 10" in sql
         assert sql.count("LIMIT") == 1
-        assert min_ts is not None
+        assert min_ts is None  # sql command uses default 2020-01-01
 
 class TestFormatText:
     """format_text produces readable output."""
