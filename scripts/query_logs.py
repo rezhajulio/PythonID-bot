@@ -8,9 +8,6 @@ Usage:
     python scripts/query_logs.py user --user-id 12345
     python scripts/query_logs.py group --group-id -1001234567
     python scripts/query_logs.py sql "SELECT * FROM records LIMIT 10"
-
-Note: Global flags (--json, --limit, --minutes) must appear BEFORE the subcommand:
-    python scripts/query_logs.py --minutes 60 --limit 100 errors
 """
 
 from __future__ import annotations
@@ -19,10 +16,13 @@ import argparse
 import json
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 
 import requests
+from dotenv import load_dotenv
 
 DEFAULT_API_URL = "https://logfire-us.pydantic.dev/v2/query"
+EU_API_URL = "https://logfire-eu.pydantic.dev/v2/query"
 DEFAULT_LIMIT = 50
 DEFAULT_MINUTES = 30
 
@@ -32,35 +32,30 @@ SELECT start_timestamp, duration, message, trace_id, is_exception,
        exception_message, attributes
 FROM records
 WHERE is_exception = true
-  AND start_timestamp > NOW() - INTERVAL '{minutes}' MINUTE
 ORDER BY start_timestamp DESC
 LIMIT {limit}""",
     "warnings": """\
 SELECT start_timestamp, duration, message, trace_id, level, attributes
 FROM records
 WHERE level = 'warn'
-  AND start_timestamp > NOW() - INTERVAL '{minutes}' MINUTE
 ORDER BY start_timestamp DESC
 LIMIT {limit}""",
     "slow": """\
 SELECT start_timestamp, duration, message, trace_id, attributes
 FROM records
 WHERE duration > {threshold}
-  AND start_timestamp > NOW() - INTERVAL '{minutes}' MINUTE
 ORDER BY duration DESC
 LIMIT {limit}""",
     "user": """\
 SELECT start_timestamp, duration, message, trace_id, level, attributes
 FROM records
 WHERE attributes->>'user_id' = '{user_id}'
-  AND start_timestamp > NOW() - INTERVAL '{minutes}' MINUTE
 ORDER BY start_timestamp DESC
 LIMIT {limit}""",
     "group": """\
 SELECT start_timestamp, duration, message, trace_id, level, attributes
 FROM records
 WHERE attributes->>'group_id' = '{group_id}'
-  AND start_timestamp > NOW() - INTERVAL '{minutes}' MINUTE
 ORDER BY start_timestamp DESC
 LIMIT {limit}""",
 }
@@ -68,32 +63,37 @@ LIMIT {limit}""",
 def get_config() -> tuple[str, str]:
     """Read config from environment variables.
 
+    Loads .env file if present. Reads LOGFIRE_READ_TOKEN and LOGFIRE_API_URL.
+
     Returns:
         Tuple of (api_url, read_token).
 
     Raises:
         SystemExit: If LOGFIRE_READ_TOKEN is not set.
     """
-    token = os.environ.get("LOGFIRE_READ_TOKEN")
+    token = os.environ.get("LOGFIRE_READ_TOKEN") or os.environ.get("LOGFIRE_TOKEN")
     if not token:
         print(
             "Error: LOGFIRE_READ_TOKEN not set.\n"
             "Create a read token at https://logfire.pydantic.dev → Project Settings → Read Tokens\n"
-            "Then set: export LOGFIRE_READ_TOKEN=your_token_here",
+            "Then add LOGFIRE_READ_TOKEN=your_token_here to .env",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    api_url = os.environ.get("LOGFIRE_API_URL", DEFAULT_API_URL)
+    api_url = os.environ.get("LOGFIRE_API_URL")
+    if not api_url:
+        api_url = EU_API_URL if token.startswith("pylf_v1_eu") else DEFAULT_API_URL
     return api_url, token
 
-def query_logfire(api_url: str, token: str, sql: str) -> list[dict]:
+def query_logfire(api_url: str, token: str, sql: str, min_timestamp: str | None = None) -> list[dict]:
     """Execute a SQL query against Logfire API.
 
     Args:
         api_url: Logfire query endpoint URL.
         token: Read token for authentication.
         sql: SQL query to execute.
+        min_timestamp: ISO format timestamp for time range filter.
 
     Returns:
         List of record dicts.
@@ -104,8 +104,11 @@ def query_logfire(api_url: str, token: str, sql: str) -> list[dict]:
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
-    payload = {"sql": sql, "format": "json"}
+    payload: dict[str, str | dict] = {"sql": sql}
+    if min_timestamp:
+        payload["min_timestamp"] = min_timestamp
 
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
@@ -117,7 +120,11 @@ def query_logfire(api_url: str, token: str, sql: str) -> list[dict]:
         print(f"API error {response.status_code}: {response.text}", file=sys.stderr)
         sys.exit(1)
 
-    data = response.json()
+    try:
+        data = response.json()
+    except Exception:
+        print(f"API returned non-JSON response: {response.text[:500]}", file=sys.stderr)
+        sys.exit(1)
     if isinstance(data, dict) and "data" in data:
         return data["data"]
     if isinstance(data, list):
@@ -163,25 +170,26 @@ def format_text(records: list[dict]) -> str:
 
     return "\n".join(lines).rstrip()
 
-def build_query(command: str, args: argparse.Namespace) -> str:
-    """Build SQL query from command and arguments.
+def build_query(command: str, args: argparse.Namespace) -> tuple[str, str | None]:
+    """Build SQL query and min_timestamp from command and arguments.
 
     Args:
         command: Query command name (errors, warnings, slow, user, group, sql).
         args: Parsed CLI arguments.
 
     Returns:
-        SQL query string.
+        Tuple of (sql_query, min_timestamp_iso).
     """
+    min_ts = (datetime.now(tz=UTC) - timedelta(minutes=args.minutes)).isoformat()
+
     if command == "sql":
         sql = args.query
         if "limit" not in sql.lower():
             sql = f"{sql.rstrip(';')} LIMIT {args.limit}"
-        return sql
+        return sql, min_ts
 
     template = QUERY_TEMPLATES[command]
     params: dict[str, int | str] = {
-        "minutes": args.minutes,
         "limit": args.limit,
     }
 
@@ -192,20 +200,10 @@ def build_query(command: str, args: argparse.Namespace) -> str:
     elif command == "group":
         params["group_id"] = args.group_id
 
-    return template.format(**params)
+    return template.format(**params), min_ts
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments.
-
-    Args:
-        argv: Argument list (defaults to sys.argv[1:]).
-
-    Returns:
-        Parsed namespace.
-    """
-    parser = argparse.ArgumentParser(
-        description="Query Pydantic Logfire logs via SQL API",
-    )
+def _add_common_args(parser: argparse.ArgumentParser) -> None:
+    """Add common flags (--json, --limit, --minutes) to a parser."""
     parser.add_argument(
         "--json",
         action="store_true",
@@ -225,12 +223,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Time window in minutes (default: {DEFAULT_MINUTES})",
     )
 
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments.
+
+    Args:
+        argv: Argument list (defaults to sys.argv[1:]).
+
+    Returns:
+        Parsed namespace.
+    """
+    parser = argparse.ArgumentParser(
+        description="Query Pydantic Logfire logs via SQL API",
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("errors", help="Error/exception logs")
-    subparsers.add_parser("warnings", help="Warning-level logs")
+    errors_p = subparsers.add_parser("errors", help="Error/exception logs")
+    _add_common_args(errors_p)
+
+    warnings_p = subparsers.add_parser("warnings", help="Warning-level logs")
+    _add_common_args(warnings_p)
 
     slow_parser = subparsers.add_parser("slow", help="Slow spans")
+    _add_common_args(slow_parser)
     slow_parser.add_argument(
         "--threshold",
         type=int,
@@ -239,12 +255,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     user_parser = subparsers.add_parser("user", help="Activity by user ID")
+    _add_common_args(user_parser)
     user_parser.add_argument("--user-id", required=True, type=int, help="Telegram user ID")
 
     group_parser = subparsers.add_parser("group", help="Activity by group ID")
+    _add_common_args(group_parser)
     group_parser.add_argument("--group-id", required=True, type=int, help="Telegram group ID")
 
     sql_parser = subparsers.add_parser("sql", help="Free-form SQL query")
+    _add_common_args(sql_parser)
     sql_parser.add_argument("query", help="SQL query to execute")
 
     return parser.parse_args(argv)
@@ -255,10 +274,11 @@ def main(argv: list[str] | None = None) -> None:
     Args:
         argv: Argument list (defaults to sys.argv[1:]).
     """
+    load_dotenv()
     args = parse_args(argv)
     api_url, token = get_config()
-    sql = build_query(args.command, args)
-    records = query_logfire(api_url, token, sql)
+    sql, min_ts = build_query(args.command, args)
+    records = query_logfire(api_url, token, sql, min_ts)
 
     if args.json_output:
         print(json.dumps(records, indent=2, default=str))
