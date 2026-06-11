@@ -107,8 +107,7 @@ def query_logfire(api_url: str, token: str, sql: str, min_timestamp: str | None 
         "Accept": "application/json",
     }
     payload: dict[str, str | dict] = {"sql": sql}
-    if min_timestamp:
-        payload["min_timestamp"] = min_timestamp
+    payload["min_timestamp"] = min_timestamp or "2020-01-01T00:00:00+00:00"
 
     try:
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
@@ -186,7 +185,7 @@ def build_query(command: str, args: argparse.Namespace) -> tuple[str, str | None
         sql = args.query
         if "limit" not in sql.lower():
             sql = f"{sql.rstrip(';')} LIMIT {args.limit}"
-        return sql, min_ts
+        return sql, None
 
     template = QUERY_TEMPLATES[command]
     params: dict[str, int | str] = {
