@@ -13,7 +13,6 @@ from scripts.query_logs import (
     query_logfire,
 )
 
-
 class TestGetConfig:
     """get_config reads from environment variables."""
 
@@ -35,7 +34,6 @@ class TestGetConfig:
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(SystemExit):
                 get_config()
-
 
 class TestBuildQuery:
     """build_query generates correct SQL from commands."""
@@ -93,7 +91,6 @@ class TestBuildQuery:
         assert "LIMIT 10" in sql
         assert sql.count("LIMIT") == 1
 
-
 class TestFormatText:
     """format_text produces readable output."""
 
@@ -133,7 +130,6 @@ class TestFormatText:
         output = format_text(records)
         assert "a" in output
         assert "b" in output
-
 
 class TestQueryLogfire:
     """query_logfire makes API calls."""
@@ -179,7 +175,6 @@ class TestQueryLogfire:
 
         with pytest.raises(SystemExit):
             query_logfire("http://api", "token", "SELECT 1")
-
 
 class TestParseArgs:
     """parse_args handles CLI arguments."""
@@ -227,20 +222,40 @@ class TestParseArgs:
         with pytest.raises(SystemExit):
             parse_args([])
 
+    def test_user_id_rejects_non_int(self):
+        """--user-id rejects non-numeric input (SQL injection prevention)."""
+        with pytest.raises(SystemExit):
+            parse_args(["user", "--user-id", "abc"])
+
+    def test_group_id_rejects_non_int(self):
+        """--group-id rejects non-numeric input (SQL injection prevention)."""
+        with pytest.raises(SystemExit):
+            parse_args(["group", "--group-id", "abc"])
+
+    def test_threshold_rejects_non_int(self):
+        """--threshold rejects non-numeric input."""
+        with pytest.raises(SystemExit):
+            parse_args(["slow", "--threshold", "abc"])
 
 class TestMainIntegration:
     """main() orchestrates query flow."""
 
     @patch("scripts.query_logs.query_logfire")
     @patch("scripts.query_logs.get_config", return_value=("http://api", "token"))
-    def test_main_text_output(self, mock_config, mock_query):
+    def test_main_text_output(self, mock_config, mock_query, capsys):
         """main() prints formatted text."""
-        mock_query.return_value = [{"message": "test", "is_exception": False}]
+        mock_query.return_value = [{"message": "test error", "is_exception": True}]
         main(["errors"])
+        output = capsys.readouterr().out
+        assert "ERROR" in output
+        assert "test error" in output
 
     @patch("scripts.query_logs.query_logfire")
     @patch("scripts.query_logs.get_config", return_value=("http://api", "token"))
-    def test_main_json_output(self, mock_config, mock_query):
+    def test_main_json_output(self, mock_config, mock_query, capsys):
         """main() --json prints JSON."""
         mock_query.return_value = [{"message": "test"}]
         main(["--json", "errors"])
+        output = capsys.readouterr().out
+        data = __import__("json").loads(output)
+        assert data == [{"message": "test"}]
