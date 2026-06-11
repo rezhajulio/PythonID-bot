@@ -40,56 +40,63 @@ class TestBuildQuery:
 
     def test_errors_query(self):
         """Errors command generates exception filter."""
-        args = parse_args(["--minutes", "60", "--limit", "25", "errors"])
-        sql = build_query("errors", args)
+        args = parse_args(["errors", "--minutes", "60", "--limit", "25"])
+        sql, min_ts = build_query("errors", args)
         assert "is_exception = true" in sql
-        assert "60" in sql
         assert "LIMIT 25" in sql
+        assert min_ts is not None
 
     def test_warnings_query(self):
         """Warnings command generates level filter."""
         args = parse_args(["warnings"])
-        sql = build_query("warnings", args)
+        sql, min_ts = build_query("warnings", args)
         assert "level = 'warn'" in sql
+        assert min_ts is not None
 
     def test_slow_query_with_threshold(self):
         """Slow command includes duration threshold."""
         args = parse_args(["slow", "--threshold", "3000"])
-        sql = build_query("slow", args)
+        sql, min_ts = build_query("slow", args)
         assert "duration > 3000" in sql
+        assert min_ts is not None
 
     def test_user_query(self):
         """User command filters by user_id."""
         args = parse_args(["user", "--user-id", "12345"])
-        sql = build_query("user", args)
+        sql, min_ts = build_query("user", args)
         assert "'12345'" in sql
         assert "user_id" in sql
+        assert min_ts is not None
 
     def test_group_query(self):
         """Group command filters by group_id."""
         args = parse_args(["group", "--group-id", "-100123"])
-        sql = build_query("group", args)
+        sql, min_ts = build_query("group", args)
         assert "'-100123'" in sql
         assert "group_id" in sql
+        assert min_ts is not None
 
     def test_sql_query_passthrough(self):
         """SQL command passes query through."""
         args = parse_args(["sql", "SELECT * FROM records LIMIT 10"])
-        sql = build_query("sql", args)
+        sql, min_ts = build_query("sql", args)
         assert sql == "SELECT * FROM records LIMIT 10"
+        assert min_ts is not None
 
     def test_sql_query_adds_limit_if_missing(self):
         """SQL command adds LIMIT if not in query."""
         args = parse_args(["sql", "SELECT * FROM records"])
-        sql = build_query("sql", args)
+        sql, min_ts = build_query("sql", args)
         assert "LIMIT 50" in sql
+        assert min_ts is not None
 
     def test_sql_query_preserves_existing_limit(self):
         """SQL command keeps existing LIMIT."""
         args = parse_args(["sql", "SELECT * FROM records LIMIT 10"])
-        sql = build_query("sql", args)
+        sql, min_ts = build_query("sql", args)
         assert "LIMIT 10" in sql
         assert sql.count("LIMIT") == 1
+        assert min_ts is not None
 
 class TestFormatText:
     """format_text produces readable output."""
@@ -187,14 +194,14 @@ class TestParseArgs:
         assert args.limit == 50
 
     def test_custom_minutes_and_limit(self):
-        """Custom minutes and limit before subcommand."""
-        args = parse_args(["--minutes", "120", "--limit", "100", "errors"])
+        """Custom minutes and limit after subcommand."""
+        args = parse_args(["errors", "--minutes", "120", "--limit", "100"])
         assert args.minutes == 120
         assert args.limit == 100
 
     def test_json_flag(self):
         """--json flag sets json_output."""
-        args = parse_args(["--json", "errors"])
+        args = parse_args(["errors", "--json"])
         assert args.json_output is True
 
     def test_slow_threshold(self):
@@ -255,7 +262,7 @@ class TestMainIntegration:
     def test_main_json_output(self, mock_config, mock_query, capsys):
         """main() --json prints JSON."""
         mock_query.return_value = [{"message": "test"}]
-        main(["--json", "errors"])
+        main(["errors", "--json"])
         output = capsys.readouterr().out
         data = __import__("json").loads(output)
         assert data == [{"message": "test"}]
