@@ -11,7 +11,7 @@ Note on the trust unrestrict policy:
 import logging
 from datetime import UTC
 
-from telegram import Bot, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
 
@@ -51,25 +51,15 @@ def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> N
     trusted_ids.discard(user_id)
 
 
-async def _format_user_display(bot: Bot, user_id: int) -> str:
-    """Return a markdown-safe ``Name (@username)`` display for a user.
+def _format_stored_user(full_name: str, user_id: int) -> str:
+    """Return a markdown-safe display for a stored user.
 
-    Falls back to ``User <id>`` if the bot cannot fetch the user profile
-    (e.g., user has not interacted with the bot or has blocked it).
+    Uses the cached full_name from the DB. Falls back to ``User <id>``
+    if the name is empty (e.g. trust granted via callback without name).
     """
-    try:
-        chat = await bot.get_chat(user_id)
-        full_name = chat.full_name or f"User {user_id}"
-        name = escape_markdown(full_name, version=1)
-        if chat.username:
-            username = escape_markdown(chat.username, version=1)
-            return f"{name} (@{username})"
-        return name
-    except Exception:
-        logger.warning(
-            f"Failed to fetch user info for {user_id}", exc_info=True
-        )
-        return f"User {user_id}"
+    if full_name:
+        return escape_markdown(full_name, version=1)
+    return f"User {user_id}"
 
 
 def _resolve_target_user_id(
@@ -102,6 +92,8 @@ async def trust_user(
     registry: GroupRegistry,
     target_user_id: int,
     admin_user_id: int,
+    target_user_full_name: str = "",
+    target_username: str | None = None,
 ) -> tuple[int, int]:
     """Add a trusted user and apply cleanup side effects.
 
@@ -119,6 +111,8 @@ async def trust_user(
     db.add_trusted_user(
         user_id=target_user_id,
         trusted_by_admin_id=admin_user_id,
+        user_full_name=target_user_full_name,
+        username=target_username,
     )
 
     cleared_probation = 0
@@ -180,12 +174,21 @@ async def handle_trust_command(
         await update.message.reply_text(error_message)
         return
 
+    # Resolve target user's display name
+    target_full_name = ""
+    target_username = None
+    if update.message.forward_from:
+        target_full_name = update.message.forward_from.full_name
+        target_username = update.message.forward_from.username
+
     db = get_database()
     registry = get_group_registry()
 
     try:
         cleared_count, unrestricted_count = await trust_user(
-            context.bot, db, registry, target_user_id, admin_user_id
+            context.bot, db, registry, target_user_id, admin_user_id,
+            target_user_full_name=target_full_name,
+            target_username=target_username,
         )
         _add_trusted_cache(context, target_user_id)
         await update.message.reply_text(
@@ -271,16 +274,17 @@ async def handle_trusted_list_command(
         if trusted_at.tzinfo is None:
             trusted_at = trusted_at.replace(tzinfo=UTC)
         trusted_at_display = trusted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-        user_display = await _format_user_display(context.bot, record.user_id)
-        admin_display = await _format_user_display(
-            context.bot, record.trusted_by_admin_id
-        )
+
+        # Use stored name/username — no API calls
+        user_display = _format_stored_user(record.user_full_name, record.user_id)
+        if record.username:
+            escaped = escape_markdown(record.username, version=1)
+            user_display += f" (@{escaped})"
+
         trusted_lines.append(
-            "• {user_display} (`{user_id}`) — oleh {admin_display} (`{admin_id}`) pada `{trusted_at}`".format(
+            "• {user_display} (`{user_id}`) pada `{trusted_at}`".format(
                 user_display=user_display,
                 user_id=record.user_id,
-                admin_display=admin_display,
-                admin_id=record.trusted_by_admin_id,
                 trusted_at=trusted_at_display,
             )
         )

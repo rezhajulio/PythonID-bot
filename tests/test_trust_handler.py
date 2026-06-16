@@ -146,6 +146,7 @@ class TestTrustCommands:
         forwarded_user = MagicMock()
         forwarded_user.id = 4444
         forwarded_user.full_name = "Forwarded User"
+        forwarded_user.username = None
         mock_update.message.forward_from = forwarded_user
 
         await handle_trust_command(mock_update, mock_context)
@@ -318,45 +319,35 @@ class TestTrustCommands:
 
     async def test_trusted_list_command(self, mock_update, mock_context):
         db = get_database()
-        db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
-        db.add_trusted_user(user_id=8002, trusted_by_admin_id=54321)
-
-        chats = {
-            8001: MagicMock(full_name="Alice Trusted", username="alice_t"),
-            8002: MagicMock(full_name="Bob Trusted", username=None),
-            12345: MagicMock(full_name="Admin One", username="admin_one"),
-            54321: MagicMock(full_name="Admin Two", username=None),
-        }
-        mock_context.bot.get_chat = AsyncMock(side_effect=lambda uid: chats[uid])
+        db.add_trusted_user(
+            user_id=8001, trusted_by_admin_id=12345,
+            user_full_name="Alice Trusted", username="alice_t",
+        )
+        db.add_trusted_user(
+            user_id=8002, trusted_by_admin_id=54321,
+            user_full_name="Bob Trusted", username=None,
+        )
 
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
         assert "8001" in message
         assert "8002" in message
-        assert "12345" in message
-        assert "54321" in message
         assert "UTC" in message
         assert "Alice Trusted" in message
-        assert "@alice\\_t" in message
+        assert "@alice\_t" in message
         assert "Bob Trusted" in message
-        assert "Admin One" in message
-        assert "@admin\\_one" in message
-        assert "Admin Two" in message
 
-    async def test_trusted_list_command_get_chat_failure_fallback(
+    async def test_trusted_list_command_empty_name_fallback(
         self, mock_update, mock_context
     ):
         db = get_database()
         db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
 
-        mock_context.bot.get_chat = AsyncMock(side_effect=Exception("not found"))
-
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
         assert "User 8001" in message
-        assert "User 12345" in message
 
 
 class TestTrustCallbacks:
