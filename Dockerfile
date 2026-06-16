@@ -19,6 +19,7 @@ RUN mkdir -p /app/data
 
 # Copy remaining project files (code changes trigger new layer)
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 
 # Create non-root user and set ownership
 RUN useradd -m -u 1000 bot && chown -R bot:bot /app
