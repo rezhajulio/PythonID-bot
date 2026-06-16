@@ -448,6 +448,29 @@ class DatabaseService:
             session.commit()
             logger.info(f"Removed trusted user: user_id={user_id}, scope={group_id}")
 
+    def update_trusted_user_names(
+        self,
+        user_id: int,
+        user_full_name: str,
+        username: str | None,
+    ) -> None:
+        """Update cached display name for a trusted user.
+
+        Used by backfill script to populate names for users trusted
+        before the cache feature was deployed.
+        """
+        with Session(self._engine) as session:
+            statement = select(TrustedUser).where(
+                TrustedUser.user_id == user_id,
+                TrustedUser.group_id == 0,
+            )
+            record = session.exec(statement).first()
+            if record:
+                record.user_full_name = user_full_name
+                record.username = username
+                session.add(record)
+                session.commit()
+
     def is_user_trusted(self, user_id: int, group_id: int | None = None) -> bool:
         """
         Check whether a user is trusted.
