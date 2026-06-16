@@ -99,6 +99,8 @@ class TrustedUser(SQLModel, table=True):
     trusted_by_admin_id: int
     user_full_name: str = Field(default="")
     username: str | None = Field(default=None)
+    admin_full_name: str = Field(default="")
+    admin_username: str | None = Field(default=None)
     trusted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     notes: str | None = Field(default=None)
 

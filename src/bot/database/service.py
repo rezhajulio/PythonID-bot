@@ -60,23 +60,24 @@ class DatabaseService:
         self._migrate_trusted_users()
 
     def _migrate_trusted_users(self) -> None:
-        """Add user_full_name/username columns to trusted_users if missing."""
+        """Add new columns to trusted_users if missing."""
         with self._engine.connect() as conn:
             columns = {
                 row[1] for row in conn.exec_driver_sql(
                     "PRAGMA table_info(trusted_users)"
                 ).fetchall()
             }
-            if "user_full_name" not in columns:
-                conn.exec_driver_sql(
-                    "ALTER TABLE trusted_users ADD COLUMN user_full_name TEXT DEFAULT ''"
-                )
-                logger.info("Migrated trusted_users: added user_full_name column")
-            if "username" not in columns:
-                conn.exec_driver_sql(
-                    "ALTER TABLE trusted_users ADD COLUMN username TEXT"
-                )
-                logger.info("Migrated trusted_users: added username column")
+            for col, default in [
+                ("user_full_name", "''"),
+                ("username", "NULL"),
+                ("admin_full_name", "''"),
+                ("admin_username", "NULL"),
+            ]:
+                if col not in columns:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE trusted_users ADD COLUMN {col} TEXT DEFAULT {default}"
+                    )
+                    logger.info(f"Migrated trusted_users: added {col} column")
             conn.commit()
 
     def get_or_create_user_warning(self, user_id: int, group_id: int) -> UserWarning:
@@ -379,6 +380,8 @@ class DatabaseService:
         notes: str | None = None,
         user_full_name: str = "",
         username: str | None = None,
+        admin_full_name: str = "",
+        admin_username: str | None = None,
     ) -> TrustedUser:
         """
         Add a user to trusted list.
@@ -390,6 +393,8 @@ class DatabaseService:
             notes: Optional admin notes.
             user_full_name: Display name of the trusted user.
             username: Username of the trusted user.
+            admin_full_name: Display name of the admin.
+            admin_username: Username of the admin.
 
         Returns:
             TrustedUser: Created trusted record.
@@ -414,6 +419,8 @@ class DatabaseService:
                 notes=notes,
                 user_full_name=user_full_name,
                 username=username,
+                admin_full_name=admin_full_name,
+                admin_username=admin_username,
             )
             session.add(record)
             session.commit()
@@ -453,8 +460,10 @@ class DatabaseService:
         user_id: int,
         user_full_name: str,
         username: str | None,
+        admin_full_name: str = "",
+        admin_username: str | None = None,
     ) -> None:
-        """Update cached display name for a trusted user.
+        """Update cached display names for a trusted user.
 
         Used by backfill script to populate names for users trusted
         before the cache feature was deployed.
@@ -468,6 +477,8 @@ class DatabaseService:
             if record:
                 record.user_full_name = user_full_name
                 record.username = username
+                record.admin_full_name = admin_full_name
+                record.admin_username = admin_username
                 session.add(record)
                 session.commit()
 

@@ -94,6 +94,8 @@ async def trust_user(
     admin_user_id: int,
     target_user_full_name: str = "",
     target_username: str | None = None,
+    admin_full_name: str = "",
+    admin_username: str | None = None,
 ) -> tuple[int, int]:
     """Add a trusted user and apply cleanup side effects.
 
@@ -113,6 +115,8 @@ async def trust_user(
         trusted_by_admin_id=admin_user_id,
         user_full_name=target_user_full_name,
         username=target_username,
+        admin_full_name=admin_full_name,
+        admin_username=admin_username,
     )
 
     cleared_probation = 0
@@ -189,6 +193,8 @@ async def handle_trust_command(
             context.bot, db, registry, target_user_id, admin_user_id,
             target_user_full_name=target_full_name,
             target_username=target_username,
+            admin_full_name=update.message.from_user.full_name,
+            admin_username=update.message.from_user.username,
         )
         _add_trusted_cache(context, target_user_id)
         await update.message.reply_text(
@@ -281,10 +287,17 @@ async def handle_trusted_list_command(
             escaped = escape_markdown(record.username, version=1)
             user_display += f" (@{escaped})"
 
+        admin_display = _format_stored_user(record.admin_full_name, record.trusted_by_admin_id)
+        if record.admin_username:
+            escaped = escape_markdown(record.admin_username, version=1)
+            admin_display += f" (@{escaped})"
+
         trusted_lines.append(
-            "• {user_display} (`{user_id}`) pada `{trusted_at}`".format(
+            "• {user_display} (`{user_id}`) — oleh {admin_display} (`{admin_id}`) pada `{trusted_at}`".format(
                 user_display=user_display,
                 user_id=record.user_id,
+                admin_display=admin_display,
+                admin_id=record.trusted_by_admin_id,
                 trusted_at=trusted_at_display,
             )
         )
@@ -326,7 +339,9 @@ async def handle_trust_callback(
 
     try:
         cleared_count, unrestricted_count = await trust_user(
-            context.bot, db, registry, target_user_id, admin_user_id
+            context.bot, db, registry, target_user_id, admin_user_id,
+            admin_full_name=query.from_user.full_name,
+            admin_username=query.from_user.username,
         )
         _add_trusted_cache(context, target_user_id)
         await query.edit_message_text(

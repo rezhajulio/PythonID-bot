@@ -47,6 +47,7 @@ def mock_update():
     update.message.from_user = MagicMock()
     update.message.from_user.id = 12345
     update.message.from_user.full_name = "Admin User"
+    update.message.from_user.username = "admin_user"
     update.message.reply_text = AsyncMock()
     update.effective_chat = MagicMock()
     update.effective_chat.type = "private"
@@ -322,10 +323,12 @@ class TestTrustCommands:
         db.add_trusted_user(
             user_id=8001, trusted_by_admin_id=12345,
             user_full_name="Alice Trusted", username="alice_t",
+            admin_full_name="Admin One", admin_username="admin_one",
         )
         db.add_trusted_user(
             user_id=8002, trusted_by_admin_id=54321,
             user_full_name="Bob Trusted", username=None,
+            admin_full_name="Admin Two", admin_username=None,
         )
 
         await handle_trusted_list_command(mock_update, mock_context)
@@ -337,6 +340,8 @@ class TestTrustCommands:
         assert "Alice Trusted" in message
         assert "@alice\_t" in message
         assert "Bob Trusted" in message
+        assert "Admin One" in message
+        assert "Admin Two" in message
 
     async def test_trusted_list_command_empty_name_fallback(
         self, mock_update, mock_context
@@ -358,6 +363,7 @@ class TestTrustCallbacks:
         update.callback_query.from_user = MagicMock()
         update.callback_query.from_user.id = 12345
         update.callback_query.from_user.full_name = "Admin User"
+        update.callback_query.from_user.username = "admin_user"
         update.callback_query.answer = AsyncMock()
         update.callback_query.edit_message_text = AsyncMock()
         return update
