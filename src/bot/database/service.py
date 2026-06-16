@@ -56,6 +56,29 @@ class DatabaseService:
 
         SQLModel.metadata.create_all(self._engine)
 
+        # Migrate existing tables: add new columns if missing
+        self._migrate_trusted_users()
+
+    def _migrate_trusted_users(self) -> None:
+        """Add user_full_name/username columns to trusted_users if missing."""
+        with self._engine.connect() as conn:
+            columns = {
+                row[1] for row in conn.exec_driver_sql(
+                    "PRAGMA table_info(trusted_users)"
+                ).fetchall()
+            }
+            if "user_full_name" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE trusted_users ADD COLUMN user_full_name TEXT DEFAULT ''"
+                )
+                logger.info("Migrated trusted_users: added user_full_name column")
+            if "username" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE trusted_users ADD COLUMN username TEXT"
+                )
+                logger.info("Migrated trusted_users: added username column")
+            conn.commit()
+
     def get_or_create_user_warning(self, user_id: int, group_id: int) -> UserWarning:
         """
         Get existing warning record or create a new one.
@@ -354,6 +377,8 @@ class DatabaseService:
         trusted_by_admin_id: int,
         group_id: int = 0,
         notes: str | None = None,
+        user_full_name: str = "",
+        username: str | None = None,
     ) -> TrustedUser:
         """
         Add a user to trusted list.
@@ -363,6 +388,8 @@ class DatabaseService:
             trusted_by_admin_id: Telegram user ID of admin granting trust.
             group_id: Trust scope ID (0 means global).
             notes: Optional admin notes.
+            user_full_name: Display name of the trusted user.
+            username: Username of the trusted user.
 
         Returns:
             TrustedUser: Created trusted record.
@@ -385,6 +412,8 @@ class DatabaseService:
                 group_id=group_id,
                 trusted_by_admin_id=trusted_by_admin_id,
                 notes=notes,
+                user_full_name=user_full_name,
+                username=username,
             )
             session.add(record)
             session.commit()

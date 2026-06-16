@@ -97,6 +97,8 @@ class TrustedUser(SQLModel, table=True):
     user_id: int = Field(index=True)
     group_id: int = Field(default=0, index=True)
     trusted_by_admin_id: int
+    user_full_name: str = Field(default="")
+    username: str | None = Field(default=None)
     trusted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     notes: str | None = Field(default=None)
 

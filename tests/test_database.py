@@ -421,14 +421,25 @@ class TestTrustedUsers:
         assert trusted_ids == {1001, 1002}
 
     def test_get_trusted_users_returns_metadata(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=2001, trusted_by_admin_id=9001)
-        db_service.add_trusted_user(user_id=2002, trusted_by_admin_id=9002)
+        db_service.add_trusted_user(
+            user_id=2001, trusted_by_admin_id=9001,
+            user_full_name="Alice", username="alice",
+        )
+        db_service.add_trusted_user(
+            user_id=2002, trusted_by_admin_id=9002,
+            user_full_name="Bob", username=None,
+        )
 
         trusted_users = db_service.get_trusted_users()
 
         assert len(trusted_users) == 2
         assert {u.user_id for u in trusted_users} == {2001, 2002}
         assert {u.trusted_by_admin_id for u in trusted_users} == {9001, 9002}
+        by_id = {u.user_id: u for u in trusted_users}
+        assert by_id[2001].user_full_name == "Alice"
+        assert by_id[2001].username == "alice"
+        assert by_id[2002].user_full_name == "Bob"
+        assert by_id[2002].username is None
 
     def test_is_user_trusted_non_zero_group_raises(
         self, db_service: DatabaseService
