@@ -424,10 +424,12 @@ class TestTrustedUsers:
         db_service.add_trusted_user(
             user_id=2001, trusted_by_admin_id=9001,
             user_full_name="Alice", username="alice",
+            admin_full_name="Admin Alpha", admin_username="admin_alpha",
         )
         db_service.add_trusted_user(
             user_id=2002, trusted_by_admin_id=9002,
             user_full_name="Bob", username=None,
+            admin_full_name="Admin Beta", admin_username=None,
         )
 
         trusted_users = db_service.get_trusted_users()
@@ -440,6 +442,41 @@ class TestTrustedUsers:
         assert by_id[2001].username == "alice"
         assert by_id[2002].user_full_name == "Bob"
         assert by_id[2002].username is None
+        assert by_id[2001].admin_full_name == "Admin Alpha"
+        assert by_id[2001].admin_username == "admin_alpha"
+        assert by_id[2002].admin_full_name == "Admin Beta"
+        assert by_id[2002].admin_username is None
+
+    def test_update_trusted_user_names(self, db_service: DatabaseService):
+        """Backfill path: update_trusted_user_names writes all 4 cached fields."""
+        db_service.add_trusted_user(
+            user_id=2003, trusted_by_admin_id=9003,
+            user_full_name="", username=None,
+            admin_full_name="", admin_username=None,
+        )
+
+        db_service.update_trusted_user_names(
+            user_id=2003,
+            user_full_name="Carol", username="carol",
+            admin_full_name="Admin Gamma", admin_username="admin_gamma",
+        )
+
+        record = next(r for r in db_service.get_trusted_users() if r.user_id == 2003)
+        assert record.user_full_name == "Carol"
+        assert record.username == "carol"
+        assert record.admin_full_name == "Admin Gamma"
+        assert record.admin_username == "admin_gamma"
+
+    def test_update_trusted_user_names_missing_user_is_noop(
+        self, db_service: DatabaseService
+    ):
+        """Backfill on unknown user_id must not raise (per the loop's per-record isolation)."""
+        db_service.update_trusted_user_names(
+            user_id=99999,
+            user_full_name="X", username="x",
+            admin_full_name="Y", admin_username="y",
+        )
+        assert db_service.is_user_trusted(99999) is False
 
     def test_is_user_trusted_non_zero_group_raises(
         self, db_service: DatabaseService

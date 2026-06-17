@@ -8,6 +8,7 @@ Usage: uv run python scripts/backfill_trusted_names.py
 
 import asyncio
 import logging
+import re
 
 from telegram import Bot
 
@@ -18,6 +19,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def _fetch_name(bot: Bot, tg_id: int) -> tuple[str, str | None]:
+    """Fetch display name + username from Telegram. Returns ``("", None)`` on error.
+
+    The display layer (``_format_person`` in ``bot/handlers/trust.py``) already
+    has a ``User <id>`` fallback for empty names, so we leave the column empty
+    on API error and let the display layer handle it. This keeps the DB clean,
+    avoids colliding with real users named ``User 12345``, and lets a re-run of
+    this script retry the failed lookups.
+    """
+    try:
+        chat = await bot.get_chat(tg_id)
+    except Exception as e:
+        logger.warning(f"  ✗ id={tg_id}: {e}")
+        return "", None
+    return chat.full_name or "", chat.username
+
+
 async def main():
     settings = get_settings()
     init_database(settings.database_path)
@@ -25,6 +43,21 @@ async def main():
     bot = Bot(token=settings.telegram_bot_token)
 
     users = db.get_trusted_users()
+
+    # Clean up legacy "User <id>" placeholder rows written by the pre-fix
+    # backfill (commit 4ec83be). Those rows are non-empty, so the new filter
+    # below would skip them forever and the display layer would keep rendering
+    # the placeholder as a real name. ponytail: a one-shot cleanup; remove
+    # when no production rows with the placeholder remain.
+    cleaned = 0
+    for u in users:
+        if u.user_full_name and re.match(r"^User \d+$", u.user_full_name):
+            db.update_trusted_user_names(user_id=u.user_id, user_full_name="")
+            cleaned += 1
+    if cleaned:
+        logger.info(f"Cleared {cleaned} legacy placeholder row(s) before backfill.")
+        users = db.get_trusted_users()
+
     to_backfill = [
         u for u in users
         if not u.user_full_name or not u.admin_full_name
@@ -38,31 +71,23 @@ async def main():
 
     async with bot:
         for record in to_backfill:
-            # Fetch target user name
             user_full_name = record.user_full_name
             username = record.username
             if not user_full_name:
-                try:
-                    chat = await bot.get_chat(record.user_id)
-                    user_full_name = chat.full_name or ""
-                    username = chat.username
+                user_full_name, fetched_username = await _fetch_name(bot, record.user_id)
+                if fetched_username is not None:
+                    username = fetched_username
+                if user_full_name:
                     logger.info(f"  ✓ user_id={record.user_id}: {user_full_name}")
-                except Exception as e:
-                    user_full_name = f"User {record.user_id}"
-                    logger.warning(f"  ✗ user_id={record.user_id}: {e}")
 
-            # Fetch admin name
             admin_full_name = record.admin_full_name
             admin_username = record.admin_username
             if not admin_full_name:
-                try:
-                    chat = await bot.get_chat(record.trusted_by_admin_id)
-                    admin_full_name = chat.full_name or ""
-                    admin_username = chat.username
+                admin_full_name, fetched_username = await _fetch_name(bot, record.trusted_by_admin_id)
+                if fetched_username is not None:
+                    admin_username = fetched_username
+                if admin_full_name:
                     logger.info(f"  ✓ admin_id={record.trusted_by_admin_id}: {admin_full_name}")
-                except Exception as e:
-                    admin_full_name = f"User {record.trusted_by_admin_id}"
-                    logger.warning(f"  ✗ admin_id={record.trusted_by_admin_id}: {e}")
 
             db.update_trusted_user_names(
                 user_id=record.user_id,

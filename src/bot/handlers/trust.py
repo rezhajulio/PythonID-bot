@@ -51,15 +51,23 @@ def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> N
     trusted_ids.discard(user_id)
 
 
-def _format_stored_user(full_name: str, user_id: int) -> str:
-    """Return a markdown-safe display for a stored user.
+def _format_person(full_name: str, user_id: int) -> str:
+    """Return a markdown-safe display for a stored person.
 
-    Uses the cached full_name from the DB. Falls back to ``User <id>``
-    if the name is empty (e.g. trust granted via callback without name).
+    Uses the cached ``full_name`` from the DB. Falls back to ``User <id>``
+    if the name is empty (e.g. trust granted via callback without name,
+    or pre-cache row from before the feature was deployed).
     """
     if full_name:
         return escape_markdown(full_name, version=1)
     return f"User {user_id}"
+
+
+def _format_person_with_username(full_name: str, username: str | None, user_id: int) -> str:
+    display = _format_person(full_name, user_id)
+    if username:
+        display += f" (@{escape_markdown(username, version=1)})"
+    return display
 
 
 def _resolve_target_user_id(
@@ -282,24 +290,16 @@ async def handle_trusted_list_command(
         trusted_at_display = trusted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
         # Use stored name/username — no API calls
-        user_display = _format_stored_user(record.user_full_name, record.user_id)
-        if record.username:
-            escaped = escape_markdown(record.username, version=1)
-            user_display += f" (@{escaped})"
-
-        admin_display = _format_stored_user(record.admin_full_name, record.trusted_by_admin_id)
-        if record.admin_username:
-            escaped = escape_markdown(record.admin_username, version=1)
-            admin_display += f" (@{escaped})"
+        user_display = _format_person_with_username(
+            record.user_full_name, record.username, record.user_id
+        )
+        admin_display = _format_person_with_username(
+            record.admin_full_name, record.admin_username, record.trusted_by_admin_id
+        )
 
         trusted_lines.append(
-            "• {user_display} (`{user_id}`) — oleh {admin_display} (`{admin_id}`) pada `{trusted_at}`".format(
-                user_display=user_display,
-                user_id=record.user_id,
-                admin_display=admin_display,
-                admin_id=record.trusted_by_admin_id,
-                trusted_at=trusted_at_display,
-            )
+            f"• {user_display} (`{record.user_id}`) — oleh {admin_display} "
+            f"(`{record.trusted_by_admin_id}`) pada `{trusted_at_display}`"
         )
 
     await update.message.reply_text(

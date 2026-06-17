@@ -138,6 +138,11 @@ class TestTrustCommands:
         assert "ditambahkan" in reply_args.args[0].lower()
         assert reply_args.kwargs.get("parse_mode") == "Markdown"
 
+        # Admin info must reach the DB so /trusted can render it without API calls.
+        record = next(r for r in db.get_trusted_users() if r.user_id == 1111)
+        assert record.admin_full_name == "Admin User"
+        assert record.admin_username == "admin_user"
+
     async def test_trust_command_success_from_forwarded_message(
         self, mock_update, mock_context, mock_registry, monkeypatch
     ):
@@ -328,20 +333,24 @@ class TestTrustCommands:
         db.add_trusted_user(
             user_id=8002, trusted_by_admin_id=54321,
             user_full_name="Bob Trusted", username=None,
-            admin_full_name="Admin Two", admin_username=None,
+            admin_full_name="Admin Two", admin_username="admin_two",
         )
 
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
-        assert "8001" in message
-        assert "8002" in message
+        # Per-row order: user display (with optional @username), user id, separator,
+        # admin display (with optional @username), admin id, timestamp.
+        assert (
+            "Alice Trusted (@alice\\_t) (`8001`) — oleh "
+            "Admin One (@admin\\_one) (`12345`)"
+        ) in message
+        assert (
+            "Bob Trusted (`8002`) — oleh "
+            "Admin Two (@admin\\_two) (`54321`)"
+        ) in message
+        # Timestamp present and UTC.
         assert "UTC" in message
-        assert "Alice Trusted" in message
-        assert "@alice\_t" in message
-        assert "Bob Trusted" in message
-        assert "Admin One" in message
-        assert "Admin Two" in message
 
     async def test_trusted_list_command_empty_name_fallback(
         self, mock_update, mock_context
@@ -352,7 +361,29 @@ class TestTrustCommands:
         await handle_trusted_list_command(mock_update, mock_context)
 
         message = mock_update.message.reply_text.call_args.args[0]
+        # User-side fallback (pre-cache row, no name in DB).
         assert "User 8001" in message
+        # Admin-side fallback (pre-cache row, no admin name in DB).
+        assert "User 12345" in message
+
+    async def test_trusted_list_command_admin_username_markdown_escape(
+        self, mock_update, mock_context
+    ):
+        """Admin username with MarkdownV1 special chars must be escaped."""
+        from telegram.helpers import escape_markdown
+
+        db = get_database()
+        db.add_trusted_user(
+            user_id=8003, trusted_by_admin_id=12345,
+            user_full_name="Carol Trusted", username=None,
+            admin_full_name="Admin Star", admin_username="admin*_`star",
+        )
+
+        await handle_trusted_list_command(mock_update, mock_context)
+
+        message = mock_update.message.reply_text.call_args.args[0]
+        # Escape path: *, _, ` all escaped per MarkdownV1.
+        assert f"@{escape_markdown('admin*_`star', version=1)}" in message
 
 
 class TestTrustCallbacks:
@@ -395,6 +426,28 @@ class TestTrustCallbacks:
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
         edit_args = mock_callback_update.callback_query.edit_message_text.call_args
         assert edit_args.kwargs.get("parse_mode") == "Markdown"
+
+        # Admin info must reach the DB from the callback path too.
+        record = next(r for r in get_database().get_trusted_users() if r.user_id == 7001)
+        assert record.admin_full_name == "Admin User"
+        assert record.admin_username == "admin_user"
+
+    async def test_trust_callback_admin_without_username(
+        self, mock_callback_update, mock_context, mock_registry, monkeypatch
+    ):
+        """Callback path with admin username=None must round-trip None to DB."""
+        monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
+        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
+        mock_callback_update.callback_query.from_user.username = None
+        mock_callback_update.callback_query.data = "trust:7001"
+
+        await handle_trust_callback(mock_callback_update, mock_context)
+
+        record = next(
+            r for r in get_database().get_trusted_users() if r.user_id == 7001
+        )
+        assert record.admin_full_name == "Admin User"
+        assert record.admin_username is None
 
     async def test_untrust_callback_no_query_returns_early(self, mock_context):
         update = MagicMock()
