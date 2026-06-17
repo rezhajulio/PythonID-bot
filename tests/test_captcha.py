@@ -404,10 +404,55 @@ class TestCaptchaCallbackHandler:
         )
         mock_job.schedule_removal.assert_called_once()
 
-    async def test_unrestrict_failure_stops_execution(
+    async def test_unrestrict_failure_keeps_user_restricted(
         self, mock_context, mock_registry, temp_db
     ):
-        """Test that unrestrict failure prevents false verification."""
+        """unrestrict_user fails AFTER successful DB cleanup. User stays
+        restricted on Telegram, DB row is gone (so timeout is a no-op),
+        verify button is gone. User waits for admin action — we never
+        reported success on a state we couldn't fully transition."""
+        from bot.constants import CAPTCHA_FAILED_VERIFICATION_MESSAGE
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+
+        mock_job = MagicMock()
+        mock_job.schedule_removal = MagicMock()
+        mock_context.job_queue.get_jobs_by_name.return_value = [mock_job]
+
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.from_user = MagicMock()
+        query.from_user.id = 12345
+        query.from_user.username = "testuser"
+        query.from_user.full_name = "Test User"
+        query.data = "captcha_verify_-1001234567890_12345"
+        query.edit_message_text = AsyncMock()
+
+        update = MagicMock()
+        update.callback_query = query
+
+        with (
+            patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.captcha.unrestrict_user", side_effect=Exception("Forbidden: bot is not an admin")),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
+        ):
+            await captcha_callback_handler(update, mock_context)
+
+        # DB was cleaned (finalization ran first in the new order).
+        assert db.get_pending_captcha(12345, -1001234567890) is None
+        # No success message edit.
+        query.edit_message_text.assert_not_called()
+        # User sees the failure alert exactly once.
+        query.answer.assert_called_once_with(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+
+    async def test_db_finalization_failure_keeps_user_restricted(
+        self, mock_context, mock_registry, temp_db
+    ):
+        """db.remove_pending_captcha raises. User stays restricted on
+        Telegram, DB row preserved, timeout still armed — user can retry."""
+        from bot.constants import CAPTCHA_FAILED_VERIFICATION_MESSAGE
         from bot.database.service import get_database
 
         db = get_database()
@@ -427,18 +472,20 @@ class TestCaptchaCallbackHandler:
 
         with (
             patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
             patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
+            patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
+            patch.object(db, "remove_pending_captcha", side_effect=Exception("DB locked")),
         ):
-            mock_unrestrict.side_effect = Exception("Unrestrict failed")
             await captcha_callback_handler(update, mock_context)
 
-        # Should NOT edit message or remove from database
-        query.edit_message_text.assert_not_called()
-        # Database record should still exist for retry
+        # DB cleanup failed first → user stays restricted, DB row preserved.
         assert db.get_pending_captcha(12345, -1001234567890) is not None
-        # Should show error alert
-        query.answer.assert_called_with("Gagal memverifikasi. Silakan coba lagi.", show_alert=True)
+        # No success message edit.
+        query.edit_message_text.assert_not_called()
+        # User sees the failure alert exactly once.
+        query.answer.assert_called_once_with(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        # Telegram unrestrict was NOT called (DB failure short-circuits).
+        mock_unrestrict.assert_not_called()
 
     async def test_edit_message_failure_in_callback_continues_gracefully(
         self, mock_context, mock_registry, temp_db
@@ -506,43 +553,11 @@ class TestCaptchaCallbackHandler:
         query.edit_message_text.assert_not_called()
         assert db.get_pending_captcha(12345, -1001234567890) is not None
 
-    async def test_profile_check_exception_shows_error(
-        self, mock_context, mock_registry, temp_db
-    ):
-        """Test that profile check exception shows failed verification alert."""
-        from bot.database.service import get_database
-
-        db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
-
-        query = MagicMock()
-        query.answer = AsyncMock()
-        query.from_user = MagicMock()
-        query.from_user.id = 12345
-        query.from_user.username = "testuser"
-        query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_-1001234567890_12345"
-        query.edit_message_text = AsyncMock()
-
-        update = MagicMock()
-        update.callback_query = query
-
-        with (
-            patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.check_user_profile", side_effect=Exception("API error")),
-        ):
-            await captcha_callback_handler(update, mock_context)
-
-        query.answer.assert_called_once_with(
-            "Gagal memverifikasi. Silakan coba lagi.", show_alert=True
-        )
-        query.edit_message_text.assert_not_called()
-        assert db.get_pending_captcha(12345, -1001234567890) is not None
-
     async def test_unknown_group_in_callback_rejects(
         self, mock_context, mock_registry, temp_db
     ):
         """Test that a callback with an unregistered group_id is rejected."""
+        from bot.constants import CAPTCHA_FAILED_VERIFICATION_MESSAGE
         query = MagicMock()
         query.answer = AsyncMock()
         query.from_user = MagicMock()
@@ -556,7 +571,7 @@ class TestCaptchaCallbackHandler:
             await captcha_callback_handler(update, mock_context)
 
         query.answer.assert_called_once_with(
-            "Gagal memverifikasi. Silakan coba lagi.", show_alert=True
+            CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True
         )
 
     async def test_captcha_callback_incomplete_profile_rejected(
@@ -693,6 +708,7 @@ class TestCaptchaCallbackHandler:
         mock_job.schedule_removal.assert_not_called()
 
     async def test_malformed_callback_data_rejected(self, mock_context):
+        from bot.constants import CAPTCHA_FAILED_VERIFICATION_MESSAGE
         query = MagicMock()
         query.answer = AsyncMock()
         query.from_user = MagicMock()
@@ -705,43 +721,8 @@ class TestCaptchaCallbackHandler:
         await captcha_callback_handler(update, mock_context)
 
         query.answer.assert_called_once_with(
-            "Gagal memverifikasi. Silakan coba lagi.", show_alert=True
+            CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True
         )
-
-    async def test_unrestrict_failure_preserves_timeout_job(
-        self, mock_context, mock_registry, temp_db
-    ):
-        from bot.database.service import get_database
-
-        db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
-
-        mock_job = MagicMock()
-        mock_job.schedule_removal = MagicMock()
-        mock_context.job_queue.get_jobs_by_name.return_value = [mock_job]
-
-        query = MagicMock()
-        query.answer = AsyncMock()
-        query.from_user = MagicMock()
-        query.from_user.id = 12345
-        query.from_user.username = "testuser"
-        query.from_user.full_name = "Test User"
-        query.data = "captcha_verify_-1001234567890_12345"
-        query.edit_message_text = AsyncMock()
-
-        update = MagicMock()
-        update.callback_query = query
-
-        with (
-            patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
-            patch("bot.handlers.captcha.unrestrict_user", side_effect=Exception("API error")),
-            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
-        ):
-            await captcha_callback_handler(update, mock_context)
-
-        mock_job.schedule_removal.assert_not_called()
-        assert db.get_pending_captcha(12345, -1001234567890) is not None
-
 
 class TestGetHandlers:
     def test_get_handlers_returns_list(self):

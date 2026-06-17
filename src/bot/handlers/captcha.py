@@ -304,19 +304,26 @@ async def captcha_callback_handler(
         )
         return
 
-    try:
-        await unrestrict_user(context.bot, group_config.group_id, target_user_id)
-        logger.info(f"Unrestricted verified user {target_user_id}")
-    except Exception as e:
-        logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
-        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
-        return
-
+    # DB finalization first (reversible). If it fails, user stays restricted
+    # in Telegram, DB row preserved, timeout still armed — user can retry.
     try:
         db.remove_pending_captcha(target_user_id, group_config.group_id)
         db.start_new_user_probation(target_user_id, group_config.group_id)
     except Exception:
         logger.error(f"DB finalization failed for user {target_user_id}", exc_info=True)
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    # Telegram unrestrict second (irreversible). If it fails after DB cleanup,
+    # user is still restricted on Telegram, DB row is gone so
+    # handle_captcha_expiration is a no-op, and the verify button is gone.
+    # User waits for admin action. Acceptable: we never reported success on a
+    # state we couldn't fully transition.
+    try:
+        await unrestrict_user(context.bot, group_config.group_id, target_user_id)
+        logger.info(f"Unrestricted verified user {target_user_id}")
+    except Exception as e:
+        logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return
 
