@@ -27,9 +27,12 @@ packages = ["src/bot"]
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.155.3",
+    "mypy>=2.1.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
+    "ruff>=0.15.17",
 ]
 
 [tool.pytest.ini_options]
@@ -46,3 +49,32 @@ omit = ["*/tests/*", "src/bot/main.py", "*/__init__.py"]
 exclude_lines = [
     "if __name__ == .__main__.:",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+# Pragmatic starting point. Tighten module-by-module via overrides below.
+ignore_missing_imports = true
+warn_unused_ignores = false
+warn_return_any = false
+no_implicit_optional = true
+# Allow gradual adoption: only block on errors that point to real bugs
+disallow_untyped_defs = false
+disallow_any_generics = false
+# Disable error codes that are noisy from PTB / SQLModel / Pydantic v2.
+# The team will tighten module-by-module over time. New code should still
+# be free of these errors when added.
+disable_error_code = [
+    "arg-type",      # PTB callback data typed as object
+    "attr-defined",  # Pydantic v2 model access via dict unpacking
+    "index",         # object indexing
+    "union-attr",    # Optional access (we add None checks where it matters)
+    "misc",          # Generator type variance
+    "return-value",  # Pydantic v2 return narrowing
+    "call-arg",      # Pydantic v2 argument coercion
+]
+
+[[tool.mypy.overrides]]
+# New code should be strict; existing modules opt in as they're touched.
+module = "bot.tests.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
