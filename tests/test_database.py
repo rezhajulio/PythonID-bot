@@ -478,6 +478,31 @@ class TestTrustedUsers:
         )
         assert db_service.is_user_trusted(99999) is False
 
+    def test_update_trusted_user_names_destructive_overwrite(
+        self, db_service: DatabaseService
+    ):
+        """Every call overwrites all 4 fields with caller-supplied values (default empty/None)."""
+        db_service.add_trusted_user(
+            user_id=2004, trusted_by_admin_id=9004,
+            user_full_name="Real Name", username="real_user",
+            admin_full_name="Real Admin", admin_username="real_admin",
+        )
+
+        # Caller only intends to touch user_full_name; other fields fall to defaults.
+        # username is required-positional in the service signature, so pass it
+        # explicitly as None; the test still pins destructive-overwrite for the
+        # remaining 3 fields.
+        db_service.update_trusted_user_names(
+            user_id=2004, user_full_name="New Name", username=None,
+        )
+
+        record = next(r for r in db_service.get_trusted_users() if r.user_id == 2004)
+        # Destructive: user_full_name updated, everything else clobbered to defaults.
+        assert record.user_full_name == "New Name"
+        assert record.username is None
+        assert record.admin_full_name == ""
+        assert record.admin_username is None
+
     def test_is_user_trusted_non_zero_group_raises(
         self, db_service: DatabaseService
     ):

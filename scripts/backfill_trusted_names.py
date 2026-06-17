@@ -44,18 +44,28 @@ async def main():
 
     users = db.get_trusted_users()
 
-    # Clean up legacy "User <id>" placeholder rows written by the pre-fix
-    # backfill (commit 4ec83be). Those rows are non-empty, so the new filter
-    # below would skip them forever and the display layer would keep rendering
-    # the placeholder as a real name. ponytail: a one-shot cleanup; remove
-    # when no production rows with the placeholder remain.
+    # Clean up legacy "User <id>" placeholder rows written by commit 6499f63's
+    # backfill (the previous version assigned f"User <record.user_id}" to
+    # user_full_name inside the except branch). Those rows are non-empty, so
+    # the new filter below would skip them forever and /trusted would keep
+    # rendering the placeholder as a real name. ponytail: one-shot cleanup;
+    # remove when no production rows with the placeholder remain.
     cleaned = 0
     for u in users:
         if u.user_full_name and re.match(r"^User \d+$", u.user_full_name):
-            db.update_trusted_user_names(user_id=u.user_id, user_full_name="")
-            cleaned += 1
+            try:
+                db.update_trusted_user_names(
+                    user_id=u.user_id, user_full_name="", username=None
+                )
+                logger.warning(
+                    f"Legacy placeholder cleared: user_id={u.user_id} "
+                    f"matched={u.user_full_name!r}"
+                )
+                cleaned += 1
+            except Exception as e:
+                logger.warning(f"  ✗ cleanup failed for user_id={u.user_id}: {e}")
     if cleaned:
-        logger.info(f"Cleared {cleaned} legacy placeholder row(s) before backfill.")
+        logger.warning(f"Cleared {cleaned} legacy placeholder row(s) before backfill.")
         users = db.get_trusted_users()
 
     to_backfill = [

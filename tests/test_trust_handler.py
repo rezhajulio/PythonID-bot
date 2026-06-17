@@ -143,6 +143,23 @@ class TestTrustCommands:
         assert record.admin_full_name == "Admin User"
         assert record.admin_username == "admin_user"
 
+    async def test_trust_command_admin_without_username(
+        self, mock_update, mock_context, mock_registry, monkeypatch
+    ):
+        """Admin without a public @handle must round-trip admin_username=None."""
+        monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
+        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
+        mock_update.message.from_user.username = None
+        mock_context.args = ["1111"]
+
+        await handle_trust_command(mock_update, mock_context)
+
+        record = next(
+            r for r in get_database().get_trusted_users() if r.user_id == 1111
+        )
+        assert record.admin_full_name == "Admin User"
+        assert record.admin_username is None
+
     async def test_trust_command_success_from_forwarded_message(
         self, mock_update, mock_context, mock_registry, monkeypatch
     ):
