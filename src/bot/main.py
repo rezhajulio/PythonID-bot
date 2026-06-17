@@ -6,6 +6,7 @@ via the plugin system, and starts the polling loop.
 """
 
 import logging
+from typing import Literal
 
 import logfire
 from telegram.error import NetworkError, TimedOut
@@ -48,7 +49,7 @@ def configure_logging() -> None:
     send_to_logfire = settings.logfire_enabled and settings.logfire_token is not None
 
     # Map log level to Logfire console min_log_level
-    logfire_min_level = log_level_str.lower()
+    logfire_min_level: Literal["trace", "debug", "info", "notice", "warn", "warning", "error", "fatal"] = log_level_str.lower()  # type: ignore[assignment]
 
     # Configure Logfire with minimal instrumentation
     logfire.configure(
@@ -119,7 +120,7 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     registry = get_group_registry()
 
     # Use preload_admin_ids which preserves cache on failures
-    await preload_admin_ids(application)
+    await preload_admin_ids(application)  # type: ignore[arg-type]
 
     # Preload trusted users cache
     db = get_database()

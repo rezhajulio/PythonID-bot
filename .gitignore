@@ -15,3 +15,6 @@ data/
 # Agent/planning docs
 docs/
 .pi/
+
+# Local review artifacts (parallel-reviewer outputs)
+reviews/
