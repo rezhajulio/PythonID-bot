@@ -7,8 +7,8 @@ Indonesian Telegram bot for multi-group profile enforcement (photo + username), 
 ## Commands
 
 ```bash
-# Install dependencies
-uv sync
+# Install dependencies (including dev)
+uv sync --dev
 
 # Run tests (100% coverage maintained)
 uv run pytest
@@ -19,11 +19,17 @@ uv run pytest tests/test_check.py
 # Run single test function
 uv run pytest tests/test_check.py::TestHandleCheckCommand::test_check_command_non_admin
 
+# Run only property-based tests
+uv run pytest tests/test_properties.py -v
+
 # Run with coverage
 uv run pytest --cov=bot --cov-report=term-missing
 
 # Run linter
 uv run ruff check .
+
+# Run type checker
+uv run mypy src/bot/ tests/
 
 # Run the bot
 uv run pythonid-bot
@@ -41,24 +47,42 @@ PythonID/
 │   ├── config.py         # Pydantic settings (get_settings() cached)
 │   ├── constants.py      # Indonesian templates + URL whitelists (528 lines)
 │   ├── group_config.py   # Multi-group config (GroupConfig, GroupRegistry)
-│   ├── handlers/         # Telegram update handlers
-│   │   ├── captcha.py    # New member verification flow
+│   ├── plugins/          # Modular plugin system (wraps handlers)
+│   │   ├── manager.py          # PluginManager — discovers + registers built-ins
+│   │   ├── definitions.py      # Plugin class contract
+│   │   ├── config.py           # guard_plugin("name") per-group runtime gate
+│   │   └── builtin/            # Built-in plugins (one per handler domain)
+│   │       ├── captcha.py
+│   │       ├── profile_monitor.py
+│   │       ├── spam.py
+│   │       ├── topic_guard.py
+│   │       ├── commands.py
+│   │       ├── dm.py
+│   │       └── jobs.py
+│   ├── handlers/         # Underlying handler implementations (wrapped by plugins)
+│   │   ├── captcha.py    # New member verification + profile check
 │   │   ├── verify.py     # Admin /verify, /unverify commands
 │   │   ├── check.py      # Admin /check command + forwarded message handling
 │   │   ├── anti_spam.py  # Anti-spam (contact cards, inline keyboards, probation)
 │   │   ├── message.py    # Profile compliance monitoring
 │   │   ├── dm.py         # DM unrestriction flow
-│   │   └── topic_guard.py # Warning topic protection (group=-1)
+│   │   ├── topic_guard.py # Warning topic protection (group=-1)
+│   │   ├── trust.py      # /trust, /untrust, /trusted admin commands
+│   │   └── duplicate_spam.py # Duplicate message detection
 │   ├── services/
 │   │   ├── user_checker.py      # Profile validation (photo + username)
 │   │   ├── scheduler.py         # JobQueue auto-restriction (every 5 min)
 │   │   ├── telegram_utils.py    # Shared API helpers
 │   │   ├── bot_info.py          # Bot metadata cache (singleton)
-│   │   └── captcha_recovery.py  # Restart recovery for pending captchas
+│   │   ├── captcha_recovery.py  # Restart recovery for pending captchas
+│   │   └── admin_cache.py       # Admin ID cache + refresh
 │   └── database/
-│       ├── models.py     # SQLModel schemas (4 tables)
+│       ├── models.py     # SQLModel schemas (5 tables: UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation, TrustedUser)
 │       └── service.py    # DatabaseService singleton (645 lines)
-├── tests/                # pytest-asyncio (19 files, 99.9% coverage)
+├── tests/                # pytest-asyncio + Hypothesis (30+ files)
+│   └── test_properties.py # Property-based tests for pure functions
+├── scripts/
+│   └── backfill_trusted_names.py  # One-shot backfill for trusted user names
 └── data/bot.db           # SQLite (auto-created, WAL mode)
 ```
 
@@ -81,12 +105,22 @@ PythonID/
 | `group_config.py` | 250 | Multi-group config, registry, JSON loading, .env fallback |
 | `database/service.py` | 671 | **Complexity hotspot** - handles warnings, captcha, probation state |
 | `constants.py` | 530 | Templates + massive whitelists (Indonesian tech community) |
-| `handlers/captcha.py` | 375 | New member join → restrict → verify → unrestrict lifecycle |
+| `handlers/captcha.py` | 375 | New member join → restrict → verify (with profile check) → unrestrict lifecycle |
 | `handlers/verify.py` | 358 | Admin verification commands + inline button callbacks |
 | `handlers/anti_spam.py` | 420 | Anti-spam: contact cards, inline keyboards, probation enforcement |
+| `handlers/trust.py` | 350 | /trust, /untrust, /trusted admin commands + cache |
 | `main.py` | 315 | Entry point, logging, handler registration, JobQueue setup |
+| `plugins/manager.py` | 250 | PluginManager — discovers + registers all built-in plugins |
+| `plugins/builtin/captcha.py` | 50 | Wraps captcha handler + applies guard_plugin gating |
 
 ## Architecture Patterns
+
+### Modular Plugin System
+- Built-in plugins live in `src/bot/plugins/builtin/`, one per handler domain (captcha, spam, topic_guard, profile_monitor, commands, dm, jobs)
+- Each plugin's `register(application)` is called by `PluginManager` in `main.py:post_init`
+- The plugin wrapper pattern: `bot.plugins.builtin.X` imports from `bot.handlers.X`, clones the handler list, and applies `guard_plugin("X")` for per-group runtime gating
+- To add a new plugin: create a class with `name` + `register(application)` in `builtin/`, register it in `manager.py`
+- Handler modules stay decoupled from plugin internals — changes to `bot/handlers/X.py` flow through transparently
 
 ### Handler Priority Groups
 ```python
@@ -99,6 +133,12 @@ group=3   # new_user_spam: Probation enforcement (links/forwards)
 group=4   # duplicate_spam: Repeated message detection
 group=5   # message_handler: Runs LAST, profile compliance check
 ```
+
+### Captcha Profile Check
+- New members must have a public profile photo AND username before captcha verification completes
+- `check_user_profile()` in `services/user_checker.py` queries both via Bot API
+- Profile-incomplete path: alert shown, captcha record preserved, timeout still armed, user can fix profile and retry
+- DB finalization (remove_pending_captcha + start_new_user_probation) runs **before** `unrestrict_user` — the irreversible Telegram side effect goes last, so a failure leaves the user still restricted + DB consistent
 
 ### Topic Guard Design
 - Handles both `message` and `edited_message` updates (combined filter)
@@ -137,7 +177,8 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - SQLite with **WAL mode** for concurrency
 - `session.exec(select(Model).where(...)).first()` syntax
 - Atomic updates for violation counts (prevents race conditions)
-- No Alembic — use `SQLModel.metadata.create_all`
+- No Alembic — use `SQLModel.metadata.create_all` + `_migrate_trusted_users` for column adds
+- New tables: `TrustedUser` (5th table) for the /trust admin bypass feature
 
 ## Code Style
 
@@ -157,7 +198,9 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - **Fixtures**: `mock_update`, `mock_context`, `mock_settings` — copy from existing tests
 - **Database tests**: Use `temp_db` fixture with `tempfile.TemporaryDirectory`
 - **Mocking**: `AsyncMock` for Telegram API; no real network calls
-- **Coverage**: 99.9% maintained (534 tests) — check before committing
+- **Property-based tests**: `tests/test_properties.py` uses Hypothesis for pure functions (format helpers, URL whitelist, `_format_person`). 200 examples per test by default. New pure functions SHOULD have property tests
+- **Coverage**: 99% maintained (~970 tests) — check before committing
+- **Test delta tracking**: When a fix changes a function signature, update existing tests AND add a new round-trip test that asserts the actual values, not substring matches
 
 ## Anti-Patterns (THIS PROJECT)
 
@@ -197,8 +240,19 @@ if user.id not in admin_ids:
 
 - **GitHub Actions**: `.github/workflows/python-checks.yml`
 - **Matrix**: Python 3.11, 3.12, 3.13, 3.14
-- **Steps**: Ruff lint → pytest
+- **Steps**: ruff → mypy → pytest (lint job always; test job runs when Python files changed)
+- **Mypy config**: Pragmatic, in `pyproject.toml [tool.mypy]`. Disables noisy error codes from PTB / SQLModel / Pydantic v2 (`arg-type`, `attr-defined`, `index`, `union-attr`, `misc`, `return-value`, `call-arg`). New code should remain free of these errors
 - **Docker**: Multi-stage build with `uv`, non-root user, 512MB limit
+
+## Where to Look (Plugin System)
+
+| Task | Location |
+|------|----------|
+| Add a new built-in plugin | `src/bot/plugins/builtin/X.py` (class with `name` + `register(application)`) |
+| Register an existing handler as a plugin | Wrap `bot.handlers.X.get_handlers()` in `bot/plugins/builtin/X.py` |
+| Add per-group runtime gating | `guard_plugin("X")` decorator in `src/bot/plugins/config.py` |
+| Disable a plugin for one group | Set `enabled_plugins: list[str]` in that group's config (groups.json) |
+| Bypass per-group gating for a single call | `guard_plugin.bypass_for(group_id)` context manager |
 
 ## Notes
 
@@ -212,6 +266,9 @@ if user.id not in admin_ids:
 - Captcha callback data encodes group_id: `captcha_verify_{group_id}_{user_id}` to avoid ambiguity
 - Scheduler iterates all groups with per-group exception isolation
 - DM handler scans all groups in registry for user membership and unrestriction
+- **Trust feature**: `TrustedUser` table caches user_full_name + admin_full_name at trust time so `/trusted` lists admin info without Telegram API calls. Backfill script at `scripts/backfill_trusted_names.py` for pre-existing rows
+- **Local review artifacts**: `reviews/` directory contains output from parallel reviewer subagents. Gitignored; not part of the source tree
+- **Captcha DB ordering**: The captcha callback handler does DB writes (remove_pending_captcha, start_new_user_probation) BEFORE the Telegram `unrestrict_user` call. Reversible side effects first, irreversible last
 
 ## Policy
 
