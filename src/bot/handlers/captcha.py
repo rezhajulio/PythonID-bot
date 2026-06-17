@@ -22,6 +22,7 @@ from telegram.ext import (
 from bot.constants import (
     CAPTCHA_FAILED_VERIFICATION_MESSAGE,
     CAPTCHA_INCOMPLETE_PROFILE_MESSAGE,
+    CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
     CAPTCHA_WELCOME_MESSAGE,
     CAPTCHA_WRONG_USER_MESSAGE,
@@ -293,7 +294,7 @@ async def captcha_callback_handler(
         result = await check_user_profile(context.bot, query.from_user)
     except Exception:
         logger.error(f"Profile check failed during captcha for user {target_user_id}", exc_info=True)
-        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        await query.answer(CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE, show_alert=True)
         return
 
     if not result.is_complete:

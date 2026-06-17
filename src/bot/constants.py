@@ -125,6 +125,10 @@ CAPTCHA_INCOMPLETE_PROFILE_MESSAGE = (
     "❌ Lengkapi {missing_text} terlebih dahulu, lalu tekan tombol ini lagi."
 )
 
+CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE = (
+    "❌ Gagal memeriksa profil. Coba lagi dalam beberapa detik."
+)
+
 CAPTCHA_FAILED_VERIFICATION_MESSAGE = "Gagal memverifikasi. Silakan coba lagi."
 
 # DM handler message templates
