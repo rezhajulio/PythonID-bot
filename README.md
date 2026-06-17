@@ -153,8 +153,8 @@ When `groups.json` is present, per-group settings override the `.env` defaults. 
 ## Installation
 
 ```bash
-# Install dependencies
-uv sync
+# Install dependencies (including dev tools: ruff, mypy, hypothesis, pytest)
+uv sync --dev
 
 # Run the bot (production)
 uv run pythonid-bot
@@ -194,27 +194,31 @@ uv run pytest --cov=bot --cov-report=term-missing
 
 # Run tests verbosely
 uv run pytest -v
+
+# Run only property-based tests
+uv run pytest tests/test_properties.py -v
+
+# Type check
+uv run mypy src/bot/ tests/
 ```
 
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 99.9% (1,570 statements, 1 unreachable line)
-- **Tests**: 534 total
-- **Pass Rate**: 100% (534/534 passed)
-- **All modules at 100%** except one unreachable line in `anti_spam.py`
-  - Services: `bot_info.py`, `scheduler.py`, `user_checker.py`, `telegram_utils.py`, `captcha_recovery.py` — all 100%
-  - Handlers: `anti_spam.py` (99%), `captcha.py`, `check.py`, `dm.py`, `message.py`, `topic_guard.py`, `verify.py`, `duplicate_spam.py` — all 100%
-  - Database: `service.py`, `models.py` — all 100%
-  - Config: `config.py`, `group_config.py`, `constants.py` — all 100%
+- **Coverage**: 98%+ (~2,500 statements, <2% unreachable)
+- **Tests**: 977+ total (includes 19 Hypothesis property tests)
+- **Pass Rate**: 100%
+- **Property tests**: `tests/test_properties.py` exercises pure functions (format helpers, URL whitelist, name formatters) with random inputs and shrinks failing cases to minimal examples
+- **Mypy**: Pragmatic config in `pyproject.toml`. Disables error codes that are noisy from PTB / SQLModel / Pydantic v2; catches real type bugs in new code
 
 All modules are fully unit tested with:
 - Mocked async dependencies (telegram bot API calls)
 - Edge case handling (errors, empty results, boundary conditions)
 - Database initialization and schema validation
 - Background job testing (JobQueue integration, job configuration, auto-restriction logic)
-- Captcha verification flow (new member handling, callback verification, timeout handling)
+- Captcha verification flow (new member handling, callback verification, timeout handling, profile photo + username check)
 - Anti-spam protection (contact cards, inline keyboards, forwarded messages, URL whitelisting, external replies)
+- Plugin registration (built-in plugins wired through `PluginManager`)
 
 ## Project Structure
 
@@ -224,10 +228,14 @@ PythonID/
 ├── .env                  # Your configuration (not committed)
 ├── .env.example          # Example configuration
 ├── README.md
+├── AGENTS.md             # Developer guidance for the codebase
 ├── data/
 │   └── bot.db            # SQLite database (auto-created)
+├── scripts/
+│   └── backfill_trusted_names.py  # One-shot backfill for /trusted admin names
 ├── tests/
 │   ├── test_anti_spam.py
+│   ├── test_backfill_trusted_names.py
 │   ├── test_bot_info.py
 │   ├── test_captcha.py
 │   ├── test_captcha_recovery.py
@@ -238,31 +246,53 @@ PythonID/
 │   ├── test_dm_handler.py
 │   ├── test_duplicate_spam.py
 │   ├── test_group_config.py
+│   ├── test_main_plugins_bootstrap.py
 │   ├── test_message_handler.py
 │   ├── test_photo_verification.py
-│   ├── test_scheduler.py     # JobQueue scheduler tests
+│   ├── test_plugin_captcha.py
+│   ├── test_plugin_config.py
+│   ├── test_plugin_definitions.py
+│   ├── test_plugin_manager.py
+│   ├── test_properties.py       # Hypothesis property-based tests
+│   ├── test_scheduler.py
 │   ├── test_telegram_utils.py
 │   ├── test_topic_guard.py
+│   ├── test_trust_handler.py
 │   ├── test_user_checker.py
 │   ├── test_verify_handler.py
 │   └── test_whitelist.py
 └── src/
     └── bot/
-        ├── main.py              # Entry point with JobQueue integration
+        ├── main.py              # Entry point with JobQueue integration + PluginManager bootstrap
         ├── config.py            # Pydantic settings
         ├── constants.py         # Shared constants
         ├── group_config.py      # Multi-group configuration (GroupConfig, GroupRegistry)
-        ├── handlers/
+        ├── plugins/             # Modular plugin system
+        │   ├── manager.py       # PluginManager — discovers + registers built-ins
+        │   ├── definitions.py   # Plugin class contract
+        │   ├── config.py        # guard_plugin("name") per-group runtime gate
+        │   └── builtin/         # One plugin per handler domain
+        │       ├── captcha.py
+        │       ├── profile_monitor.py
+        │       ├── spam.py
+        │       ├── topic_guard.py
+        │       ├── commands.py
+        │       ├── dm.py
+        │       └── jobs.py
+        ├── handlers/            # Underlying handler implementations (wrapped by plugins)
         │   ├── anti_spam.py     # Anti-spam (contact cards, inline keyboards, probation)
-        │   ├── captcha.py       # Captcha verification handler
+        │   ├── captcha.py       # Captcha + profile photo/username check
         │   ├── dm.py            # DM unrestriction handler
         │   ├── message.py       # Group message handler
         │   ├── topic_guard.py   # Warning topic protection
-        │   └── verify.py        # /verify and /unverify command handlers
+        │   ├── trust.py         # /trust, /untrust, /trusted admin commands
+        │   ├── verify.py        # /verify and /unverify command handlers
+        │   └── duplicate_spam.py # Duplicate message detection
         ├── database/
-        │   ├── models.py        # SQLModel schemas
+        │   ├── models.py        # SQLModel schemas (5 tables)
         │   └── service.py       # Database operations
         └── services/
+            ├── admin_cache.py        # Admin ID cache + refresh
             ├── bot_info.py           # Bot info caching
             ├── captcha_recovery.py   # Captcha timeout recovery
             ├── scheduler.py          # JobQueue background job
@@ -453,28 +483,44 @@ flowchart TD
 
 The bot is organized into clear modules for maintainability:
 
-- **main.py**: Entry point with python-telegram-bot's JobQueue integration, admin cache refresh, and graceful shutdown
-- **handlers/**: Message processing logic (priority groups -1 through 4)
+- **main.py**: Entry point with python-telegram-bot's JobQueue integration, plugin manager bootstrap, admin cache refresh, and graceful shutdown
+- **plugins/**: Modular plugin system. `PluginManager` discovers built-in plugins in `src/bot/plugins/builtin/`, each wrapping a handler module with per-group runtime gating via `guard_plugin("name")`. Add a new plugin by dropping a file in `builtin/`
+- **handlers/**: Message processing logic (priority groups -1 through 4). Plugin wrappers transparently apply `guard_plugin`, so changes to handler internals flow through without plugin updates
   - `topic_guard.py`: Protects warning topic (group=-1, messages + edited messages, fail-closed)
   - `message.py`: Monitors group messages and sends warnings/restrictions (group=5)
   - `dm.py`: Handles DM unrestriction flow
-  - `captcha.py`: Captcha verification for new members
+  - `captcha.py`: Captcha verification for new members, including profile photo + username check
   - `anti_spam.py`: Inline keyboard spam (group=1) + contact card spam (group=2) + new user probation enforcement (group=3)
   - `duplicate_spam.py`: Repeated message detection (group=4)
   - `verify.py`: /verify and /unverify command handlers
   - `check.py`: /check command + forwarded message handling
+  - `trust.py`: /trust, /untrust, /trusted admin commands (TrustedUser table caches names at trust time so /trusted renders without API calls)
 - **services/**: Business logic and utilities
   - `scheduler.py`: JobQueue background job that runs every 5 minutes for time-based auto-restrictions
-  - `user_checker.py`: Profile validation (photo + username check)
+  - `user_checker.py`: Profile validation (photo + username check) — used by both the captcha gate and the per-message monitor
   - `bot_info.py`: Caches bot metadata to avoid repeated API calls
   - `telegram_utils.py`: Shared telegram utilities (user status checks, etc.)
   - `captcha_recovery.py`: Captcha timeout recovery on bot restart
+  - `admin_cache.py`: Admin ID cache + 10-minute refresh job
 - **database/**: Data persistence
   - `service.py`: Database operations with SQLite
-  - `models.py`: Data models using SQLModel (UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation)
+  - `models.py`: Data models using SQLModel (UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation, TrustedUser)
 - **config.py**: Environment configuration using Pydantic
 - **group_config.py**: Multi-group configuration management (GroupConfig model, GroupRegistry for O(1) lookup, groups.json loading with .env fallback)
 - **constants.py**: Centralized message templates and utilities for consistent formatting across handlers
+- **scripts/**: Operator one-shots (`scripts/backfill_trusted_names.py` for pre-existing /trusted rows)
+
+### Captcha Verification with Profile Check
+
+New members are restricted immediately on join and presented with a captcha button. The verification flow now requires both the captcha click **and** a complete Telegram profile (public profile photo + username) before unrestriction:
+
+1. New member joins → bot restricts them + sends captcha message + schedules timeout job
+2. User clicks the captcha button within `CAPTCHA_TIMEOUT_SECONDS`
+3. Bot calls `check_user_profile()` to verify photo + username
+4. If profile is **complete**: remove pending captcha → start probation → unrestrict → cancel timeout
+5. If profile is **incomplete**: alert shows the missing items, captcha record preserved, timeout still armed — user can fix profile and click again
+
+The DB finalization (remove pending + start probation) runs before the Telegram `unrestrict_user` call, so a DB write failure leaves the user still restricted with state intact instead of leaking an inconsistent state.
 
 ### Group Message Monitoring
 1. Bot listens to all text messages in the configured group
