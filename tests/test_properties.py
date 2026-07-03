@@ -168,10 +168,10 @@ class TestFormatPerson:
 class TestIsUrlWhitelisted:
     @given(url_scheme_st, url_host_st)
     @settings(max_examples=200)
-    def test_unwhitelisted_host_returns_false(self, scheme: str, host: str) -> None:
-        """Random hosts are not whitelisted (unless by coincidence)."""
-        # We can't predict the whitelist contents, but the function should
-        # be deterministic and not raise.
+    def test_random_host_is_deterministic_bool(self, scheme: str, host: str) -> None:
+        """Random hosts aren't guaranteed unwhitelisted (a generated host could
+        collide with a whitelist suffix), but the function must always return
+        a plain bool and never raise."""
         url = f"{scheme}://{host}/path?q=1"
         result = is_url_whitelisted(url)
         assert isinstance(result, bool)
@@ -198,9 +198,7 @@ class TestIsUrlWhitelisted:
     def test_empty_url_returns_false(self) -> None:
         """Defensive: empty/garbage input doesn't crash, returns False."""
         for bad in ["", "not a url", "://", "http://", "https://"]:
-            assert is_url_whitelisted(bad) is False or isinstance(
-                is_url_whitelisted(bad), bool
-            )
+            assert is_url_whitelisted(bad) is False
 
     @pytest.mark.parametrize(
         "url",
