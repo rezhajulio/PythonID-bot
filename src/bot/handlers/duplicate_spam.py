@@ -132,7 +132,10 @@ async def handle_duplicate_spam(
     dq = _get_recent_messages(context, group_config.group_id, user.id)
     _prune_old_messages(dq, group_config.duplicate_spam_window_seconds, now)
 
-    similar_count = count_similar_in_window(dq, normalized, group_config.duplicate_spam_similarity)
+    similar_messages = [
+        m for m in dq
+        if is_similar(normalized, m.normalized_text, group_config.duplicate_spam_similarity)
+    ]
 
     dq.append(
         RecentMessage(
@@ -142,10 +145,10 @@ async def handle_duplicate_spam(
         )
     )
 
-    if similar_count < group_config.duplicate_spam_threshold - 1:
+    if len(similar_messages) < group_config.duplicate_spam_threshold - 1:
         return
 
-    total_count = similar_count + 1
+    total_count = len(similar_messages) + 1
     user_mention = get_user_mention(user)
 
     logger.info(
@@ -153,14 +156,20 @@ async def handle_duplicate_spam(
         f"group_id={group_config.group_id}, count={total_count}"
     )
 
-    try:
-        await update.message.delete()
-        logger.info(f"Deleted duplicate spam from user_id={user.id}")
-    except Exception:
-        logger.error(
-            f"Failed to delete duplicate spam: user_id={user.id}",
-            exc_info=True,
-        )
+    message_ids = [m.message_id for m in similar_messages] + [update.message.message_id]
+    for message_id in message_ids:
+        try:
+            await context.bot.delete_message(
+                chat_id=group_config.group_id, message_id=message_id
+            )
+            logger.info(
+                f"Deleted duplicate spam message_id={message_id} from user_id={user.id}"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to delete duplicate spam message_id={message_id}: user_id={user.id}",
+                exc_info=True,
+            )
 
     await _enforce_restriction(context, group_config, user, user_mention, total_count)
 
