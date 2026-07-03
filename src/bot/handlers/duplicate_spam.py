@@ -42,6 +42,7 @@ class RecentMessage:
     timestamp: datetime
     normalized_text: str
     message_id: int
+    delete_attempted: bool = False
 
 
 def normalize_text(text: str) -> str:
@@ -130,13 +131,12 @@ async def handle_duplicate_spam(
         if is_similar(normalized, m.normalized_text, group_config.duplicate_spam_similarity)
     ]
 
-    dq.append(
-        RecentMessage(
-            timestamp=now,
-            normalized_text=normalized,
-            message_id=update.message.message_id,
-        )
+    current_message = RecentMessage(
+        timestamp=now,
+        normalized_text=normalized,
+        message_id=update.message.message_id,
     )
+    dq.append(current_message)
 
     if len(similar_messages) < group_config.duplicate_spam_threshold - 1:
         return
@@ -149,20 +149,24 @@ async def handle_duplicate_spam(
         f"group_id={group_config.group_id}, count={total_count}"
     )
 
-    message_ids = [m.message_id for m in similar_messages] + [update.message.message_id]
-    for message_id in message_ids:
+    pending_deletes = [m for m in similar_messages if not m.delete_attempted]
+    pending_deletes.append(current_message)
+
+    for m in pending_deletes:
         try:
             await context.bot.delete_message(
-                chat_id=group_config.group_id, message_id=message_id
+                chat_id=group_config.group_id, message_id=m.message_id
             )
             logger.info(
-                f"Deleted duplicate spam message_id={message_id} from user_id={user.id}"
+                f"Deleted duplicate spam message_id={m.message_id} from user_id={user.id}"
             )
         except Exception:
             logger.error(
-                f"Failed to delete duplicate spam message_id={message_id}: user_id={user.id}",
+                f"Failed to delete duplicate spam message_id={m.message_id}: user_id={user.id}",
                 exc_info=True,
             )
+        finally:
+            m.delete_attempted = True
 
     await _enforce_restriction(context, group_config, user, user_mention, total_count)
 

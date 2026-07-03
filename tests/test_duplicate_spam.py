@@ -384,3 +384,27 @@ class TestHandleDuplicateSpam:
         deleted_ids = {c.kwargs["message_id"] for c in mock_context.bot.delete_message.call_args_list}
         assert deleted_ids == {98, 99, 100}
         mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_does_not_retry_already_attempted_deletes(
+        self, mock_update, mock_context, group_config
+    ):
+        """Messages already deleted in a prior trigger must not be re-attempted."""
+        now = datetime.now(UTC)
+        norm = normalize_text(mock_update.message.text)
+        existing_dq = deque([
+            RecentMessage(
+                timestamp=now, normalized_text=norm, message_id=98, delete_attempted=True
+            ),
+            RecentMessage(
+                timestamp=now, normalized_text=norm, message_id=99, delete_attempted=True
+            ),
+        ])
+        mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_duplicate_spam(mock_update, mock_context)
+
+        mock_context.bot.delete_message.assert_called_once_with(
+            chat_id=-100, message_id=100
+        )
