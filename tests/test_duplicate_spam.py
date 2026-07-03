@@ -13,7 +13,6 @@ from bot.handlers.duplicate_spam import (
     RecentMessage,
     _get_recent_messages,
     _prune_old_messages,
-    count_similar_in_window,
     handle_duplicate_spam,
     is_similar,
     normalize_text,
@@ -102,24 +101,6 @@ class TestPruneOldMessages:
         dq: deque[RecentMessage] = deque()
         _prune_old_messages(dq, 120, datetime.now(UTC))
         assert len(dq) == 0
-
-
-class TestCountSimilarInWindow:
-    """Tests for the count_similar_in_window function."""
-
-    def test_counts_similar(self):
-        dq = deque([
-            RecentMessage(timestamp=datetime.now(UTC), normalized_text="spam message here", message_id=1),
-            RecentMessage(timestamp=datetime.now(UTC), normalized_text="spam message here", message_id=2),
-            RecentMessage(timestamp=datetime.now(UTC), normalized_text="different message", message_id=3),
-        ])
-        assert count_similar_in_window(dq, "spam message here") == 2
-
-    def test_no_similar(self):
-        dq = deque([
-            RecentMessage(timestamp=datetime.now(UTC), normalized_text="hello world foo bar", message_id=1),
-        ])
-        assert count_similar_in_window(dq, "completely different text here") == 0
 
 
 class TestGetRecentMessages:

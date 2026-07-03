@@ -86,13 +86,6 @@ def _prune_old_messages(
         dq.popleft()
 
 
-def count_similar_in_window(
-    dq: deque[RecentMessage], normalized: str, threshold: float = 0.95
-) -> int:
-    """Count how many messages in the deque are similar to the given text."""
-    return sum(1 for m in dq if is_similar(normalized, m.normalized_text, threshold))
-
-
 async def handle_duplicate_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
