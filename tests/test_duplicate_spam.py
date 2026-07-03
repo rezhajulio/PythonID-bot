@@ -169,7 +169,6 @@ class TestHandleDuplicateSpam:
         update.message.text = "Barangkali di sini ada yang sedang mencari kerja bisa menghubungi saya"
         update.message.caption = None
         update.message.message_id = 100
-        update.message.delete = AsyncMock()
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100
         return update
@@ -181,6 +180,7 @@ class TestHandleDuplicateSpam:
         context.bot = MagicMock()
         context.bot.restrict_chat_member = AsyncMock()
         context.bot.send_message = AsyncMock()
+        context.bot.delete_message = AsyncMock()
         return context
 
     async def test_skips_no_message(self, mock_context, group_config):
@@ -291,7 +291,9 @@ class TestHandleDuplicateSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_duplicate_spam(mock_update, mock_context)
 
-        mock_update.message.delete.assert_called_once()
+        assert mock_context.bot.delete_message.call_count == 2
+        deleted_ids = {c.kwargs["message_id"] for c in mock_context.bot.delete_message.call_args_list}
+        assert deleted_ids == {99, 100}
         mock_context.bot.restrict_chat_member.assert_called_once()
         mock_context.bot.send_message.assert_called_once()
 
@@ -309,7 +311,7 @@ class TestHandleDuplicateSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_duplicate_spam(mock_update, mock_context)
 
-        mock_update.message.delete.assert_called_once()
+        assert mock_context.bot.delete_message.call_count == 2
 
     async def test_expired_messages_not_counted(self, mock_update, mock_context, group_config):
         old = datetime.now(UTC) - timedelta(seconds=200)
@@ -322,7 +324,7 @@ class TestHandleDuplicateSpam:
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(mock_update, mock_context)
 
-        mock_update.message.delete.assert_not_called()
+        mock_context.bot.delete_message.assert_not_called()
 
     async def test_different_messages_not_counted(self, mock_update, mock_context, group_config):
         now = datetime.now(UTC)
@@ -335,10 +337,10 @@ class TestHandleDuplicateSpam:
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(mock_update, mock_context)
 
-        mock_update.message.delete.assert_not_called()
+        mock_context.bot.delete_message.assert_not_called()
 
     async def test_delete_failure_continues(self, mock_update, mock_context, group_config):
-        mock_update.message.delete = AsyncMock(side_effect=Exception("Delete failed"))
+        mock_context.bot.delete_message = AsyncMock(side_effect=Exception("Delete failed"))
         now = datetime.now(UTC)
         norm = normalize_text(mock_update.message.text)
         existing_dq = deque([
@@ -395,5 +397,9 @@ class TestHandleDuplicateSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_duplicate_spam(mock_update, mock_context)
 
-        mock_update.message.delete.assert_called_once()
+        # Regression check: all prior duplicate messages must be deleted,
+        # not just the one that tripped the threshold.
+        assert mock_context.bot.delete_message.call_count == 3
+        deleted_ids = {c.kwargs["message_id"] for c in mock_context.bot.delete_message.call_args_list}
+        assert deleted_ids == {98, 99, 100}
         mock_context.bot.restrict_chat_member.assert_called_once()
