@@ -75,6 +75,6 @@ disable_error_code = [
 
 [[tool.mypy.overrides]]
 # New code should be strict; existing modules opt in as they're touched.
-module = "bot.tests.*"
+module = "tests.test_properties"
 disallow_untyped_defs = true
 check_untyped_defs = true

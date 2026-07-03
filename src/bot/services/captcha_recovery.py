@@ -147,7 +147,7 @@ async def recover_pending_captchas(application: Application) -> None:
 
                 job_name = get_captcha_job_name(record.group_id, record.user_id)
 
-                application.job_queue.run_once(  # type: ignore[union-attr]
+                application.job_queue.run_once(
                     captcha_timeout_callback,
                     when=remaining_seconds,
                     name=job_name,

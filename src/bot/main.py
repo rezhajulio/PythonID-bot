@@ -120,7 +120,7 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     registry = get_group_registry()
 
     # Use preload_admin_ids which preserves cache on failures
-    await preload_admin_ids(application)  # type: ignore[arg-type]
+    await preload_admin_ids(application)
 
     # Preload trusted users cache
     db = get_database()
