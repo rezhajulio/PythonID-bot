@@ -73,7 +73,7 @@ async def check_user_profile(bot: Bot, user: User) -> ProfileCheckResult:
         ProfileCheckResult: Result containing photo and username status.
     """
     logger.info(f"Checking profile for user_id={user.id}")
-    
+
     has_username = user.username is not None
 
     db = get_database()
@@ -96,5 +96,5 @@ async def check_user_profile(bot: Bot, user: User) -> ProfileCheckResult:
     logger.info(
         f"Profile check for user_id={user.id}: has_photo={has_profile_photo}, has_username={has_username}"
     )
-    
+
     return result

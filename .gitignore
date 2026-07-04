@@ -18,3 +18,5 @@ docs/
 
 # Local review artifacts (parallel-reviewer outputs)
 reviews/
+
+.tokensave/

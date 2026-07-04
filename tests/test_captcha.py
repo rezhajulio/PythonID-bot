@@ -455,6 +455,37 @@ class TestCaptchaCallbackHandler:
         # Telegram unrestrict was NOT called (DB failure short-circuits).
         mock_unrestrict.assert_not_called()
 
+    async def test_duplicate_callback_delivery_ignored(
+        self, mock_context, mock_registry, temp_db
+    ):
+        """remove_pending_captcha returns False when another concurrent
+        delivery of the same double-tap already finalized this user.
+        The duplicate must ack quietly and never re-run unrestrict/probation."""
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+
+        query = self._make_callback_query()
+
+        update = MagicMock()
+        update.callback_query = query
+
+        with (
+            patch("bot.handlers.captcha.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.captcha.check_user_profile", return_value=ProfileCheckResult(has_profile_photo=True, has_username=True)),
+            patch("bot.handlers.captcha.unrestrict_user") as mock_unrestrict,
+            patch.object(db, "remove_pending_captcha", return_value=False),
+            patch.object(db, "start_new_user_probation") as mock_probation,
+        ):
+            await captcha_callback_handler(update, mock_context)
+
+        # Bare ack so the client's spinner clears — no alert, no success edit.
+        query.answer.assert_called_once_with()
+        query.edit_message_text.assert_not_called()
+        mock_unrestrict.assert_not_called()
+        mock_probation.assert_not_called()
+
     async def test_edit_message_failure_in_callback_continues_gracefully(
         self, mock_context, mock_registry, temp_db
     ):
