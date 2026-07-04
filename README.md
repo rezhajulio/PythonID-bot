@@ -309,185 +309,259 @@ The following diagram illustrates the complete bot workflow including captcha ve
 
 ```mermaid
 flowchart TD
-    Start([Bot Starts]) --> Init[Initialize Database & Config]
-    Init --> FetchAdmins[Fetch Group Admin IDs]
-    FetchAdmins --> RecoverCaptcha{Captcha<br/>Enabled?}
+    Start([Bot Starts]) --> InitDB[Init Database + Group Registry<br/>from groups.json or .env]
+    InitDB --> RegisterHandlers[PluginManager.register_all:<br/>register handlers + jobs<br/>in MANIFEST_ORDER]
+    RegisterHandlers --> ComputeMap[Compute Per-Group<br/>Effective Plugin Map]
+    ComputeMap --> RunPolling[run_polling starts]
+    RunPolling --> FetchAdmins[post_init: Fetch<br/>Group Admin IDs]
+    FetchAdmins --> LoadTrusted[(Load Trusted User IDs<br/>into bot_data cache)]
+    LoadTrusted --> RecoverCaptcha{Any Group Has<br/>Captcha Enabled?}
     RecoverCaptcha -->|Yes| RecoverPending[Recover Pending Captchas]
-    RecoverCaptcha -->|No| StartJobs
-    RecoverPending --> StartJobs[Start JobQueue Scheduler<br/>5-minute interval]
-    StartJobs --> Poll[Poll for Updates]
-    
+    RecoverCaptcha -->|No| Poll[Poll for Updates]
+    RecoverPending --> Poll
+
     Poll --> UpdateType{Update Type?}
-    
-    %% New Member Flow
-    UpdateType -->|New Member| CheckCaptchaEnabled{Captcha<br/>Enabled?}
-    CheckCaptchaEnabled -->|No| StartProbation[Start Probation Only]
-    CheckCaptchaEnabled -->|Yes| RestrictAndChallenge[Restrict & Send Captcha]
-    RestrictAndChallenge --> StorePending[(Store Pending Validation)]
+
+    %% ===================== New Member Flow (captcha.py, group=0) =====================
+    UpdateType -->|New Member Joins| EntryPoint{Entry Point}
+    EntryPoint -->|ChatMemberHandler<br/>works with Hide Join| MaybeStart[_maybe_start_captcha]
+    EntryPoint -->|MessageHandler<br/>NEW_CHAT_MEMBERS fallback| MaybeStart
+    MaybeStart --> StartProbationInit[(Start New User Probation<br/>unconditional)]
+    StartProbationInit --> CheckCaptchaEnabled{Captcha Enabled<br/>for this Group?}
+    CheckCaptchaEnabled -->|No| EndNM1([Done - probation only,<br/>not restricted])
+    CheckCaptchaEnabled -->|Yes| RestrictAndChallenge[Restrict Member]
+    RestrictAndChallenge --> SendChallenge[Send Verify Button<br/>captcha_verify_group_user]
+    SendChallenge --> StorePending[(Store Pending<br/>Captcha Validation)]
     StorePending --> ScheduleTimeout[Schedule Timeout Job]
-    ScheduleTimeout --> WaitCaptcha[Wait for Verification]
-    
-    WaitCaptcha --> CaptchaAnswer{User<br/>Action?}
-    CaptchaAnswer -->|Correct Button| CancelTimeout[Cancel Timeout Job]
-    CancelTimeout --> UnrestrictMember[Unrestrict Member]
-    UnrestrictMember --> StartProbationAfter[Start Probation]
-    CaptchaAnswer -->|Wrong User| ShowError[Show Error Message]
-    CaptchaAnswer -->|Timeout| KickMember[Keep Restricted]
-    KickMember --> UpdateMessage[Update Challenge Message]
-    
-    %% Anti-Spam Flow (Contact Card + New User Probation)
-    UpdateType -->|Group Message| CheckContact{Has Contact<br/>Card?}
-    CheckContact -->|Yes| CheckContactAdmin{Is Admin?}
-    CheckContactAdmin -->|Yes| CheckProbation
-    CheckContactAdmin -->|No| DeleteContact[Delete Contact Message]
-    DeleteContact --> RestrictContact[Restrict User]
-    RestrictContact --> SendContactNotify[Send Contact<br/>Spam Notification]
-    CheckContact -->|No| CheckBioBait{Bio Bait<br/>Detected?}
-    CheckContactAdmin -->|Yes| CheckBioBait
-    CheckBioBait -->|No| CheckProbation
-    CheckBioBait -->|Yes| CheckBioBaitAdmin{Is Admin<br/>or Trusted?}
-    CheckBioBaitAdmin -->|Yes| CheckProbation
-    CheckBioBaitAdmin -->|No| CheckBioBaitMode{Monitor<br/>Only?}
-    CheckBioBaitMode -->|Yes| SendBioBaitAlert[Log + Alert<br/>Owner Chat]
-    SendBioBaitAlert --> CheckProbation
-    CheckBioBaitMode -->|No| DeleteBioBait[Delete Message]
-    DeleteBioBait --> RestrictBioBait[Restrict User]
-    RestrictBioBait --> SendBioBaitNotify[Send Bio Bait<br/>Spam Notification]
-    CheckProbation{User On<br/>Probation?} -->|No| CheckBot
-    CheckProbation -->|Yes| CheckExpired{Probation<br/>Expired?}
-    CheckExpired -->|Yes| ClearProbation[(Clear Probation)]
-    CheckExpired -->|No| CheckViolation{Forward/Link/<br/>External Reply?}
-    
-    CheckViolation -->|No| End1([Continue])
-    CheckViolation -->|Yes| CheckWhitelisted{URL<br/>Whitelisted?}
-    CheckWhitelisted -->|Yes| End1
-    CheckWhitelisted -->|No| DeleteSpam[Delete Message]
-    DeleteSpam --> IncrementViolation[(Increment Violation)]
-    IncrementViolation --> ViolationCount{Violation<br/>Count?}
-    
-    ViolationCount -->|First| SendSpamWarning[Send Probation Warning]
-    ViolationCount -->|< Threshold| End2([Done])
-    ViolationCount -->|>= Threshold| RestrictSpammer[Restrict User]
-    RestrictSpammer --> SendSpamRestriction[Send Restriction Notice]
-    
-    %% Group Message Flow - Topic Guard
-    CheckBot{From Bot?}
-    CheckBot -->|Yes| End3([Ignore])
-    CheckBot -->|No| TopicGuard{In Warning<br/>Topic?}
-    TopicGuard -->|Yes| IsAdmin{Is Admin<br/>or Bot?}
-    IsAdmin -->|No| DeleteMsg[Delete Message]
-    IsAdmin -->|Yes| End4([Allow])
-    
-    %% Group Message Flow - Profile Check
-    TopicGuard -->|No| CheckWhitelist{User<br/>Whitelisted?}
-    CheckWhitelist -->|Yes| End5([Allow])
-    CheckWhitelist -->|No| CheckProfile[Check User Profile:<br/>Photo + Username]
-    
-    CheckProfile --> ProfileComplete{Profile<br/>Complete?}
-    ProfileComplete -->|Yes| End6([Allow])
-    ProfileComplete -->|No| CheckMode{Restriction<br/>Mode?}
-    
-    %% Warning Mode
-    CheckMode -->|Warning Only| SendWarning[Send Warning to Topic<br/>Time threshold mentioned]
-    SendWarning --> End7([Done])
-    
-    %% Progressive Restriction Mode
-    CheckMode -->|Progressive| CheckCount{Message<br/>Count?}
-    CheckCount -->|First Message| SendFirstWarning[Send Warning with<br/>Message & Time Thresholds]
-    SendFirstWarning --> IncrementDB[(Store Warning in DB<br/>with timestamp)]
-    IncrementDB --> End8([Done])
-    
-    CheckCount -->|2 to N-1| SilentIncrement[(Silent: Increment Count)]
-    SilentIncrement --> End9([Done])
-    
-    CheckCount -->|>= Threshold| RestrictUser[Apply Restriction<br/>Mute Permissions]
-    RestrictUser --> MarkRestricted[(Mark as Restricted<br/>in Database)]
-    MarkRestricted --> SendRestrictionMsg[Send Restriction Notice<br/>with DM Link]
-    SendRestrictionMsg --> End10([Done])
-    
-    %% DM Flow
-    UpdateType -->|Private Message| CheckInGroup{User in<br/>Group?}
-    CheckInGroup -->|No| SendNotInGroup[Send: Not in Group]
-    CheckInGroup -->|Yes| CheckPendingCaptcha{Has Pending<br/>Captcha?}
-    
-    CheckPendingCaptcha -->|Yes| SendCaptchaRedirect[Send: Complete Captcha<br/>in Group First]
-    CheckPendingCaptcha -->|No| CheckDMProfile[Check Profile]
-    
-    CheckDMProfile --> DMProfileComplete{Profile<br/>Complete?}
-    DMProfileComplete -->|No| SendMissing[Send: Missing Items]
-    DMProfileComplete -->|Yes| CheckBotRestricted{Restricted<br/>by Bot?}
-    
-    CheckBotRestricted -->|No| SendNoRestriction[Send: No Bot Restriction]
-    CheckBotRestricted -->|Yes| CheckCurrentStatus{Currently<br/>Restricted?}
-    
-    CheckCurrentStatus -->|No| ClearRecord[(Clear Database Record)]
-    ClearRecord --> SendAlreadyUnrestricted[Send: Already Unrestricted]
-    
-    CheckCurrentStatus -->|Yes| UnrestrictUser[Remove Restriction]
-    UnrestrictUser --> ClearRecord2[(Clear Database Record)]
-    ClearRecord2 --> SendSuccess[Send: Success Message]
-    
-    %% Scheduler Job (Background)
-    StartJobs -.->|Every 5 min| SchedulerJob[Auto-Restriction Job]
-    SchedulerJob --> QueryDB[(Query Warnings Past<br/>Time Threshold)]
+    ScheduleTimeout --> WaitCaptcha[Wait for Callback<br/>or Timeout]
+
+    WaitCaptcha --> CaptchaAnswer{Which Fires<br/>First?}
+    CaptchaAnswer -->|Wrong user tapped button| ShowError[Alert: Not Your Button]
+    ShowError --> WaitCaptcha
+    CaptchaAnswer -->|Timeout job fires| CaptchaTimeout[captcha_timeout_callback]
+    CaptchaTimeout --> HandleExpiration[handle_captcha_expiration<br/>captcha_recovery.py]
+    HandleExpiration --> EndNM2([User stays restricted<br/>pending row cleared])
+
+    CaptchaAnswer -->|Correct user tapped| CheckProfileCaptcha[check_user_profile:<br/>photo + username]
+    CheckProfileCaptcha --> ProfileOkCaptcha{Profile<br/>Complete?}
+    ProfileOkCaptcha -->|No| ShowIncomplete[Alert: Missing Items<br/>pending row + timeout kept armed]
+    ShowIncomplete --> WaitCaptcha
+    ProfileOkCaptcha -->|Yes| RemovePending[(Remove Pending Captcha)]
+    RemovePending --> RestartProbation[(Restart Probation Clock)]
+    RestartProbation --> UnrestrictMember[Unrestrict Member<br/>irreversible call, done last]
+    UnrestrictMember --> CancelTimeout[Cancel Timeout Job]
+    CancelTimeout --> UpdateMessage[Edit Message: Verified]
+    UpdateMessage --> EndNM3([Done])
+
+    %% ===================== Group Message Pipeline (real PTB group order) =====================
+    UpdateType -->|Group Message| G_TopicGuard{group=-1 topic_guard:<br/>In Warning Topic?}
+    G_TopicGuard -->|No, or lookup error| G_InlineGate
+    G_TopicGuard -->|Yes, incl. API error<br/>fail-closed| G_TopicIsBotAdmin{Sender is<br/>Bot or Admin?}
+    G_TopicIsBotAdmin -->|Yes| StopTopic1([ApplicationHandlerStop<br/>message allowed])
+    G_TopicIsBotAdmin -->|No| G_TopicDelete[Delete Message]
+    G_TopicDelete --> StopTopic2([ApplicationHandlerStop])
+
+    G_InlineGate{group=1 inline_keyboard_spam:<br/>Bot or Admin/Trusted?}
+    G_InlineGate -->|Yes| G_ContactGate
+    G_InlineGate -->|No| G_InlineCheck{Inline Button URL<br/>Not Whitelisted?}
+    G_InlineCheck -->|No match| G_ContactGate
+    G_InlineCheck -->|Yes| G_InlineDelete[Delete Message]
+    G_InlineDelete --> G_InlineRestrict[Restrict User<br/>always, no config gate]
+    G_InlineRestrict --> G_InlineNotify[Notify Warning Topic]
+    G_InlineNotify --> StopInline([ApplicationHandlerStop])
+
+    G_ContactGate{group=2 contact_spam:<br/>Bot or Admin/Trusted?}
+    G_ContactGate -->|Yes| G_NewUserGate
+    G_ContactGate -->|No| G_ContactCheck{Message Has<br/>Contact Card?}
+    G_ContactCheck -->|No| G_NewUserGate
+    G_ContactCheck -->|Yes| G_ContactDelete[Delete Message]
+    G_ContactDelete --> G_ContactRestrictGate{contact_spam_restrict<br/>Enabled for Group?}
+    G_ContactRestrictGate -->|Yes| G_ContactRestrict[Restrict User]
+    G_ContactRestrict --> G_ContactNotify[Notify Warning Topic]
+    G_ContactRestrictGate -->|No, delete only| G_ContactNotify
+    G_ContactNotify --> StopContact([ApplicationHandlerStop])
+
+    G_NewUserGate{group=3 new_user_spam:<br/>Bot or Admin/Trusted?}
+    G_NewUserGate -->|Yes| G_Group4Note
+    G_NewUserGate -->|No| G_OnProbation{User On<br/>Probation?}
+    G_OnProbation -->|No| G_Group4Note
+    G_OnProbation -->|Yes| G_ProbationExpired{Probation Window<br/>Elapsed?}
+    G_ProbationExpired -->|Yes| G_ClearProbation[(Clear Probation Record)]
+    G_ClearProbation --> G_Group4Note
+    G_ProbationExpired -->|No| G_Violation{Forwarded, non-whitelisted<br/>link, external reply,<br/>story, or media?}
+    G_Violation -->|No| G_Group4Note
+    G_Violation -->|Yes| G_ViolationDelete[Delete Message]
+    G_ViolationDelete --> G_ViolationIncrement[(Increment Violation Count)]
+    G_ViolationIncrement --> G_ViolationCount{Violation<br/>Count?}
+    G_ViolationCount -->|1st| G_ViolationWarn[Send Probation Warning]
+    G_ViolationWarn --> StopNewUser1([ApplicationHandlerStop])
+    G_ViolationCount -->|2 to N-1| StopNewUser2([ApplicationHandlerStop<br/>silent, delete only])
+    G_ViolationCount -->|">= new_user_violation_threshold"| G_ViolationRestrict[Restrict User]
+    G_ViolationRestrict --> G_ViolationNotify[Send Restriction Notice]
+    G_ViolationNotify --> StopNewUser3([ApplicationHandlerStop])
+
+    G_Group4Note[/"group=4: two handlers share the SAME filter<br/>(GROUPS &amp; not COMMAND). duplicate_spam registers<br/>first in MANIFEST_ORDER and PTB block defaults to<br/>True, so it always claims the update -<br/>bio_bait_spam's handler never runs in practice."/]
+    G_Group4Note --> G_DupGate{duplicate_spam:<br/>Enabled, Bot,<br/>or Admin/Trusted?}
+    G_DupGate -->|Disabled, bot,<br/>or admin/trusted| G_ProfileGate
+    G_DupGate -->|No| G_DupLength{Message Long Enough?<br/>duplicate_spam_min_length}
+    G_DupLength -->|No| G_ProfileGate
+    G_DupLength -->|Yes| G_DupSimilar{Similar Messages in Window<br/>>= threshold-1?<br/>SequenceMatcher.ratio &gt;= similarity}
+    G_DupSimilar -->|No| G_ProfileGate
+    G_DupSimilar -->|Yes| G_DupDelete[Delete Matching Messages<br/>in Window]
+    G_DupDelete --> G_DupRestrict[Restrict User]
+    G_DupRestrict --> G_DupNotify[Notify Warning Topic]
+    G_DupNotify --> StopDup([ApplicationHandlerStop])
+
+    G_ProfileGate{group=5 profile_monitor:<br/>Sender is Bot?<br/>no admin bypass here}
+    G_ProfileGate -->|Yes| EndG0([Ignore])
+    G_ProfileGate -->|No| G_Whitelist{User in Photo<br/>Verification Whitelist?}
+    G_Whitelist -->|Yes| EndG1([Allow])
+    G_Whitelist -->|No| G_CheckProfile[check_user_profile:<br/>photo + username]
+    G_CheckProfile --> G_ProfileComplete{Profile<br/>Complete?}
+    G_ProfileComplete -->|Yes| EndG2([Allow])
+    G_ProfileComplete -->|No| G_Mode{restrict_failed_users<br/>for this Group?}
+
+    G_Mode -->|False: Warning Mode| G_WarnOnly[Send Warning to Topic<br/>time threshold mentioned, no tracking]
+    G_WarnOnly --> EndG3([Done])
+
+    G_Mode -->|True: Progressive Mode| G_MsgCount{Message Count<br/>for this User?}
+    G_MsgCount -->|1st message| G_FirstWarn[Send Warning with<br/>Message + Time Thresholds]
+    G_FirstWarn --> G_StoreWarn[(Store Warning in DB<br/>with timestamp)]
+    G_StoreWarn --> EndG4([Done])
+    G_MsgCount -->|"2 to N-1"| G_SilentInc[(Silent: Increment Count)]
+    G_SilentInc --> EndG5([Done])
+    G_MsgCount -->|">= warning_threshold"| G_RestrictUser[Apply Restriction<br/>Mute Permissions]
+    G_RestrictUser --> G_MarkRestricted[(Mark Restricted in DB)]
+    G_MarkRestricted --> G_RestrictMsg[Send Restriction Notice<br/>with DM Link]
+    G_RestrictMsg --> EndG6([Done])
+
+    %% ===================== DM Flow (dm.py, group=0, PRIVATE & TEXT) =====================
+    UpdateType -->|Private Message| DM_FindGroups[Scan Every Monitored Group<br/>for This User's Membership]
+    DM_FindGroups --> DM_InGroup{Member of<br/>Any Group?}
+    DM_InGroup -->|No| DM_NotInGroup[Send: Not in Group]
+    DM_InGroup -->|Yes| DM_PendingCaptcha{Pending Captcha in<br/>Any Member Group?}
+    DM_PendingCaptcha -->|Yes| DM_CaptchaRedirect[Send: Complete Captcha<br/>in Group First]
+    DM_PendingCaptcha -->|No| DM_CheckProfile[check_user_profile]
+    DM_CheckProfile --> DM_ProfileOk{Profile<br/>Complete?}
+    DM_ProfileOk -->|No| DM_Missing[Send: Missing Items]
+    DM_ProfileOk -->|Yes| DM_FindRestricted[Find Groups Where<br/>Bot Restricted This User]
+    DM_FindRestricted --> DM_AnyRestricted{Any Bot-Restricted<br/>Group Found?}
+    DM_AnyRestricted -->|No| DM_NoRestriction[Send: No Bot Restriction<br/>e.g. admin-restricted instead]
+    DM_AnyRestricted -->|Yes| DM_StatusCheck{Per Group: Still<br/>Restricted on Telegram?}
+    DM_StatusCheck -->|No| DM_ClearOnly[(Clear DB Record Only)]
+    DM_StatusCheck -->|Yes| DM_Unrestrict[unrestrict_user API call]
+    DM_Unrestrict --> DM_ClearAndNotify[(Clear DB Record<br/>+ Notify Warning Topic)]
+    DM_ClearOnly --> DM_Result{Any Group<br/>Actually Unrestricted?}
+    DM_ClearAndNotify --> DM_Result
+    DM_Result -->|Yes, at least one| DM_Success[Send: Success Message]
+    DM_Result -->|No, all already clear| DM_AlreadyDone[Send: Already Unrestricted]
+
+    %% ===================== Scheduler Jobs (JobQueue, group=6, background) =====================
+    ComputeMap -.->|Every 5 min| SchedulerJob[auto_restrict_job]
+    SchedulerJob --> QueryDB[(Query Warnings Past<br/>Time Threshold, All Groups)]
     QueryDB --> HasExpired{Expired<br/>Warnings?}
-    
-    HasExpired -->|No| EndJob([Wait Next Cycle])
-    HasExpired -->|Yes| CheckKicked{User<br/>Kicked?}
-    
+    HasExpired -->|No| EndJob1([Wait Next Cycle])
+    HasExpired -->|Yes| CheckKicked{User<br/>Kicked/Left?}
     CheckKicked -->|Yes| ClearKicked[(Clear Record)]
-    ClearKicked --> NextUser{More<br/>Users?}
-    
     CheckKicked -->|No| ApplyTimeRestriction[Apply Restriction<br/>Mute Permissions]
     ApplyTimeRestriction --> MarkTimeRestricted[(Mark as Restricted)]
     MarkTimeRestricted --> SendTimeNotice[Send Time-Based<br/>Restriction Notice]
-    SendTimeNotice --> NextUser
-    
-    NextUser -->|Yes| CheckKicked
-    NextUser -->|No| EndJob
-    
-    %% Command Handlers - Verify/Unverify
-    UpdateType -->|/verify Command| CheckAdminVerify{Is Admin?}
-    CheckAdminVerify -->|No| DenyVerify[Send: Admin Only]
-    CheckAdminVerify -->|Yes| AddWhitelist[(Add User to<br/>Photo Whitelist)]
-    AddWhitelist --> UnrestrictVerified[Unrestrict User]
-    UnrestrictVerified --> DeleteWarnings[(Delete Warning Records)]
-    DeleteWarnings --> CheckWarningsExist{Had<br/>Warnings?}
-    CheckWarningsExist -->|Yes| SendClearance[Send Clearance Notification<br/>to Warning Topic]
-    CheckWarningsExist -->|No| SendVerifySuccess[Send: User Verified]
-    SendClearance --> SendVerifySuccess
-    
-    UpdateType -->|/unverify Command| CheckAdminUnverify{Is Admin?}
-    CheckAdminUnverify -->|No| DenyUnverify[Send: Admin Only]
-    CheckAdminUnverify -->|Yes| RemoveWhitelist[(Remove from Whitelist)]
-    RemoveWhitelist --> SendUnverifySuccess[Send: User Unverified]
-    
-    %% Forwarded Message Handler
-    UpdateType -->|Forwarded Message<br/>in DM| CheckAdminForward{Is Admin?}
-    CheckAdminForward -->|No| DenyForward[Send: Admin Only]
-    CheckAdminForward -->|Yes| ExtractUser{Extract<br/>User Info?}
-    ExtractUser -->|Success| SendButtons[Send Verify/Unverify Buttons]
-    ExtractUser -->|Failed| SendExtractError[Send: Cannot Extract User]
-    
-    %% Callback Handlers
-    UpdateType -->|Verify Button| ProcessVerify[Process Verify Callback]
-    ProcessVerify --> AddWhitelist
-    UpdateType -->|Unverify Button| ProcessUnverify[Process Unverify Callback]
-    ProcessUnverify --> RemoveWhitelist
-    
+    ClearKicked --> EndJob1
+    SendTimeNotice --> EndJob1
+
+    ComputeMap -.->|Every 10 min| AdminRefreshJob[refresh_admin_ids_job]
+    AdminRefreshJob --> AdminRefreshLoop{Per Group:<br/>API Call Succeeded?}
+    AdminRefreshLoop -->|Yes| AdminRefreshUpdate[(Update Cached<br/>Admin IDs)]
+    AdminRefreshLoop -->|No| AdminRefreshKeep[(Keep Existing Cache<br/>fail-soft, never empties)]
+
+    %% ===================== Admin Commands: verify / unverify / check (group=0, DM-only) =====================
+    UpdateType -->|"/verify user_id"| Cmd_VerifyAdmin{Admin +<br/>DM?}
+    Cmd_VerifyAdmin -->|No| AdminDeny[Reply: Admin Only]
+    Cmd_VerifyAdmin -->|Yes| Do_Verify[verify_user]
+
+    UpdateType -->|"/unverify user_id"| Cmd_UnverifyAdmin{Admin +<br/>DM?}
+    Cmd_UnverifyAdmin -->|No| AdminDeny
+    Cmd_UnverifyAdmin -->|Yes| Do_Unverify[unverify_user]
+
+    UpdateType -->|"/check user_id"| Cmd_CheckAdmin{Admin +<br/>DM?}
+    Cmd_CheckAdmin -->|No| AdminDeny
+    Cmd_CheckAdmin -->|Yes| Do_CheckProfile[check_user_profile<br/>_build_check_response]
+
+    UpdateType -->|Forwarded Message<br/>in DM| Cmd_ForwardAdmin{Admin +<br/>DM?}
+    Cmd_ForwardAdmin -->|No| AdminDeny
+    Cmd_ForwardAdmin -->|Yes| Cmd_ExtractUser{Extract User<br/>Info from Forward?}
+    Cmd_ExtractUser -->|Failed| Cmd_ExtractError[Send: Cannot Extract User]
+    Cmd_ExtractUser -->|Success| Do_CheckProfile
+
+    Do_CheckProfile --> Cmd_ProfileState{Profile<br/>Complete?}
+    Cmd_ProfileState -->|Complete| Cmd_ButtonsComplete[Show Unverify<br/>+ Trust/Untrust Buttons]
+    Cmd_ProfileState -->|Incomplete| Cmd_ButtonsIncomplete[Show Warn + Verify<br/>+ Trust/Untrust Buttons]
+
+    %% Callback: Verify / Unverify (also reachable from the buttons above)
+    UpdateType -->|"Verify Button<br/>verify:user_id"| CB_VerifyAdmin{Admin?}
+    CB_VerifyAdmin -->|No| AdminDeny
+    CB_VerifyAdmin -->|Yes| Do_Verify
+    Do_Verify --> Verify_Whitelist[(Add to Photo<br/>Verification Whitelist)]
+    Verify_Whitelist --> Verify_PerGroup[Per Group: Unrestrict<br/>+ Delete Warning Records]
+    Verify_PerGroup --> Verify_HadWarnings{Had<br/>Warnings?}
+    Verify_HadWarnings -->|Yes| Verify_Clearance[Send Clearance<br/>to Warning Topic]
+    Verify_Clearance --> Verify_Success[Reply/Edit: User Verified]
+    Verify_HadWarnings -->|No| Verify_Success
+
+    UpdateType -->|"Unverify Button<br/>unverify:user_id"| CB_UnverifyAdmin{Admin?}
+    CB_UnverifyAdmin -->|No| AdminDeny
+    CB_UnverifyAdmin -->|Yes| Do_Unverify
+    Do_Unverify --> Unverify_Remove[(Remove from Whitelist)]
+    Unverify_Remove --> Unverify_Success[Reply/Edit: User Unverified]
+
+    %% Callback: Warn (from check.py's incomplete-profile button)
+    UpdateType -->|"Warn Button<br/>warn:user_id:code"| CB_WarnAdmin{Admin?}
+    CB_WarnAdmin -->|No| AdminDeny
+    CB_WarnAdmin -->|Yes| Warn_Build[Build Warning Text<br/>from Missing Photo/Username Code]
+    Warn_Build --> Warn_Broadcast[Send to Every Monitored<br/>Group's Warning Topic]
+    Warn_Broadcast --> Warn_Success[Edit Message: Sent]
+
+    %% ===================== Admin Commands: trust / untrust / trusted (group=0, DM-only) =====================
+    UpdateType -->|"/trust user_id or forward"| Cmd_TrustAdmin{Admin +<br/>DM?}
+    Cmd_TrustAdmin -->|No| AdminDeny
+    Cmd_TrustAdmin -->|Yes| Do_Trust[trust_user]
+    UpdateType -->|"Trust Button<br/>trust:user_id"| CB_TrustAdmin{Admin?}
+    CB_TrustAdmin -->|No| AdminDeny
+    CB_TrustAdmin -->|Yes| Do_Trust
+    Do_Trust --> Trust_DB[(Add TrustedUser Row<br/>caches admin+user names<br/>+ Clear Probation<br/>+ Unrestrict, per group)]
+    Trust_DB --> Trust_Cache[(Update In-Memory<br/>Trusted ID Cache)]
+    Trust_Cache --> Trust_Success[Reply: Trusted]
+
+    UpdateType -->|"/untrust user_id"| Cmd_UntrustAdmin{Admin +<br/>DM?}
+    Cmd_UntrustAdmin -->|No| AdminDeny
+    Cmd_UntrustAdmin -->|Yes| Do_Untrust[untrust_user]
+    UpdateType -->|"Untrust Button<br/>untrust:user_id"| CB_UntrustAdmin{Admin?}
+    CB_UntrustAdmin -->|No| AdminDeny
+    CB_UntrustAdmin -->|Yes| Do_Untrust
+    Do_Untrust --> Untrust_DB[(Remove TrustedUser Row)]
+    Untrust_DB --> Untrust_Cache[(Update Cache)]
+    Untrust_Cache --> Untrust_Success[Reply: Untrusted<br/>or Not Found]
+
+    UpdateType -->|"/trusted"| Cmd_TrustedAdmin{Admin +<br/>DM?}
+    Cmd_TrustedAdmin -->|No| AdminDeny
+    Cmd_TrustedAdmin -->|Yes| Trusted_Read[(Read All Trusted Users)]
+    Trusted_Read --> Trusted_List[Reply: Formatted List<br/>name, username, trusted-by, date]
+
     classDef processNode fill:#1a1a2e,stroke:#16213e,color:#eee
     classDef decisionNode fill:#0f3460,stroke:#16213e,color:#eee
     classDef dataNode fill:#16213e,stroke:#0f3460,color:#eee
     classDef actionNode fill:#533483,stroke:#16213e,color:#eee
     classDef endNode fill:#e94560,stroke:#16213e,color:#eee
     classDef startNode fill:#1a5f7a,stroke:#16213e,color:#eee
-    
-    class Init,FetchAdmins,RecoverPending,StartJobs,Poll,CheckProfile,CheckDMProfile,RestrictAndChallenge,StorePending,ScheduleTimeout,WaitCaptcha,StartProbation,StartProbationAfter processNode
-    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser,CheckContact,CheckContactAdmin,CheckBioBait,CheckBioBaitAdmin,CheckBioBaitMode decisionNode
-    class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist,IncrementViolation,ClearProbation,DeleteWarnings dataNode
-    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,RestrictContact,SendContactNotify,DeleteBioBait,RestrictBioBait,SendBioBaitNotify,SendBioBaitAlert actionNode
-    class End1,End2,End3,End4,End5,End6,End7,End8,End9,End10,EndJob,StartProbation endNode
+    classDef noteNode fill:#5c3a00,stroke:#e9c46a,color:#ffe8b3
+
+    class InitDB,RegisterHandlers,ComputeMap,RunPolling,FetchAdmins,RecoverPending,Poll,MaybeStart,CheckProfileCaptcha,DM_CheckProfile,DM_FindGroups,DM_FindRestricted,RestrictAndChallenge,SendChallenge,ScheduleTimeout,WaitCaptcha,G_CheckProfile,Do_CheckProfile processNode
+    class UpdateType,EntryPoint,RecoverCaptcha,CheckCaptchaEnabled,CaptchaAnswer,ProfileOkCaptcha,G_TopicGuard,G_TopicIsBotAdmin,G_InlineGate,G_InlineCheck,G_ContactGate,G_ContactCheck,G_ContactRestrictGate,G_NewUserGate,G_OnProbation,G_ProbationExpired,G_Violation,G_ViolationCount,G_DupGate,G_DupLength,G_DupSimilar,G_ProfileGate,G_Whitelist,G_ProfileComplete,G_Mode,G_MsgCount,DM_InGroup,DM_PendingCaptcha,DM_ProfileOk,DM_AnyRestricted,DM_StatusCheck,DM_Result,HasExpired,CheckKicked,AdminRefreshLoop,Cmd_VerifyAdmin,Cmd_UnverifyAdmin,Cmd_CheckAdmin,Cmd_ForwardAdmin,Cmd_ExtractUser,Cmd_ProfileState,CB_VerifyAdmin,CB_UnverifyAdmin,Verify_HadWarnings,CB_WarnAdmin,Cmd_TrustAdmin,CB_TrustAdmin,Cmd_UntrustAdmin,CB_UntrustAdmin,Cmd_TrustedAdmin decisionNode
+    class StartProbationInit,StorePending,RemovePending,RestartProbation,G_ClearProbation,G_ViolationIncrement,G_StoreWarn,G_SilentInc,G_MarkRestricted,DM_ClearOnly,DM_ClearAndNotify,QueryDB,ClearKicked,MarkTimeRestricted,AdminRefreshUpdate,AdminRefreshKeep,Verify_Whitelist,Unverify_Remove,Trust_DB,Trust_Cache,Untrust_DB,Untrust_Cache,Trusted_Read,LoadTrusted dataNode
+    class ShowError,CaptchaTimeout,HandleExpiration,ShowIncomplete,UnrestrictMember,CancelTimeout,UpdateMessage,G_TopicDelete,G_InlineDelete,G_InlineRestrict,G_InlineNotify,G_ContactDelete,G_ContactRestrict,G_ContactNotify,G_ViolationDelete,G_ViolationWarn,G_ViolationRestrict,G_ViolationNotify,G_DupDelete,G_DupRestrict,G_DupNotify,G_WarnOnly,G_FirstWarn,G_RestrictUser,G_RestrictMsg,DM_NotInGroup,DM_CaptchaRedirect,DM_Missing,DM_NoRestriction,DM_Unrestrict,DM_Success,DM_AlreadyDone,SchedulerJob,ApplyTimeRestriction,SendTimeNotice,AdminRefreshJob,AdminDeny,Cmd_ExtractError,Cmd_ButtonsComplete,Cmd_ButtonsIncomplete,Do_Verify,Do_Unverify,Do_Trust,Do_Untrust,Verify_PerGroup,Verify_Clearance,Verify_Success,Unverify_Success,Warn_Build,Warn_Broadcast,Warn_Success,Trust_Success,Untrust_Success,Trusted_List actionNode
+    class EndNM1,EndNM2,EndNM3,StopTopic1,StopTopic2,StopInline,StopContact,StopNewUser1,StopNewUser2,StopNewUser3,StopDup,EndG0,EndG1,EndG2,EndG3,EndG4,EndG5,EndG6,EndJob1 endNode
     class Start startNode
+    class G_Group4Note noteNode
 ```
 
 ## How It Works
