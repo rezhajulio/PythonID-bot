@@ -308,7 +308,13 @@ async def captcha_callback_handler(
     # DB finalization first (reversible). If it fails, user stays restricted
     # in Telegram, DB row preserved, timeout still armed — user can retry.
     try:
-        db.remove_pending_captcha(target_user_id, group_config.group_id)
+        removed = db.remove_pending_captcha(target_user_id, group_config.group_id)
+        if not removed:
+            # Duplicate callback delivery (e.g. double-tap) raced us here —
+            # the other delivery already finalized this user. Ack and stop.
+            logger.info(f"Captcha for user {target_user_id} already finalized, ignoring duplicate callback")
+            await query.answer()
+            return
         db.start_new_user_probation(target_user_id, group_config.group_id)
     except Exception:
         logger.error(f"DB finalization failed for user {target_user_id}", exc_info=True)
