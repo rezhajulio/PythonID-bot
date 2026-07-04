@@ -36,19 +36,11 @@ logger = logging.getLogger(__name__)
 
 
 def _add_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    trusted_ids = context.bot_data.get("trusted_user_ids")
-    if trusted_ids is None:
-        trusted_ids = set()
-        context.bot_data["trusted_user_ids"] = trusted_ids
-    trusted_ids.add(user_id)
+    context.bot_data.setdefault("trusted_user_ids", set()).add(user_id)
 
 
 def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    trusted_ids = context.bot_data.get("trusted_user_ids")
-    if trusted_ids is None:
-        trusted_ids = set()
-        context.bot_data["trusted_user_ids"] = trusted_ids
-    trusted_ids.discard(user_id)
+    context.bot_data.setdefault("trusted_user_ids", set()).discard(user_id)
 
 
 def _format_person(full_name: str, user_id: int) -> str:
@@ -152,14 +144,6 @@ async def trust_user(
     return cleared_probation, unrestricted_groups
 
 
-async def untrust_user(
-    db: DatabaseService,
-    target_user_id: int,
-) -> None:
-    """Remove trusted user entry."""
-    db.remove_trusted_user(user_id=target_user_id)
-
-
 async def handle_trust_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -245,7 +229,7 @@ async def handle_untrust_command(
     db = get_database()
 
     try:
-        await untrust_user(db, target_user_id)
+        db.remove_trusted_user(user_id=target_user_id)
         _remove_trusted_cache(context, target_user_id)
         await update.message.reply_text(
             TRUST_REMOVED_MESSAGE.format(user_id=target_user_id),
@@ -384,7 +368,7 @@ async def handle_untrust_callback(
     db = get_database()
 
     try:
-        await untrust_user(db, target_user_id)
+        db.remove_trusted_user(user_id=target_user_id)
         _remove_trusted_cache(context, target_user_id)
         await query.edit_message_text(
             TRUST_REMOVED_MESSAGE.format(user_id=target_user_id),

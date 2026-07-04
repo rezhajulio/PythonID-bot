@@ -26,6 +26,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# --- Helper for spam handler registration ---
+
+def _register_spam(application: Application, handler: BaseHandler, group: int, label: str) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register a spam handler at a specific group and log the registration."""
+    application.add_handler(handler, group=group)
+    logger.info(f"Registered handler: {label} (group={group})")
+    return [handler]
+
+
 # --- Individual registrar functions ---
 
 def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
@@ -37,9 +46,7 @@ def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]
         filters.ChatType.GROUPS,
         guard_plugin("inline_keyboard_spam")(handle_inline_keyboard_spam),
     )
-    application.add_handler(handler, group=1)
-    logger.info("Registered handler: inline_keyboard_spam_handler (group=1)")
-    return [handler]
+    return _register_spam(application, handler, 1, "inline_keyboard_spam_handler")
 
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register bio bait spam handler (group=4).
@@ -50,9 +57,7 @@ def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # ty
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
     )
-    application.add_handler(handler, group=4)
-    logger.info("Registered handler: bio_bait_spam_handler (group=4)")
-    return [handler]
+    return _register_spam(application, handler, 4, "bio_bait_spam_handler")
 
 def register_contact_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register contact spam handler (group=2).
@@ -63,9 +68,7 @@ def register_contact_spam(application: Application) -> list[BaseHandler]:  # typ
         filters.ChatType.GROUPS & filters.CONTACT,
         guard_plugin("contact_spam")(handle_contact_spam),
     )
-    application.add_handler(handler, group=2)
-    logger.info("Registered handler: contact_spam_handler (group=2)")
-    return [handler]
+    return _register_spam(application, handler, 2, "contact_spam_handler")
 
 def register_new_user_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register new user spam handler (probation, group=3).
@@ -76,9 +79,7 @@ def register_new_user_spam(application: Application) -> list[BaseHandler]:  # ty
         filters.ChatType.GROUPS,
         guard_plugin("new_user_spam")(handle_new_user_spam),
     )
-    application.add_handler(handler, group=3)
-    logger.info("Registered handler: anti_spam_handler (group=3)")
-    return [handler]
+    return _register_spam(application, handler, 3, "anti_spam_handler")
 
 def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register duplicate message spam handler (group=4).
@@ -89,28 +90,4 @@ def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # t
         filters.ChatType.GROUPS & ~filters.COMMAND,
         guard_plugin("duplicate_spam")(handle_duplicate_spam),
     )
-    application.add_handler(handler, group=4)
-    logger.info("Registered handler: duplicate_spam_handler (group=4)")
-    return [handler]
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _SpamPlugin:
-    """Plugin wrapper for all anti-spam handlers."""
-
-    name: str = "spam"
-    description: str = "Anti-spam handlers (inline keyboards, bio bait, contact, probation, duplicates)"
-    handler_group: int = 1
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register all spam handlers onto application with their respective groups."""
-        handlers: list[BaseHandler] = []
-        handlers.extend(register_inline_keyboard_spam(application))
-        handlers.extend(register_bio_bait_spam(application))
-        handlers.extend(register_contact_spam(application))
-        handlers.extend(register_new_user_spam(application))
-        handlers.extend(register_duplicate_spam(application))
-        return handlers
-
-plugin = _SpamPlugin()
+    return _register_spam(application, handler, 4, "duplicate_spam_handler")

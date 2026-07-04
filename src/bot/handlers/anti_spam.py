@@ -45,23 +45,6 @@ def is_forwarded(message: Message) -> bool:
     return message.forward_origin is not None
 
 
-def has_link(message: Message) -> bool:
-    """
-    Check if a message contains URLs or text links.
-
-    Checks both message entities and caption entities for URL types.
-
-    Args:
-        message: Telegram message to check.
-
-    Returns:
-        bool: True if message contains links.
-    """
-    entities = list(message.entities or []) + list(message.caption_entities or [])
-    link_types = {MessageEntity.URL, MessageEntity.TEXT_LINK}
-    return any(entity.type in link_types for entity in entities)
-
-
 def has_external_reply(message: Message) -> bool:
     """
     Check if a message has an external reply (quote from another chat).
@@ -220,18 +203,30 @@ def has_contact(message: Message) -> bool:
     return message.contact is not None
 
 
-async def handle_contact_spam(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+async def _handle_group_spam(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    detector,
+    label: str,
+    should_restrict,
+    template_restricted: str,
+    template_no_restrict: str,
 ) -> None:
     """
-    Handle contact card sharing in monitored groups.
+    Shared helper for handling group spam detection and enforcement.
 
-    Blocks ALL non-admin members from sending contact cards.
-    Deletes the message and sends a notification to the warning topic.
+    Implements the common skeleton: guard clauses → detector check → delete
+    message → conditionally restrict → send notification → raise ApplicationHandlerStop.
 
     Args:
         update: Telegram update containing the message.
         context: Bot context with helper methods.
+        detector: Callable that takes a Message and returns bool if spam detected.
+        label: Description for logging (e.g. "contact spam").
+        should_restrict: Callable taking group_config and returning bool.
+        template_restricted: Notification template when user is restricted.
+        template_no_restrict: Notification template when user is not restricted.
     """
     if not update.message or not update.message.from_user:
         return
@@ -248,26 +243,26 @@ async def handle_contact_spam(
         return
 
     msg = update.message
-    if not has_contact(msg):
+    if not detector(msg):
         return
 
     user_mention = get_user_mention(user)
     logger.info(
-        f"Contact spam detected: user_id={user.id}, "
+        f"{label.capitalize()} detected: user_id={user.id}, "
         f"group_id={group_config.group_id}"
     )
 
     try:
         await msg.delete()
-        logger.info(f"Deleted contact spam from user_id={user.id}")
+        logger.info(f"Deleted {label} from user_id={user.id}")
     except Exception:
         logger.error(
-            f"Failed to delete contact spam: user_id={user.id}",
+            f"Failed to delete {label}: user_id={user.id}",
             exc_info=True,
         )
 
     restricted = False
-    if group_config.contact_spam_restrict:
+    if should_restrict(group_config):
         try:
             await context.bot.restrict_chat_member(
                 chat_id=group_config.group_id,
@@ -275,18 +270,15 @@ async def handle_contact_spam(
                 permissions=RESTRICTED_PERMISSIONS,
             )
             restricted = True
-            logger.info(f"Restricted user_id={user.id} for contact spam")
+            logger.info(f"Restricted user_id={user.id} for {label}")
         except Exception:
             logger.error(
-                f"Failed to restrict user for contact spam: user_id={user.id}",
+                f"Failed to restrict user for {label}: user_id={user.id}",
                 exc_info=True,
             )
 
     try:
-        template = (
-            CONTACT_SPAM_NOTIFICATION if restricted
-            else CONTACT_SPAM_NOTIFICATION_NO_RESTRICT
-        )
+        template = template_restricted if restricted else template_no_restrict
         notification_text = template.format(
             user_mention=user_mention,
             rules_link=group_config.rules_link,
@@ -297,14 +289,38 @@ async def handle_contact_spam(
             text=notification_text,
             parse_mode="Markdown",
         )
-        logger.info(f"Sent contact spam notification for user_id={user.id}")
+        logger.info(f"Sent {label} notification for user_id={user.id}")
     except Exception:
         logger.error(
-            f"Failed to send contact spam notification: user_id={user.id}",
+            f"Failed to send {label} notification: user_id={user.id}",
             exc_info=True,
         )
 
     raise ApplicationHandlerStop
+
+
+async def handle_contact_spam(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle contact card sharing in monitored groups.
+
+    Blocks ALL non-admin members from sending contact cards.
+    Deletes the message and sends a notification to the warning topic.
+
+    Args:
+        update: Telegram update containing the message.
+        context: Bot context with helper methods.
+    """
+    await _handle_group_spam(
+        update,
+        context,
+        detector=has_contact,
+        label="contact spam",
+        should_restrict=lambda cfg: cfg.contact_spam_restrict,
+        template_restricted=CONTACT_SPAM_NOTIFICATION,
+        template_no_restrict=CONTACT_SPAM_NOTIFICATION_NO_RESTRICT,
+    )
 
 
 async def handle_inline_keyboard_spam(
@@ -321,77 +337,15 @@ async def handle_inline_keyboard_spam(
         update: Telegram update containing the message.
         context: Bot context with helper methods.
     """
-    if not update.message or not update.message.from_user:
-        return
-
-    group_config = get_group_config_for_update(update)
-    if group_config is None:
-        return
-
-    user = update.message.from_user
-    if user.is_bot:
-        return
-
-    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
-        return
-
-    msg = update.message
-    if not has_non_whitelisted_inline_keyboard_urls(msg):
-        return
-
-    user_mention = get_user_mention(user)
-    logger.info(
-        f"Inline keyboard spam detected: user_id={user.id}, "
-        f"group_id={group_config.group_id}"
+    await _handle_group_spam(
+        update,
+        context,
+        detector=has_non_whitelisted_inline_keyboard_urls,
+        label="inline keyboard spam",
+        should_restrict=lambda cfg: True,
+        template_restricted=INLINE_KEYBOARD_SPAM_NOTIFICATION,
+        template_no_restrict=INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT,
     )
-
-    try:
-        await msg.delete()
-        logger.info(f"Deleted inline keyboard spam from user_id={user.id}")
-    except Exception:
-        logger.error(
-            f"Failed to delete inline keyboard spam: user_id={user.id}",
-            exc_info=True,
-        )
-
-    restricted = False
-    try:
-        await context.bot.restrict_chat_member(
-            chat_id=group_config.group_id,
-            user_id=user.id,
-            permissions=RESTRICTED_PERMISSIONS,
-        )
-        restricted = True
-        logger.info(f"Restricted user_id={user.id} for inline keyboard spam")
-    except Exception:
-        logger.error(
-            f"Failed to restrict user for inline keyboard spam: user_id={user.id}",
-            exc_info=True,
-        )
-
-    try:
-        template = (
-            INLINE_KEYBOARD_SPAM_NOTIFICATION if restricted
-            else INLINE_KEYBOARD_SPAM_NOTIFICATION_NO_RESTRICT
-        )
-        notification_text = template.format(
-            user_mention=user_mention,
-            rules_link=group_config.rules_link,
-        )
-        await context.bot.send_message(
-            chat_id=group_config.group_id,
-            message_thread_id=group_config.warning_topic_id,
-            text=notification_text,
-            parse_mode="Markdown",
-        )
-        logger.info(f"Sent inline keyboard spam notification for user_id={user.id}")
-    except Exception:
-        logger.error(
-            f"Failed to send inline keyboard spam notification: user_id={user.id}",
-            exc_info=True,
-        )
-
-    raise ApplicationHandlerStop
 
 
 async def handle_new_user_spam(

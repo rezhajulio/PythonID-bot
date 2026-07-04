@@ -8,9 +8,10 @@ Telegram's API across different handlers and services.
 import logging
 from urllib.parse import urlparse
 
-from telegram import Bot, Chat, Message, User
+from telegram import Bot, Chat, Message, Update, User
 from telegram.constants import ChatMemberStatus
 from telegram.error import BadRequest, Forbidden
+from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown, mention_markdown
 
 from bot.constants import WHITELISTED_TELEGRAM_PATHS, WHITELISTED_URL_DOMAINS
@@ -35,10 +36,7 @@ def get_user_mention(user: User | Chat) -> str:
     Returns:
         str: Formatted user mention (either @username or markdown mention).
     """
-    if user.username:
-        escaped = escape_markdown(user.username.lstrip("@"), version=1)
-        return f"@{escaped}"
-    return mention_markdown(user.id, user.full_name, version=1)
+    return get_user_mention_by_id(user.id, user.full_name, user.username)
 
 def get_user_mention_by_id(
     user_id: int,
@@ -279,3 +277,61 @@ async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
             exc_info=True,
         )
         raise TelegramAdminFetchError(f"Failed to fetch admins from group {group_id}: {e}") from e
+
+async def require_admin_dm_target(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    usage_message: str,
+    command_label: str,
+) -> int | None:
+    """
+    Validate admin DM command prerequisites and parse target user ID.
+
+    Performs four checks in order:
+    1. Message and from_user exist
+    2. Chat is private
+    3. Caller is an admin
+    4. Argument is a valid user ID
+
+    Sends appropriate error replies on any failure. Returns the parsed user ID
+    on success, or None after sending an error reply.
+
+    Args:
+        update: Telegram update.
+        context: Bot context.
+        usage_message: Full usage message to send on missing args (e.g., "❌ Penggunaan: /verify USER_ID").
+        command_label: Command name for logging (e.g., "/verify command").
+
+    Returns:
+        int | None: Parsed user ID on success, None if any check failed.
+    """
+    if not update.message or not update.message.from_user:
+        return None
+
+    if update.effective_chat and update.effective_chat.type != "private":
+        await update.message.reply_text(
+            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
+        )
+        return None
+
+    admin_user_id = update.message.from_user.id
+    admin_ids = context.bot_data.get("admin_ids", [])
+
+    if admin_user_id not in admin_ids:
+        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
+        logger.warning(
+            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
+            f"attempted to use {command_label}"
+        )
+        return None
+
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(usage_message)
+        return None
+
+    try:
+        target_user_id = int(context.args[0])
+        return target_user_id
+    except ValueError:
+        await update.message.reply_text("❌ User ID harus berupa angka.")
+        return None

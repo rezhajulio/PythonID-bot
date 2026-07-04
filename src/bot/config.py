@@ -9,7 +9,6 @@ variables using Pydantic Settings. It supports multiple environments
 import json
 import logging
 import os
-from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,11 +27,7 @@ def get_env_file() -> str | None:
             - "staging" -> ".env.staging" (if exists)
     """
     env = os.getenv("BOT_ENV", "production")
-    env_files = {
-        "production": ".env",
-        "staging": ".env.staging",
-    }
-    env_file = env_files.get(env, ".env")
+    env_file = ".env.staging" if env == "staging" else ".env"
 
     # Return path only if file exists, otherwise return None
     # Pydantic will load from environment variables if no .env file
@@ -143,35 +138,27 @@ class Settings(BaseSettings):
             self.logfire_environment = "staging"
 
         logger.info("Configuration loaded successfully")
-        logger.debug(f"group_id: {self.group_id}")
-        logger.debug(f"warning_topic_id: {self.warning_topic_id}")
-        logger.debug(f"restrict_failed_users: {self.restrict_failed_users}")
-        logger.debug(f"warning_threshold: {self.warning_threshold}")
-        logger.debug(f"warning_time_threshold_minutes: {self.warning_time_threshold_minutes}")
-        logger.debug(f"database_path: {self.database_path}")
-        logger.debug(f"captcha_enabled: {self.captcha_enabled}")
-        logger.debug(f"captcha_timeout_seconds: {self.captcha_timeout_seconds}")
-        logger.debug(f"new_user_probation_hours: {self.new_user_probation_hours}")
-        logger.debug(f"new_user_violation_threshold: {self.new_user_violation_threshold}")
-        logger.debug(f"bio_bait_enabled: {self.bio_bait_enabled}")
-        logger.debug(f"bio_bait_monitor_only: {self.bio_bait_monitor_only}")
-        logger.debug(f"bio_bait_alert_chat_id: {self.bio_bait_alert_chat_id}")
-        logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")  # Mask sensitive token
+        for field in (
+            "group_id",
+            "warning_topic_id",
+            "restrict_failed_users",
+            "warning_threshold",
+            "warning_time_threshold_minutes",
+            "database_path",
+            "captcha_enabled",
+            "captcha_timeout_seconds",
+            "new_user_probation_hours",
+            "new_user_violation_threshold",
+            "bio_bait_enabled",
+            "bio_bait_monitor_only",
+            "bio_bait_alert_chat_id",
+        ):
+            logger.debug(f"{field}: {getattr(self, field)}")
+        logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")
         logger.debug(f"logfire_enabled: {self.logfire_enabled}")
         logger.debug(f"logfire_environment: {self.logfire_environment}")
         logger.debug(f"plugins_default: {self.plugins_default}")
 
-    @property
-    def probation_timedelta(self) -> timedelta:
-        return timedelta(hours=self.new_user_probation_hours)
-
-    @property
-    def warning_time_threshold_timedelta(self) -> timedelta:
-        return timedelta(minutes=self.warning_time_threshold_minutes)
-
-    @property
-    def captcha_timeout_timedelta(self) -> timedelta:
-        return timedelta(seconds=self.captcha_timeout_seconds)
 
 @lru_cache
 def get_settings() -> Settings:

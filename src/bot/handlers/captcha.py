@@ -29,7 +29,7 @@ from bot.constants import (
     MISSING_ITEMS_SEPARATOR,
     RESTRICTED_PERMISSIONS,
 )
-from bot.database.service import get_database
+from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
 from bot.services.user_checker import check_user_profile
@@ -135,6 +135,33 @@ async def _initiate_captcha_challenge(
     )
 
 
+async def _maybe_start_captcha(
+    context: ContextTypes.DEFAULT_TYPE,
+    db: DatabaseService,
+    member: User,
+    group_config: GroupConfig,
+) -> None:
+    """
+    Maybe start captcha verification for a new member.
+
+    Starts probation, checks if captcha is enabled, checks for duplicates,
+    and initiates captcha challenge if appropriate.
+    """
+    user_id = member.id
+
+    db.start_new_user_probation(user_id, group_config.group_id)
+
+    if not group_config.captcha_enabled:
+        logger.info(f"Captcha disabled, probation started for user {user_id}")
+        return
+
+    if db.get_pending_captcha(user_id, group_config.group_id):
+        logger.info(f"Captcha already pending for user {user_id}, skipping duplicate")
+        return
+
+    await _initiate_captcha_challenge(context, member, group_config.group_id, group_config)
+
+
 async def new_member_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -166,21 +193,7 @@ async def new_member_handler(
         if new_member.is_bot:
             continue
 
-        user_id = new_member.id
-
-        # Start probation for all new users (regardless of captcha setting)
-        db.start_new_user_probation(user_id, group_config.group_id)
-
-        # If captcha is disabled, we're done - user just gets probation
-        if not group_config.captcha_enabled:
-            logger.info(f"Captcha disabled, probation started for user {user_id}")
-            continue
-
-        if db.get_pending_captcha(user_id, group_config.group_id):
-            logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (new_member_handler)")
-            continue
-
-        await _initiate_captcha_challenge(context, new_member, group_config.group_id, group_config)
+        await _maybe_start_captcha(context, db, new_member, group_config)
 
 
 async def chat_member_handler(
@@ -231,22 +244,8 @@ async def chat_member_handler(
 
     logger.info(f"Detected new member via ChatMemberUpdated: {new_member.id} ({new_member.full_name})")
 
-    # Start probation for all new users (regardless of captcha setting)
     db = get_database()
-    db.start_new_user_probation(new_member.id, group_config.group_id)
-
-    # If captcha is disabled, we're done - user just gets probation
-    if not group_config.captcha_enabled:
-        logger.info(f"Captcha disabled, probation started for user {new_member.id}")
-        return
-
-    user_id = new_member.id
-
-    if db.get_pending_captcha(user_id, group_config.group_id):
-        logger.info(f"Captcha already pending for user {user_id}, skipping duplicate (chat_member_handler)")
-        return
-
-    await _initiate_captcha_challenge(context, new_member, group_config.group_id, group_config)
+    await _maybe_start_captcha(context, db, new_member, group_config)
 
 
 async def captcha_callback_handler(

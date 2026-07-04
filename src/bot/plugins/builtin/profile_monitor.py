@@ -38,19 +38,3 @@ def register_profile_monitor(application: Application) -> list[BaseHandler]:  # 
     application.add_handler(handler, group=5)
     logger.info("Registered handler: message_handler (group=5)")
     return [handler]
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _ProfileMonitorPlugin:
-    """Plugin wrapper for profile compliance monitor."""
-
-    name: str = "profile_monitor"
-    description: str = "Profile compliance monitoring"
-    handler_group: int = 5
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register profile monitor handler onto application."""
-        return register_profile_monitor(application)
-
-plugin = _ProfileMonitorPlugin()

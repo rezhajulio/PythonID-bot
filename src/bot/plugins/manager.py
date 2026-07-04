@@ -44,6 +44,40 @@ logger = logging.getLogger(__name__)
 # Use string forward ref because BaseHandler is only imported under TYPE_CHECKING.
 Registrar = Callable[..., list["BaseHandler"]]
 
+# Module-level registry constant mapping plugin names to registrar functions.
+_REGISTRY: dict[str, Registrar] = {
+    # topic_guard
+    "topic_guard": tg_mod.register_topic_guard,
+    # commands (group=0)
+    "verify": commands.register_verify,
+    "unverify": commands.register_unverify,
+    "check": commands.register_check,
+    "trust": commands.register_trust,
+    "untrust": commands.register_untrust,
+    "trusted_list": commands.register_trusted_list,
+    "check_forwarded_message": commands.register_check_forwarded_message,
+    "verify_callback": commands.register_verify_callback,
+    "unverify_callback": commands.register_unverify_callback,
+    "warn_callback": commands.register_warn_callback,
+    "trust_callback": commands.register_trust_callback,
+    "untrust_callback": commands.register_untrust_callback,
+    # captcha
+    "captcha": captcha_mod.register_captcha,
+    # dm
+    "dm": dm_mod.register_dm,
+    # spam
+    "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
+    "bio_bait_spam": spam_mod.register_bio_bait_spam,
+    "contact_spam": spam_mod.register_contact_spam,
+    "new_user_spam": spam_mod.register_new_user_spam,
+    "duplicate_spam": spam_mod.register_duplicate_spam,
+    # profile_monitor
+    "profile_monitor": pm_mod.register_profile_monitor,
+    # jobs
+    "auto_restrict_job": jobs_mod.register_auto_restrict_job,
+    "refresh_admin_ids_job": jobs_mod.register_refresh_admin_ids_job,
+}
+
 
 def compute_effective_plugin_map(
     plugins_default: dict[str, bool],
@@ -88,48 +122,8 @@ class PluginManager:
     """
 
     def __init__(self) -> None:
-        # Build registry: manifest name -> registrar callable
-        self._registry: dict[str, Registrar] = self._build_registry()
-
-    @staticmethod
-    def _build_registry() -> dict[str, Registrar]:
-        """Return dict mapping each manifest name to its registrar.
-
-        Each registrar is a module-level function that accepts an
-        ``Application`` and returns ``list[BaseHandler]``.
-        """
-        return {
-            # topic_guard
-            "topic_guard": tg_mod.register_topic_guard,
-            # commands (group=0)
-            "verify": commands.register_verify,
-            "unverify": commands.register_unverify,
-            "check": commands.register_check,
-            "trust": commands.register_trust,
-            "untrust": commands.register_untrust,
-            "trusted_list": commands.register_trusted_list,
-            "check_forwarded_message": commands.register_check_forwarded_message,
-            "verify_callback": commands.register_verify_callback,
-            "unverify_callback": commands.register_unverify_callback,
-            "warn_callback": commands.register_warn_callback,
-            "trust_callback": commands.register_trust_callback,
-            "untrust_callback": commands.register_untrust_callback,
-            # captcha
-            "captcha": captcha_mod.register_captcha,
-            # dm
-            "dm": dm_mod.register_dm,
-            # spam
-            "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
-            "bio_bait_spam": spam_mod.register_bio_bait_spam,
-            "contact_spam": spam_mod.register_contact_spam,
-            "new_user_spam": spam_mod.register_new_user_spam,
-            "duplicate_spam": spam_mod.register_duplicate_spam,
-            # profile_monitor
-            "profile_monitor": pm_mod.register_profile_monitor,
-            # jobs
-            "auto_restrict_job": jobs_mod.register_auto_restrict_job,
-            "refresh_admin_ids_job": jobs_mod.register_refresh_admin_ids_job,
-        }
+        """Initialize with a shallow copy of the shared registry."""
+        self._registry: dict[str, Registrar] = dict(_REGISTRY)
 
     def register_all(
         self,

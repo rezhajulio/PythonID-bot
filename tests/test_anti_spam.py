@@ -16,7 +16,6 @@ from bot.handlers.anti_spam import (
     handle_new_user_spam,
     has_contact,
     has_external_reply,
-    has_link,
     has_media,
     has_non_whitelisted_inline_keyboard_urls,
     has_non_whitelisted_link,
@@ -42,62 +41,6 @@ class TestIsForwarded:
         msg.forward_origin = None
 
         assert is_forwarded(msg) is False
-
-
-class TestHasLink:
-    """Tests for the has_link helper function."""
-
-    def test_url_entity_detected(self):
-        """Test that URL entity is detected."""
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.URL
-
-        msg = MagicMock(spec=Message)
-        msg.entities = [entity]
-        msg.caption_entities = None
-
-        assert has_link(msg) is True
-
-    def test_text_link_entity_detected(self):
-        """Test that TEXT_LINK entity is detected."""
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.TEXT_LINK
-
-        msg = MagicMock(spec=Message)
-        msg.entities = [entity]
-        msg.caption_entities = None
-
-        assert has_link(msg) is True
-
-    def test_caption_link_detected(self):
-        """Test that link in caption is detected."""
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.URL
-
-        msg = MagicMock(spec=Message)
-        msg.entities = None
-        msg.caption_entities = [entity]
-
-        assert has_link(msg) is True
-
-    def test_no_link_returns_false(self):
-        """Test that message without links returns False."""
-        msg = MagicMock(spec=Message)
-        msg.entities = None
-        msg.caption_entities = None
-
-        assert has_link(msg) is False
-
-    def test_other_entity_not_link(self):
-        """Test that non-link entities are not detected as links."""
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.BOLD
-
-        msg = MagicMock(spec=Message)
-        msg.entities = [entity]
-        msg.caption_entities = None
-
-        assert has_link(msg) is False
 
 
 class TestHasExternalReply:

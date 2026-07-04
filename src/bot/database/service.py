@@ -274,20 +274,13 @@ class DatabaseService:
             int: Number of warning records deleted.
         """
         with Session(self._engine) as session:
-            # First count records to be deleted
-            count_statement = select(UserWarning).where(
-                UserWarning.user_id == user_id,
-                UserWarning.group_id == group_id,
-            )
-            count = len(session.exec(count_statement).all())
-
-            # Bulk delete using SQLModel delete statement
             delete_statement = delete(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
             )
-            session.exec(delete_statement)
+            result = session.exec(delete_statement)
             session.commit()
+            count = result.rowcount
             logger.info(
                 f"Deleted warnings: user_id={user_id}, group_id={group_id}, count={count}"
             )
@@ -482,29 +475,13 @@ class DatabaseService:
                 session.add(record)
                 session.commit()
 
-    def is_user_trusted(self, user_id: int, group_id: int | None = None) -> bool:
+    def is_user_trusted(self, user_id: int) -> bool:
         """
         Check whether a user is trusted.
 
-        Currently only global trust (group_id=None or 0) is supported; passing
-        a non-zero group_id raises NotImplementedError.
-
-        Args:
-            user_id: Telegram user ID.
-            group_id: Optional group scope. Must be None or 0 for now.
-
         Returns:
             bool: True if user is trusted globally.
-
-        Raises:
-            NotImplementedError: If a non-zero group_id is provided.
         """
-        if group_id is not None and group_id != 0:
-            raise NotImplementedError(
-                "Per-group trusted user reads are not yet supported; "
-                "only global (group_id=0) trust is implemented."
-            )
-
         with Session(self._engine) as session:
             statement = select(TrustedUser).where(
                 TrustedUser.user_id == user_id,
@@ -513,54 +490,24 @@ class DatabaseService:
             record = session.exec(statement).first()
             return record is not None
 
-    def get_trusted_user_ids(self, group_id: int | None = None) -> set[int]:
+    def get_trusted_user_ids(self) -> set[int]:
         """
         Get trusted user IDs.
 
-        Currently only global trust (group_id=None or 0) is supported; passing
-        a non-zero group_id raises NotImplementedError.
-
-        Args:
-            group_id: Optional group scope. Must be None or 0 for now.
-
         Returns:
             set[int]: Trusted user IDs scoped to global (group_id=0).
-
-        Raises:
-            NotImplementedError: If a non-zero group_id is provided.
         """
-        if group_id is not None and group_id != 0:
-            raise NotImplementedError(
-                "Per-group trusted user reads are not yet supported; "
-                "only global (group_id=0) trust is implemented."
-            )
-
         with Session(self._engine) as session:
             statement = select(TrustedUser.user_id).where(TrustedUser.group_id == 0)
             return set(session.exec(statement).all())
 
-    def get_trusted_users(self, group_id: int | None = None) -> list[TrustedUser]:
+    def get_trusted_users(self) -> list[TrustedUser]:
         """
         Get trusted user records with metadata.
 
-        Currently only global trust (group_id=None or 0) is supported; passing
-        a non-zero group_id raises NotImplementedError.
-
-        Args:
-            group_id: Optional group scope. Must be None or 0 for now.
-
         Returns:
             list[TrustedUser]: Trusted user records scoped to global (group_id=0).
-
-        Raises:
-            NotImplementedError: If a non-zero group_id is provided.
         """
-        if group_id is not None and group_id != 0:
-            raise NotImplementedError(
-                "Per-group trusted user reads are not yet supported; "
-                "only global (group_id=0) trust is implemented."
-            )
-
         with Session(self._engine) as session:
             statement = (
                 select(TrustedUser)
@@ -568,33 +515,6 @@ class DatabaseService:
                 .order_by(TrustedUser.trusted_at.desc())
             )
             return list(session.exec(statement).all())
-
-    def get_warnings_past_time_threshold(
-        self, threshold: timedelta
-    ) -> list[UserWarning]:
-        """
-        Find all active warnings that have exceeded the time threshold.
-
-        Looks for non-restricted warning records where the time elapsed
-        since first_warned_at exceeds the threshold, regardless of message count.
-
-        Args:
-            threshold: Time duration since first warning to trigger restriction.
-
-        Returns:
-            list[UserWarning]: List of warning records that should be auto-restricted.
-        """
-        with Session(self._engine) as session:
-            cutoff_time = datetime.now(UTC) - threshold
-            statement = select(UserWarning).where(
-                ~UserWarning.is_restricted,
-                UserWarning.first_warned_at <= cutoff_time,
-            )
-            records = session.exec(statement).all()
-            logger.info(
-                f"Found {len(records)} warnings past {threshold} threshold"
-            )
-            return [record for record in records]
 
     def get_warnings_past_time_threshold_for_group(
         self, group_id: int, threshold: timedelta

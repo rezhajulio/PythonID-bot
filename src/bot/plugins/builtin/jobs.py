@@ -49,22 +49,3 @@ def register_refresh_admin_ids_job(application: Application) -> list[BaseHandler
         logger.info("JobQueue registered: refresh_admin_ids_job (every 10 minutes)")
     # Jobs don't return handler objects
     return handlers
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _JobsPlugin:
-    """Plugin wrapper for periodic job handlers."""
-
-    name: str = "jobs"
-    description: str = "Periodic JobQueue tasks (auto-restrict, admin cache refresh)"
-    handler_group: int = 6
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register repeating jobs onto application.job_queue."""
-        handlers: list[BaseHandler] = []
-        handlers.extend(register_auto_restrict_job(application))
-        handlers.extend(register_refresh_admin_ids_job(application))
-        return handlers
-
-plugin = _JobsPlugin()

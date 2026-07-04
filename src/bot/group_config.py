@@ -125,9 +125,6 @@ class GroupRegistry:
     def all_groups(self) -> list[GroupConfig]:
         return list(self._groups.values())
 
-    def is_monitored(self, group_id: int) -> bool:
-        return group_id in self._groups
-
 def load_groups_from_json(path: str) -> list[GroupConfig]:
     """
     Parse a groups.json file into a list of GroupConfig objects.
@@ -188,25 +185,11 @@ def build_group_registry(settings: object) -> GroupRegistry:
     else:
         logger.info("No groups.json found, using single-group config from .env")
         config = GroupConfig(
-            group_id=settings.group_id,
-            warning_topic_id=settings.warning_topic_id,
-            restrict_failed_users=settings.restrict_failed_users,
-            warning_threshold=settings.warning_threshold,
-            warning_time_threshold_minutes=settings.warning_time_threshold_minutes,
-            captcha_enabled=settings.captcha_enabled,
-            captcha_timeout_seconds=settings.captcha_timeout_seconds,
-            new_user_probation_hours=settings.new_user_probation_hours,
-            new_user_violation_threshold=settings.new_user_violation_threshold,
-            rules_link=settings.rules_link,
-            contact_spam_restrict=settings.contact_spam_restrict,
-            duplicate_spam_enabled=settings.duplicate_spam_enabled,
-            duplicate_spam_window_seconds=settings.duplicate_spam_window_seconds,
-            duplicate_spam_threshold=settings.duplicate_spam_threshold,
-            duplicate_spam_min_length=settings.duplicate_spam_min_length,
-            duplicate_spam_similarity=settings.duplicate_spam_similarity,
-            bio_bait_enabled=getattr(settings, "bio_bait_enabled", True),
-            bio_bait_monitor_only=getattr(settings, "bio_bait_monitor_only", False),
-            bio_bait_alert_chat_id=getattr(settings, "bio_bait_alert_chat_id", None),
+            **{
+                f: getattr(settings, f, GroupConfig.model_fields[f].default)
+                for f in GroupConfig.model_fields
+                if f != "plugins"
+            },
             plugins=getattr(settings, "plugins_default", None),
         )
         registry.register(config)

@@ -15,7 +15,7 @@ from telegram.ext import ContextTypes
 from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupRegistry, get_group_registry
-from bot.services.telegram_utils import get_user_mention, unrestrict_user
+from bot.services.telegram_utils import get_user_mention, require_admin_dm_target, unrestrict_user
 
 logger = logging.getLogger(__name__)
 
@@ -139,35 +139,16 @@ async def handle_verify_command(
         update: Telegram update containing the command.
         context: Bot context with helper methods.
     """
-    if not update.message or not update.message.from_user:
-        return
-
-    if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+    target_user_id = await require_admin_dm_target(
+        update,
+        context,
+        "❌ Penggunaan: /verify USER_ID",
+        "/verify command",
+    )
+    if target_user_id is None:
         return
 
     admin_user_id = update.message.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-
-    if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
-        logger.warning(
-            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
-            f"attempted to use /verify command"
-        )
-        return
-
-    if context.args and len(context.args) > 0:
-        try:
-            target_user_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka.")
-            return
-    else:
-        await update.message.reply_text("❌ Penggunaan: /verify USER_ID")
-        return
 
     db = get_database()
 
@@ -201,35 +182,16 @@ async def handle_unverify_command(
         update: Telegram update containing the command.
         context: Bot context with helper methods.
     """
-    if not update.message or not update.message.from_user:
-        return
-
-    if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+    target_user_id = await require_admin_dm_target(
+        update,
+        context,
+        "❌ Penggunaan: /unverify USER_ID",
+        "/unverify command",
+    )
+    if target_user_id is None:
         return
 
     admin_user_id = update.message.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-
-    if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
-        logger.warning(
-            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
-            f"attempted to use /unverify command"
-        )
-        return
-
-    if context.args and len(context.args) > 0:
-        try:
-            target_user_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("❌ User ID harus berupa angka.")
-            return
-    else:
-        await update.message.reply_text("❌ Penggunaan: /unverify USER_ID")
-        return
 
     db = get_database()
 

@@ -29,6 +29,7 @@ from bot.services.telegram_utils import (
     extract_forwarded_user,
     get_user_mention,
     get_user_mention_by_id,
+    require_admin_dm_target,
 )
 from bot.services.user_checker import check_user_profile
 
@@ -124,35 +125,16 @@ async def handle_check_command(
 
     Only works in bot DMs for admins.
     """
-    if not update.message or not update.message.from_user:
-        return
-
-    if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
+    target_user_id = await require_admin_dm_target(
+        update,
+        context,
+        "❌ Penggunaan: /check USER_ID",
+        "/check command",
+    )
+    if target_user_id is None:
         return
 
     admin_user_id = update.message.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-
-    if admin_user_id not in admin_ids:
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
-        logger.warning(
-            f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
-            f"attempted to use /check command"
-        )
-        return
-
-    if not context.args or len(context.args) == 0:
-        await update.message.reply_text("❌ Penggunaan: /check USER_ID")
-        return
-
-    try:
-        target_user_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("❌ User ID harus berupa angka.")
-        return
 
     try:
         # Get user info for display name
