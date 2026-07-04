@@ -44,11 +44,14 @@ def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register bio bait spam handler (group=4).
 
-    Callback wrapped with ``guard_plugin("bio_bait_spam")``.
+    Callback wrapped with ``guard_plugin("bio_bait_spam")``. Shares group=4
+    and filter shape with ``duplicate_spam``; ``block=False`` so both get a
+    chance to run instead of the first match swallowing the update.
     """
     handler: BaseHandler = MessageHandler(
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
+        block=False,
     )
     application.add_handler(handler, group=4)
     logger.info("Registered handler: bio_bait_spam_handler (group=4)")
@@ -83,11 +86,15 @@ def register_new_user_spam(application: Application) -> list[BaseHandler]:  # ty
 def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register duplicate message spam handler (group=4).
 
-    Callback wrapped with ``guard_plugin("duplicate_spam")``.
+    Callback wrapped with ``guard_plugin("duplicate_spam")``. Registered
+    before ``bio_bait_spam`` in the same group with the same filter shape;
+    ``block=False`` so PTB still checks the next handler in group=4 instead
+    of stopping after this one matches.
     """
     handler: BaseHandler = MessageHandler(
         filters.ChatType.GROUPS & ~filters.COMMAND,
         guard_plugin("duplicate_spam")(handle_duplicate_spam),
+        block=False,
     )
     application.add_handler(handler, group=4)
     logger.info("Registered handler: duplicate_spam_handler (group=4)")
