@@ -342,7 +342,17 @@ flowchart TD
     CheckContactAdmin -->|No| DeleteContact[Delete Contact Message]
     DeleteContact --> RestrictContact[Restrict User]
     RestrictContact --> SendContactNotify[Send Contact<br/>Spam Notification]
-    CheckContact -->|No| CheckProbation
+    CheckContact -->|No| CheckBioBait{Bio Bait<br/>Detected?}
+    CheckContactAdmin -->|Yes| CheckBioBait
+    CheckBioBait -->|No| CheckProbation
+    CheckBioBait -->|Yes| CheckBioBaitAdmin{Is Admin<br/>or Trusted?}
+    CheckBioBaitAdmin -->|Yes| CheckProbation
+    CheckBioBaitAdmin -->|No| CheckBioBaitMode{Monitor<br/>Only?}
+    CheckBioBaitMode -->|Yes| SendBioBaitAlert[Log + Alert<br/>Owner Chat]
+    SendBioBaitAlert --> CheckProbation
+    CheckBioBaitMode -->|No| DeleteBioBait[Delete Message]
+    DeleteBioBait --> RestrictBioBait[Restrict User]
+    RestrictBioBait --> SendBioBaitNotify[Send Bio Bait<br/>Spam Notification]
     CheckProbation{User On<br/>Probation?} -->|No| CheckBot
     CheckProbation -->|Yes| CheckExpired{Probation<br/>Expired?}
     CheckExpired -->|Yes| ClearProbation[(Clear Probation)]
@@ -473,9 +483,9 @@ flowchart TD
     classDef startNode fill:#1a5f7a,stroke:#16213e,color:#eee
     
     class Init,FetchAdmins,RecoverPending,StartJobs,Poll,CheckProfile,CheckDMProfile,RestrictAndChallenge,StorePending,ScheduleTimeout,WaitCaptcha,StartProbation,StartProbationAfter processNode
-    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser,CheckContact,CheckContactAdmin decisionNode
+    class UpdateType,RecoverCaptcha,TopicGuard,IsAdmin,CheckBot,CheckWhitelist,ProfileComplete,CheckMode,CheckCount,CheckInGroup,CheckPendingCaptcha,DMProfileComplete,CheckBotRestricted,CheckCurrentStatus,HasExpired,CheckKicked,NextUser,CheckAdminVerify,CheckAdminUnverify,CaptchaAnswer,CheckCaptchaEnabled,CheckProbation,CheckExpired,CheckViolation,CheckWhitelisted,ViolationCount,CheckWarningsExist,CheckAdminForward,ExtractUser,CheckContact,CheckContactAdmin,CheckBioBait,CheckBioBaitAdmin,CheckBioBaitMode decisionNode
     class IncrementDB,SilentIncrement,MarkRestricted,ClearRecord,ClearRecord2,QueryDB,ClearKicked,MarkTimeRestricted,AddWhitelist,RemoveWhitelist,IncrementViolation,ClearProbation,DeleteWarnings dataNode
-    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,RestrictContact,SendContactNotify actionNode
+    class DeleteMsg,SendWarning,SendFirstWarning,RestrictUser,SendRestrictionMsg,SendNotInGroup,SendCaptchaRedirect,SendMissing,SendNoRestriction,SendAlreadyUnrestricted,UnrestrictUser,SendSuccess,ApplyTimeRestriction,SendTimeNotice,SchedulerJob,SendVerifySuccess,SendUnverifySuccess,DenyVerify,DenyUnverify,UnrestrictMember,KickMember,UpdateMessage,CancelTimeout,ShowError,DeleteSpam,SendSpamWarning,RestrictSpammer,SendSpamRestriction,UnrestrictVerified,SendClearance,DenyForward,SendButtons,SendExtractError,ProcessVerify,ProcessUnverify,DeleteContact,RestrictContact,SendContactNotify,DeleteBioBait,RestrictBioBait,SendBioBaitNotify,SendBioBaitAlert actionNode
     class End1,End2,End3,End4,End5,End6,End7,End8,End9,End10,EndJob,StartProbation endNode
     class Start startNode
 ```
