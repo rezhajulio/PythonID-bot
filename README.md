@@ -23,6 +23,8 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **Captcha timeout recovery**: Automatically recovers pending verifications after bot restart
 - **New user probation**: New members restricted from sending links/forwarded messages for 3 days (configurable)
 - **Contact card blocking**: Prevents all non-admin members from sharing contact cards/phone numbers (delete + restrict)
+- **Duplicate message detection**: Flags repeated near-identical messages within a configurable window
+- **Bio-bait detection**: Catches obfuscated "check my bio" bait phrases and suspicious promo links in a sender's Telegram profile bio (monitor-only mode available)
 - **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
 - **Trusted users**: Admin-managed trusted list to bypass anti-spam + duplicate-spam checks
 
@@ -146,7 +148,7 @@ Add `GROUPS_CONFIG_PATH=groups.json` to your `.env` file, then edit `groups.json
 ]
 ```
 
-When `groups.json` is present, per-group settings override the `.env` defaults. Each group can have its own warning thresholds, captcha settings, probation rules, and rules link.
+When `groups.json` is present, per-group settings override the `.env` defaults. Each group can have its own warning thresholds, captcha settings, probation rules, and rules link. Each group entry can also add a `"plugins": {"bio_bait_spam": false}`-style object to disable specific built-in plugins just for that group, overriding the bot-wide `PLUGINS_DEFAULT`.
 
 **Backward compatibility**: If no `groups.json` is configured (i.e., `GROUPS_CONFIG_PATH` is not set), the bot falls back to single-group mode using `GROUP_ID`, `WARNING_TOPIC_ID`, and other settings from `.env`.
 
@@ -287,7 +289,8 @@ PythonID/
         │   ├── topic_guard.py   # Warning topic protection
         │   ├── trust.py         # /trust, /untrust, /trusted admin commands
         │   ├── verify.py        # /verify and /unverify command handlers
-        │   └── duplicate_spam.py # Duplicate message detection
+        │   ├── duplicate_spam.py # Duplicate message detection
+        │   └── bio_bait.py      # Bio-bait spam (bait phrases + suspicious profile bio links)
         ├── database/
         │   ├── models.py        # SQLModel schemas (5 tables)
         │   └── service.py       # Database operations
@@ -492,6 +495,7 @@ The bot is organized into clear modules for maintainability:
   - `captcha.py`: Captcha verification for new members, including profile photo + username check
   - `anti_spam.py`: Inline keyboard spam (group=1) + contact card spam (group=2) + new user probation enforcement (group=3)
   - `duplicate_spam.py`: Repeated message detection (group=4)
+  - `bio_bait.py`: Obfuscated bait-phrase + suspicious profile-bio link detection (group=4, monitor-only mode available)
   - `verify.py`: /verify and /unverify command handlers
   - `check.py`: /check command + forwarded message handling
   - `trust.py`: /trust, /untrust, /trusted admin commands (TrustedUser table caches names at trust time so /trusted renders without API calls)
@@ -593,12 +597,21 @@ When a restricted user DMs the bot (or sends `/start`):
 | `NEW_USER_PROBATION_HOURS` | Hours new users can't send links/forwards | `72` (3 days) |
 | `NEW_USER_VIOLATION_THRESHOLD` | Spam violations before restriction | `3` |
 | `CONTACT_SPAM_RESTRICT` | Restrict users who share contact cards | `true` |
+| `DUPLICATE_SPAM_ENABLED` | Enable duplicate-message detection | `true` |
+| `DUPLICATE_SPAM_WINDOW_SECONDS` | Window to compare messages for duplicates | `120` |
+| `DUPLICATE_SPAM_THRESHOLD` | Repeats within window before flagging | `2` |
+| `DUPLICATE_SPAM_MIN_LENGTH` | Minimum message length considered | `20` |
+| `DUPLICATE_SPAM_SIMILARITY` | Similarity ratio (0-1) to count as duplicate | `0.95` |
+| `BIO_BAIT_ENABLED` | Enable bio-bait phrase/link detection | `true` |
+| `BIO_BAIT_MONITOR_ONLY` | Log/alert only, skip delete + restrict | `false` |
+| `BIO_BAIT_ALERT_CHAT_ID` | Chat ID to receive monitor-only detection alerts | None |
 | `DATABASE_PATH` | SQLite database path | `data/bot.db` |
 | `RULES_LINK` | Link to group rules message | `https://t.me/pythonID/290029/321799` |
 | `LOGFIRE_ENABLED` | Enable Logfire logging integration | `true` |
 | `LOGFIRE_TOKEN` | Logfire API token (optional) | None |
 | `LOG_LEVEL` | Logging level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
 | `GROUPS_CONFIG_PATH` | Path to `groups.json` for multi-group support | None (single-group mode from `.env`) |
+| `PLUGINS_DEFAULT` | Bot-wide plugin enable/disable defaults (JSON object, e.g. `{"bio_bait_spam": false}`) | `{}` (all enabled) |
 
 ### Restriction Modes
 
