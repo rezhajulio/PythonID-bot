@@ -21,14 +21,18 @@ from telegram.ext import (
 
 from bot.constants import (
     CAPTCHA_FAILED_VERIFICATION_MESSAGE,
+    CAPTCHA_INCOMPLETE_PROFILE_MESSAGE,
+    CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE,
     CAPTCHA_VERIFIED_MESSAGE,
     CAPTCHA_WELCOME_MESSAGE,
     CAPTCHA_WRONG_USER_MESSAGE,
+    MISSING_ITEMS_SEPARATOR,
     RESTRICTED_PERMISSIONS,
 )
 from bot.database.service import get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
+from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -262,18 +266,20 @@ async def captcha_callback_handler(
     if not query or not query.data:
         return
 
-    await query.answer()
-
     callback_user_id = query.from_user.id
     parts = query.data.split("_")
-    target_user_id = int(parts[-1])
-    group_id = int(parts[-2])
+    try:
+        target_user_id = int(parts[-1])
+        group_id = int(parts[-2])
+    except (ValueError, IndexError):
+        logger.warning(f"Malformed captcha callback data: {query.data}")
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
 
     if callback_user_id != target_user_id:
         await query.answer(CAPTCHA_WRONG_USER_MESSAGE, show_alert=True)
         return
 
-    # Look up group config directly using group_id from callback data
     db = get_database()
     registry = get_group_registry()
 
@@ -284,26 +290,52 @@ async def captcha_callback_handler(
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return
 
-    job_name = get_captcha_job_name(group_config.group_id, target_user_id)
-    current_jobs = context.job_queue.get_jobs_by_name(job_name)
-    for job in current_jobs:
-        job.schedule_removal()
-        logger.info(f"Cancelled timeout job for user {target_user_id}")
+    try:
+        result = await check_user_profile(context.bot, query.from_user)
+    except Exception:
+        logger.error(f"Profile check failed during captcha for user {target_user_id}", exc_info=True)
+        await query.answer(CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE, show_alert=True)
+        return
 
+    if not result.is_complete:
+        missing_text = MISSING_ITEMS_SEPARATOR.join(result.get_missing_items())
+        await query.answer(
+            CAPTCHA_INCOMPLETE_PROFILE_MESSAGE.format(missing_text=missing_text),
+            show_alert=True,
+        )
+        return
+
+    # DB finalization first (reversible). If it fails, user stays restricted
+    # in Telegram, DB row preserved, timeout still armed — user can retry.
+    try:
+        db.remove_pending_captcha(target_user_id, group_config.group_id)
+        db.start_new_user_probation(target_user_id, group_config.group_id)
+    except Exception:
+        logger.error(f"DB finalization failed for user {target_user_id}", exc_info=True)
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    # Telegram unrestrict second (irreversible). If it fails after DB cleanup,
+    # user is still restricted on Telegram, DB row is gone so
+    # handle_captcha_expiration is a no-op, and the verify button is gone.
+    # User waits for admin action. Acceptable: we never reported success on a
+    # state we couldn't fully transition.
     try:
         await unrestrict_user(context.bot, group_config.group_id, target_user_id)
         logger.info(f"Unrestricted verified user {target_user_id}")
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
-        return  # Stop execution here so user can retry
+        return
 
-    db.remove_pending_captcha(target_user_id, group_config.group_id)
-
-    # Start anti-spam probation for verified user
-    db.start_new_user_probation(target_user_id, group_config.group_id)
+    job_name = get_captcha_job_name(group_config.group_id, target_user_id)
+    for job in context.job_queue.get_jobs_by_name(job_name):
+        job.schedule_removal()
+        logger.info(f"Cancelled timeout job for user {target_user_id}")
 
     user_mention = get_user_mention(query.from_user)
+
+    await query.answer()
 
     try:
         await query.edit_message_text(

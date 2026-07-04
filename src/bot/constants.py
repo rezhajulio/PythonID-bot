@@ -103,8 +103,8 @@ RESTRICTION_MESSAGE_AFTER_TIME = (
 # Captcha verification message templates
 CAPTCHA_WELCOME_MESSAGE = (
     "👋 Selamat datang {user_mention}!\n\n"
-    "Untuk memastikan kamu bukan robot, silakan klik tombol di bawah ini "
-    "dalam waktu {timeout} detik."
+    "Sebelum bergabung, pastikan kamu sudah memiliki *foto profil publik* dan *username*.\n"
+    "Setelah melengkapi profil, tekan tombol di bawah ini dalam waktu {timeout} detik."
 )
 
 CAPTCHA_VERIFIED_MESSAGE = "✅ Terima kasih {user_mention}, verifikasi berhasil! Selamat bergabung."
@@ -119,6 +119,14 @@ CAPTCHA_TIMEOUT_MESSAGE = (
 CAPTCHA_PENDING_DM_MESSAGE = (
     "⏳ Kamu memiliki verifikasi captcha yang tertunda.\n"
     "Silakan cek grup dan tekan tombol verifikasi."
+)
+
+CAPTCHA_INCOMPLETE_PROFILE_MESSAGE = (
+    "❌ Lengkapi {missing_text} terlebih dahulu, lalu tekan tombol ini lagi."
+)
+
+CAPTCHA_PROFILE_CHECK_FAILED_MESSAGE = (
+    "❌ Gagal memeriksa profil. Coba lagi dalam beberapa detik."
 )
 
 CAPTCHA_FAILED_VERIFICATION_MESSAGE = "Gagal memverifikasi. Silakan coba lagi."
