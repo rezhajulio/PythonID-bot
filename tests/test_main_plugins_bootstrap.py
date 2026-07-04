@@ -321,6 +321,27 @@ class TestRefactoredBuiltinModules:
         assert hasattr(spam, "register_duplicate_spam")
         assert callable(spam.register_duplicate_spam)
 
+    def test_duplicate_spam_and_bio_bait_spam_share_group_and_filter_shape(self):
+        """duplicate_spam and bio_bait_spam sit in group=4 with the same filter shape.
+
+        Regression guard for the collision this test class is named after: both
+        handlers match on ChatType.GROUPS & ~COMMAND. If either loses its
+        ``block=False``, PTB's default first-match-wins behavior within a group
+        makes whichever registers first (duplicate_spam, per MANIFEST_ORDER)
+        permanently swallow every update in group=4, and the other handler's
+        callback is never invoked.
+        """
+        from bot.plugins.builtin import spam
+
+        app = MagicMock()
+        app.add_handler = MagicMock()
+
+        dup_handlers = spam.register_duplicate_spam(app)
+        bait_handlers = spam.register_bio_bait_spam(app)
+
+        assert dup_handlers[0].block is False
+        assert bait_handlers[0].block is False
+
     def test_captcha_has_registrar(self):
         """bot.plugins.builtin.captcha has register_captcha function."""
         from bot.plugins.builtin import captcha as captcha_mod
