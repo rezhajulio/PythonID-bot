@@ -9,7 +9,6 @@ from telegram.ext import ApplicationHandlerStop
 from bot.group_config import GroupConfig
 from bot.handlers.bio_bait import (
     BIO_BAIT_MAX_LENGTH,
-    BIO_BAIT_METRICS_KEY,
     USER_BIO_CACHE_KEY,
     USER_BIO_CACHE_MAX_SIZE,
     USER_BIO_CACHE_TTL_SECONDS,
@@ -471,7 +470,7 @@ class TestHandleBioBaitSpam:
             with pytest.raises(ApplicationHandlerStop):
                 await handle_bio_bait_spam(mock_update, mock_context)
 
-    async def test_monitor_only_collects_metrics_and_sends_owner_alert(
+    async def test_monitor_only_sends_owner_alert(
         self, mock_update, mock_context, group_config
     ):
         group_config.bio_bait_monitor_only = True
@@ -489,30 +488,6 @@ class TestHandleBioBaitSpam:
         assert kwargs["chat_id"] == 57747812
         assert "message_thread_id" not in kwargs
         assert "cek bio aku" in kwargs["text"]
-
-        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
-        assert metrics["detections_total"] == 1
-        assert metrics["detections_message_bait"] == 1
-        assert metrics["monitor_only_matches"] == 1
-        assert metrics["owner_alert_sent"] == 1
-
-    async def test_monitor_only_alert_failure_still_collects_metrics(
-        self, mock_update, mock_context, group_config
-    ):
-        group_config.bio_bait_monitor_only = True
-        group_config.bio_bait_alert_chat_id = 57747812
-        mock_context.bot.send_message = AsyncMock(side_effect=Exception("Send failed"))
-
-        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
-            await handle_bio_bait_spam(mock_update, mock_context)
-
-        mock_update.message.delete.assert_not_called()
-        mock_context.bot.restrict_chat_member.assert_not_called()
-
-        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
-        assert metrics["detections_total"] == 1
-        assert metrics["monitor_only_matches"] == 1
-        assert metrics["owner_alert_failed"] == 1
 
 class TestBioBaitReviewFixes:
     """Tests for pending bio-bait review fixes (trusted bypass, monitor semantics,
@@ -589,17 +564,15 @@ class TestBioBaitReviewFixes:
         kwargs = mock_context.bot.send_message.call_args.kwargs
         assert kwargs.get("message_thread_id") == 999  # warning topic
 
-        metrics = mock_context.bot_data.get(BIO_BAIT_METRICS_KEY, {})
-        assert "owner_alert_sent" not in metrics
-        assert "owner_alert_failed" not in metrics
-
     # ── (c) monitor-only + alert target = same group => alert skipped ──
+
+    # ── (d) enforcement mode (no metrics tracking) ──
 
     async def test_monitor_only_alert_target_same_group_skipped(
         self, mock_update, mock_context, group_config
     ):
         """When monitor-only and alert_chat_id equals the monitored group,
-        owner alert should be skipped and skip metric incremented."""
+        owner alert should be skipped."""
         group_config.bio_bait_monitor_only = True
         group_config.bio_bait_alert_chat_id = -1001234567890  # same as group_id
         mock_update.message.text = "cek bio aku"
@@ -611,49 +584,6 @@ class TestBioBaitReviewFixes:
         mock_context.bot.send_message.assert_not_called()
         mock_update.message.delete.assert_not_called()
         mock_context.bot.restrict_chat_member.assert_not_called()
-
-        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
-        assert metrics["owner_alert_skipped_warning_topic"] == 1
-        assert "owner_alert_sent" not in metrics
-        assert "owner_alert_failed" not in metrics
-
-    # ── (d) enforcement metrics ──
-
-    async def test_enforcement_message_bait_records_enforced_matches(
-        self, mock_update, mock_context, group_config
-    ):
-        """Enforcement mode with message bait should record enforced_matches metric."""
-        group_config.bio_bait_monitor_only = False
-        mock_update.message.text = "cek bio aku"
-
-        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
-            with pytest.raises(ApplicationHandlerStop):
-                await handle_bio_bait_spam(mock_update, mock_context)
-
-        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
-        assert metrics["detections_total"] == 1
-        assert metrics["detections_message_bait"] == 1
-        assert metrics["enforced_matches"] == 1
-
-    async def test_enforcement_bio_links_records_enforced_matches_and_bio_links(
-        self, mock_update, mock_context, group_config
-    ):
-        """Enforcement mode with bio_links detection should record enforced_matches
-        and detections_bio_links."""
-        group_config.bio_bait_monitor_only = False
-        mock_update.message.text = "halo"
-        chat = MagicMock()
-        chat.bio = "VIP t.me/+exampleinvitehash777xyz"
-        mock_context.bot.get_chat = AsyncMock(return_value=chat)
-
-        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
-            with pytest.raises(ApplicationHandlerStop):
-                await handle_bio_bait_spam(mock_update, mock_context)
-
-        metrics = mock_context.bot_data[BIO_BAIT_METRICS_KEY]
-        assert metrics["detections_total"] == 1
-        assert metrics["detections_bio_links"] == 1
-        assert metrics["enforced_matches"] == 1
 
 
 class TestBioBaitRegistrationFilter:

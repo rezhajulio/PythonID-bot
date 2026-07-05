@@ -149,13 +149,6 @@ class TestGroupRegistry:
         registry = GroupRegistry()
         assert registry.get(-999) is None
 
-    def test_is_monitored(self):
-        registry = GroupRegistry()
-        gc = GroupConfig(group_id=-100, warning_topic_id=1)
-        registry.register(gc)
-        assert registry.is_monitored(-100) is True
-        assert registry.is_monitored(-999) is False
-
     def test_all_groups(self):
         registry = GroupRegistry()
         gc1 = GroupConfig(group_id=-100, warning_topic_id=1)
@@ -178,7 +171,6 @@ class TestGroupRegistry:
         registry = GroupRegistry()
         assert registry.all_groups() == []
         assert registry.get(-100) is None
-        assert registry.is_monitored(-100) is False
 
 class TestLoadGroupsFromJson:
     def test_load_valid_json(self):
@@ -356,8 +348,8 @@ class TestBuildGroupRegistry:
             registry = build_group_registry(settings)
 
         assert len(registry.all_groups()) == 2
-        assert registry.is_monitored(-100)
-        assert registry.is_monitored(-200)
+        assert registry.get(-100) is not None
+        assert registry.get(-200) is not None
 
     def test_falls_back_to_env(self):
         settings = MagicMock()
@@ -502,7 +494,7 @@ class TestSingleton:
 
         registry = init_group_registry(settings)
         assert registry is get_group_registry()
-        assert registry.is_monitored(-100)
+        assert registry.get(-100) is not None
 
     def test_reset_clears_registry(self):
         settings = MagicMock()

@@ -33,21 +33,3 @@ def register_dm(application: Application) -> list[BaseHandler]:  # type: ignore[
     application.add_handler(handler)
     logger.info("Registered handler: dm_handler (group=0)")
     return [handler]
-
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _DmPlugin:
-    """Plugin wrapper for DM handler."""
-
-    name: str = "dm"
-    description: str = "Direct message unrestriction flow"
-    handler_group: int = 0
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register DM handler onto application."""
-        return register_dm(application)
-
-
-plugin = _DmPlugin()

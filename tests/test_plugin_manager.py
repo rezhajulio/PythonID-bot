@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 from bot.group_config import GroupConfig, GroupRegistry
 import pytest
 
-from bot.plugins import base
-from bot.plugins.config import guard_plugin, is_plugin_enabled, is_plugin_enabled_for_group, resolve_plugin_toggles
+from bot.plugins.config import guard_plugin, is_plugin_enabled_for_group, resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, PLUGIN_NAMES as KNOWN_PLUGINS, get_plugin_definitions
 from bot.plugins.manager import PluginManager, compute_effective_plugin_map
 
@@ -54,12 +53,6 @@ class TestResolvePluginToggles:
         toggles = resolve_plugin_toggles({}, None)
         assert set(toggles.keys()) == KNOWN_PLUGINS
 
-    def test_is_plugin_enabled_convenience(self):
-        """is_plugin_enabled returns correct bool for a single plugin."""
-        toggles = resolve_plugin_toggles({"captcha": False}, None)
-        assert is_plugin_enabled(toggles, "captcha") is False
-        assert is_plugin_enabled(toggles, "verify") is True
-
     def test_group_override_false_overrides_env_true(self):
         """Group override False wins over env default True."""
         toggles = resolve_plugin_toggles(
@@ -78,20 +71,6 @@ class TestResolvePluginToggles:
         assert toggles["dm"] is True         # from env
         assert toggles["verify"] is False    # from env
         assert toggles["profile_monitor"] is True  # default True
-
-class TestPluginContracts:
-    """Verify plugin base contracts are importable and well-typed."""
-
-    def test_plugin_protocol_exists(self):
-        """Plugin protocol is exported from base module."""
-        assert hasattr(base, "PluginProtocol")
-
-    def test_plugin_protocol_has_fields(self):
-        """Plugin protocol defines expected fields as annotations + register method."""
-        assert "name" in base.PluginProtocol.__annotations__
-        assert "description" in base.PluginProtocol.__annotations__
-        assert "handler_group" in base.PluginProtocol.__annotations__
-        assert hasattr(base.PluginProtocol, "register")
 
 class TestPluginDefinitions:
     """Verify plugin definitions match KNOWN_PLUGINS and have correct types."""
@@ -242,90 +221,12 @@ class TestManifestOrderConsistency:
         )
 
 class TestBuiltinModules:
-    """Verify built-in wrapper modules exist and export plugin objects."""
+    """Verify built-in wrapper modules exist."""
 
     def test_builtin_init_module_exists(self):
         """builtin/__init__.py is importable."""
         import bot.plugins.builtin  # noqa: F811
         assert hasattr(bot.plugins.builtin, "__file__")
-
-    def test_topic_guard_module_has_plugin(self):
-        """builtin/topic_guard.py exports a plugin object."""
-        import bot.plugins.builtin.topic_guard  # noqa: F811
-        plugin = bot.plugins.builtin.topic_guard.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "topic_guard"
-
-    def test_commands_module_has_plugin(self):
-        """builtin/commands.py exports a plugin object."""
-        import bot.plugins.builtin.commands  # noqa: F811
-        plugin = bot.plugins.builtin.commands.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "commands"
-
-    def test_captcha_module_has_plugin(self):
-        """builtin/captcha.py exports a plugin object."""
-        import bot.plugins.builtin.captcha  # noqa: F811
-        plugin = bot.plugins.builtin.captcha.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "captcha"
-
-    def test_dm_module_has_plugin(self):
-        """builtin/dm.py exports a plugin object."""
-        import bot.plugins.builtin.dm  # noqa: F811
-        plugin = bot.plugins.builtin.dm.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "dm"
-
-    def test_spam_module_has_plugin(self):
-        """builtin/spam.py exports a plugin object."""
-        import bot.plugins.builtin.spam  # noqa: F811
-        plugin = bot.plugins.builtin.spam.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "spam"
-
-    def test_profile_monitor_module_has_plugin(self):
-        """builtin/profile_monitor.py exports a plugin object."""
-        import bot.plugins.builtin.profile_monitor  # noqa: F811
-        plugin = bot.plugins.builtin.profile_monitor.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "profile_monitor"
-
-    def test_jobs_module_has_plugin(self):
-        """builtin/jobs.py exports a plugin object."""
-        import bot.plugins.builtin.jobs  # noqa: F811
-        plugin = bot.plugins.builtin.jobs.plugin
-        assert isinstance(plugin, base.PluginProtocol)
-        assert plugin.name == "jobs"
-
-    def test_each_plugin_satisfies_protocol(self):
-        """Every builtin plugin object satisfies PluginProtocol with correct fields."""
-        import bot.plugins.builtin.captcha as captcha_mod
-        import bot.plugins.builtin.commands as commands_mod
-        import bot.plugins.builtin.dm as dm_mod
-        import bot.plugins.builtin.jobs as jobs_mod
-        import bot.plugins.builtin.profile_monitor as pm_mod
-        import bot.plugins.builtin.spam as spam_mod
-        import bot.plugins.builtin.topic_guard as tg_mod
-
-        plugin_map = {
-            "topic_guard": tg_mod.plugin,
-            "commands": commands_mod.plugin,
-            "captcha": captcha_mod.plugin,
-            "dm": dm_mod.plugin,
-            "spam": spam_mod.plugin,
-            "profile_monitor": pm_mod.plugin,
-            "jobs": jobs_mod.plugin,
-        }
-
-        for name, plugin in plugin_map.items():
-            assert isinstance(plugin, base.PluginProtocol), f"{name} fails PluginProtocol"
-            assert isinstance(plugin.name, str)
-            assert len(plugin.name) > 0
-            assert isinstance(plugin.handler_group, int)
-            assert isinstance(plugin.description, str)
-            assert len(plugin.description) > 0
-            assert callable(getattr(plugin, "register", None))
 
 class TestComputeEffectivePluginMap:
     """compute_effective_plugin_map: per-group toggle dict from registry + env defaults."""
@@ -727,15 +628,6 @@ class TestPluginInitExports:
         import bot.plugins
         assert "is_plugin_enabled_for_group" in bot.plugins.__all__
         assert "compute_effective_plugin_map" in bot.plugins.__all__
-
-class TestIsPluginEnabledEdgeCases:
-    """Edge cases for is_plugin_enabled."""
-
-    def test_is_plugin_enabled_missing_key_raises_key_error(self):
-        """Missing plugin name in toggles raises KeyError."""
-        toggles = {"captcha": True, "verify": False}
-        with pytest.raises(KeyError):
-            is_plugin_enabled(toggles, "non_existent_plugin")
 
 class TestComputeEffectivePluginMapEdgeCases:
     """Edge cases for compute_effective_plugin_map."""

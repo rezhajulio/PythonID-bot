@@ -5,7 +5,6 @@ from telegram import Message, MessageEntity
 from bot.handlers.anti_spam import (
     extract_urls,
     has_external_reply,
-    has_link,
     has_non_whitelisted_link,
     has_story,
     is_forwarded,
@@ -247,67 +246,6 @@ def test_is_forwarded_without_forward_origin():
     message = MagicMock(spec=Message)
     message.forward_origin = None
     assert not is_forwarded(message)
-
-
-# Tests for has_link
-def test_has_link_with_url_entity():
-    """Test has_link detects URL entities."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.entities = [entity]
-    message.caption_entities = None
-    assert has_link(message)
-
-
-def test_has_link_with_text_link_entity():
-    """Test has_link detects TEXT_LINK entities."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.TEXT_LINK
-    message.entities = [entity]
-    message.caption_entities = None
-    assert has_link(message)
-
-
-def test_has_link_in_caption_entities():
-    """Test has_link detects links in caption entities."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.entities = None
-    message.caption_entities = [entity]
-    assert has_link(message)
-
-
-def test_has_link_with_multiple_entities():
-    """Test has_link works with multiple entities."""
-    message = MagicMock(spec=Message)
-    url_entity = MagicMock(spec=MessageEntity)
-    url_entity.type = MessageEntity.URL
-    bold_entity = MagicMock(spec=MessageEntity)
-    bold_entity.type = MessageEntity.BOLD
-    message.entities = [bold_entity, url_entity]
-    message.caption_entities = None
-    assert has_link(message)
-
-
-def test_has_link_no_link_entities():
-    """Test has_link returns False when no link entities exist."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.BOLD
-    message.entities = [entity]
-    message.caption_entities = None
-    assert not has_link(message)
-
-
-def test_has_link_empty_entities():
-    """Test has_link returns False for messages without entities."""
-    message = MagicMock(spec=Message)
-    message.entities = None
-    message.caption_entities = None
-    assert not has_link(message)
 
 
 # Tests for has_external_reply

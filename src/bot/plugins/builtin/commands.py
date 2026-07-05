@@ -44,54 +44,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# --- Helper for handler registration ---
+
+def _register(application: Application, handler: BaseHandler, label: str) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register a handler and log the registration."""
+    application.add_handler(handler)
+    logger.info(f"Registered handler: {label} (group=0)")
+    return [handler]
+
+
 # --- Individual registrar functions ---
 
 def register_verify(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /verify command handler."""
     handler: BaseHandler = CommandHandler("verify", handle_verify_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: verify_command (group=0)")
-    return [handler]
+    return _register(application, handler, "verify_command")
 
 
 def register_unverify(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /unverify command handler."""
     handler: BaseHandler = CommandHandler("unverify", handle_unverify_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: unverify_command (group=0)")
-    return [handler]
+    return _register(application, handler, "unverify_command")
 
 
 def register_check(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /check command handler."""
     handler: BaseHandler = CommandHandler("check", handle_check_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: check_command (group=0)")
-    return [handler]
+    return _register(application, handler, "check_command")
 
 
 def register_trust(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /trust command handler."""
     handler: BaseHandler = CommandHandler("trust", handle_trust_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: trust_command (group=0)")
-    return [handler]
+    return _register(application, handler, "trust_command")
 
 
 def register_untrust(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /untrust command handler."""
     handler: BaseHandler = CommandHandler("untrust", handle_untrust_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: untrust_command (group=0)")
-    return [handler]
+    return _register(application, handler, "untrust_command")
 
 
 def register_trusted_list(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register /trusted command handler."""
     handler: BaseHandler = CommandHandler("trusted", handle_trusted_list_command)
-    application.add_handler(handler)
-    logger.info("Registered handler: trusted_list_command (group=0)")
-    return [handler]
+    return _register(application, handler, "trusted_list_command")
 
 
 def register_check_forwarded_message(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
@@ -100,9 +97,7 @@ def register_check_forwarded_message(application: Application) -> list[BaseHandl
         filters.FORWARDED & filters.ChatType.PRIVATE,
         handle_check_forwarded_message,
     )
-    application.add_handler(handler)
-    logger.info("Registered handler: check_forwarded_message (group=0)")
-    return [handler]
+    return _register(application, handler, "check_forwarded_message")
 
 
 def register_verify_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
@@ -113,69 +108,28 @@ def register_verify_callback(application: Application) -> list[BaseHandler]:  # 
         # Group IDs can be negative, but callback data only encodes user IDs.
         pattern=r"^verify:\d+$",
     )
-    application.add_handler(handler)
-    logger.info("Registered handler: verify_callback (group=0)")
-    return [handler]
+    return _register(application, handler, "verify_callback")
 
 
 def register_unverify_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register unverify callback handler."""
     handler: BaseHandler = CallbackQueryHandler(handle_unverify_callback, pattern=r"^unverify:\d+$")
-    application.add_handler(handler)
-    logger.info("Registered handler: unverify_callback (group=0)")
-    return [handler]
+    return _register(application, handler, "unverify_callback")
 
 
 def register_warn_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register warn callback handler."""
     handler: BaseHandler = CallbackQueryHandler(handle_warn_callback, pattern=r"^warn:\d+:")
-    application.add_handler(handler)
-    logger.info("Registered handler: warn_callback (group=0)")
-    return [handler]
+    return _register(application, handler, "warn_callback")
 
 
 def register_trust_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register trust callback handler."""
     handler: BaseHandler = CallbackQueryHandler(handle_trust_callback, pattern=r"^trust:\d+$")
-    application.add_handler(handler)
-    logger.info("Registered handler: trust_callback (group=0)")
-    return [handler]
+    return _register(application, handler, "trust_callback")
 
 
 def register_untrust_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register untrust callback handler."""
     handler: BaseHandler = CallbackQueryHandler(handle_untrust_callback, pattern=r"^untrust:\d+$")
-    application.add_handler(handler)
-    logger.info("Registered handler: untrust_callback (group=0)")
-    return [handler]
-
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _CommandsPlugin:
-    """Plugin wrapper for command and callback handlers."""
-
-    name: str = "commands"
-    description: str = "Admin commands and callback handlers (verify, unverify, check, trust)"
-    handler_group: int = 0
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register all command and callback handlers onto application."""
-        handlers: list[BaseHandler] = []
-        handlers.extend(register_verify(application))
-        handlers.extend(register_unverify(application))
-        handlers.extend(register_check(application))
-        handlers.extend(register_trust(application))
-        handlers.extend(register_untrust(application))
-        handlers.extend(register_trusted_list(application))
-        handlers.extend(register_check_forwarded_message(application))
-        handlers.extend(register_verify_callback(application))
-        handlers.extend(register_unverify_callback(application))
-        handlers.extend(register_warn_callback(application))
-        handlers.extend(register_trust_callback(application))
-        handlers.extend(register_untrust_callback(application))
-        return handlers
-
-
-plugin = _CommandsPlugin()
+    return _register(application, handler, "untrust_callback")

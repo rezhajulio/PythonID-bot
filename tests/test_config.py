@@ -1,7 +1,5 @@
 """Tests for the config module."""
 
-from datetime import timedelta
-
 import pytest
 from pydantic_settings.exceptions import SettingsError
 
@@ -32,7 +30,7 @@ class TestGetEnvFile:
         monkeypatch.chdir(tmp_path)
         tmp_path.joinpath(".env").touch()
         assert get_env_file() == ".env"
-    
+
     def test_no_env_file_returns_none(self, monkeypatch, tmp_path):
         monkeypatch.delenv("BOT_ENV", raising=False)
         monkeypatch.chdir(tmp_path)
@@ -91,39 +89,6 @@ class TestSettings:
         settings = Settings(_env_file=None)
 
         assert settings.logfire_environment == "production"
-
-    def test_probation_timedelta(self, monkeypatch):
-        """Test probation_timedelta property returns correct timedelta."""
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GROUP_ID", "-100999")
-        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
-        monkeypatch.setenv("NEW_USER_PROBATION_HOURS", "48")
-
-        settings = Settings(_env_file=None)
-
-        assert settings.probation_timedelta == timedelta(hours=48)
-
-    def test_warning_time_threshold_timedelta(self, monkeypatch):
-        """Test warning_time_threshold_timedelta property returns correct timedelta."""
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GROUP_ID", "-100999")
-        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
-        monkeypatch.setenv("WARNING_TIME_THRESHOLD_MINUTES", "60")
-
-        settings = Settings(_env_file=None)
-
-        assert settings.warning_time_threshold_timedelta == timedelta(minutes=60)
-
-    def test_captcha_timeout_timedelta(self, monkeypatch):
-        """Test captcha_timeout_timedelta property returns correct timedelta."""
-        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
-        monkeypatch.setenv("GROUP_ID", "-100999")
-        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
-        monkeypatch.setenv("CAPTCHA_TIMEOUT_SECONDS", "90")
-
-        settings = Settings(_env_file=None)
-
-        assert settings.captcha_timeout_timedelta == timedelta(seconds=90)
 
     def test_duplicate_spam_defaults(self, monkeypatch):
         """Test that duplicate_spam fields have correct defaults."""

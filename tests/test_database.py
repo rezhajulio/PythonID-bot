@@ -150,62 +150,6 @@ class TestMarkUserUnrestricted:
         db_service.mark_user_unrestricted(user_id=999, group_id=-100999)
 
 
-class TestGetWarningsPastTimeThreshold:
-    def test_returns_expired_warnings(self, db_service):
-        # Create record with old timestamp
-        old_time = datetime.now(UTC) - timedelta(minutes=1500)  # 25 hours
-        record = db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
-        # Manually update to simulate old warning (in real tests, would mock time)
-        from sqlmodel import Session, select
-
-        with Session(db_service._engine) as session:
-            stmt = select(UserWarning).where(UserWarning.id == record.id)
-            db_record = session.exec(stmt).first()
-            db_record.first_warned_at = old_time
-            session.add(db_record)
-            session.commit()
-
-        # Should find the expired warning (1440 minutes = 24 hours)
-        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
-        assert len(expired) == 1
-        assert expired[0].user_id == 123
-
-    def test_ignores_recent_warnings(self, db_service):
-        # Create record with recent timestamp (default)
-        db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
-
-        # Should not find recent warnings
-        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
-        assert len(expired) == 0
-
-    def test_ignores_restricted_users(self, db_service):
-        # Create and restrict a user
-        db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
-        db_service.mark_user_restricted(user_id=123, group_id=-100999)
-
-        # Should not find restricted users even if old
-        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=0))
-        assert len(expired) == 0
-
-    def test_returns_multiple_expired_warnings(self, db_service):
-        # Create multiple old records
-        for user_id in [123, 456, 789]:
-            record = db_service.get_or_create_user_warning(
-                user_id=user_id, group_id=-100999
-            )
-            from sqlmodel import Session, select
-
-            with Session(db_service._engine) as session:
-                stmt = select(UserWarning).where(UserWarning.id == record.id)
-                db_record = session.exec(stmt).first()
-                db_record.first_warned_at = datetime.now(UTC) - timedelta(minutes=1500)
-                session.add(db_record)
-                session.commit()
-
-        expired = db_service.get_warnings_past_time_threshold(timedelta(minutes=1440))
-        assert len(expired) == 3
-
-
 class TestDeleteUserWarnings:
     def test_delete_user_warnings(self, db_service):
         # Create multiple warnings for same user
@@ -503,42 +447,13 @@ class TestTrustedUsers:
         assert record.admin_full_name == ""
         assert record.admin_username is None
 
-    def test_is_user_trusted_non_zero_group_raises(
-        self, db_service: DatabaseService
-    ):
-        with pytest.raises(NotImplementedError):
-            db_service.is_user_trusted(user_id=123, group_id=123)
-
-    def test_get_trusted_user_ids_non_zero_group_raises(
-        self, db_service: DatabaseService
-    ):
-        with pytest.raises(NotImplementedError):
-            db_service.get_trusted_user_ids(group_id=123)
-
-    def test_get_trusted_users_non_zero_group_raises(
-        self, db_service: DatabaseService
-    ):
-        with pytest.raises(NotImplementedError):
-            db_service.get_trusted_users(group_id=123)
-
-    def test_trusted_user_reads_none_and_zero_group_equivalent(
-        self, db_service: DatabaseService
-    ):
+    def test_trusted_user_reads(self, db_service: DatabaseService):
         db_service.add_trusted_user(user_id=3001, trusted_by_admin_id=9001)
         db_service.add_trusted_user(user_id=3002, trusted_by_admin_id=9002)
 
-        assert db_service.is_user_trusted(
-            user_id=3001, group_id=None
-        ) == db_service.is_user_trusted(user_id=3001, group_id=0)
-        assert db_service.is_user_trusted(
-            user_id=3001, group_id=None
-        ) is True
+        assert db_service.is_user_trusted(user_id=3001) is True
 
-        assert db_service.get_trusted_user_ids(
-            group_id=None
-        ) == db_service.get_trusted_user_ids(group_id=0)
-        assert db_service.get_trusted_user_ids(group_id=None) == {3001, 3002}
+        assert db_service.get_trusted_user_ids() == {3001, 3002}
 
-        users_none = db_service.get_trusted_users(group_id=None)
-        users_zero = db_service.get_trusted_users(group_id=0)
-        assert [u.user_id for u in users_none] == [u.user_id for u in users_zero]
+        users = db_service.get_trusted_users()
+        assert [u.user_id for u in users] == [3002, 3001]

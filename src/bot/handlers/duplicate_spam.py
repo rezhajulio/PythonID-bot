@@ -70,13 +70,9 @@ def _get_recent_messages(
     context: ContextTypes.DEFAULT_TYPE, group_id: int, user_id: int
 ) -> deque[RecentMessage]:
     """Get or create the recent messages deque for a (group, user) pair."""
-    store: dict[tuple[int, int], deque[RecentMessage]] = context.bot_data.setdefault(
-        RECENT_MESSAGES_KEY, {}
+    return context.bot_data.setdefault(RECENT_MESSAGES_KEY, {}).setdefault(
+        (group_id, user_id), deque()
     )
-    key = (group_id, user_id)
-    if key not in store:
-        store[key] = deque()
-    return store[key]
 
 
 def _prune_old_messages(

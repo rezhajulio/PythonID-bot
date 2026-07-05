@@ -61,9 +61,6 @@ USER_BIO_FAILURE_CACHE_TTL_SECONDS = 300  # 5 minutes
 # Sentinel value to indicate a cached failure
 _BIO_CACHE_FAILURE = "__FAILURE__"
 
-# Bio bait metrics stored in bot_data.
-BIO_BAIT_METRICS_KEY = "bio_bait_metrics"
-
 # Telegram hard limit per message text.
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
@@ -239,33 +236,6 @@ def clear_cached_user_bio(
     _get_user_bio_cache(context).pop(user_id, None)
 
 
-def _get_bio_bait_metrics(context: ContextTypes.DEFAULT_TYPE) -> dict[str, int]:
-    """Get or initialize bio bait metrics stored in bot_data."""
-    return context.bot_data.setdefault(BIO_BAIT_METRICS_KEY, {})
-
-
-def _increment_bio_bait_metric(
-    context: ContextTypes.DEFAULT_TYPE,
-    metric_name: str,
-) -> None:
-    """Increment a named bio bait metric counter."""
-    metrics = _get_bio_bait_metrics(context)
-    metrics[metric_name] = metrics.get(metric_name, 0) + 1
-
-
-def record_bio_bait_detection_metrics(
-    context: ContextTypes.DEFAULT_TYPE,
-    detection_reason: str,
-    monitor_only: bool,
-) -> None:
-    """Record counters for a bio bait detection event."""
-    _increment_bio_bait_metric(context, "detections_total")
-    _increment_bio_bait_metric(context, f"detections_{detection_reason}")
-    if monitor_only:
-        _increment_bio_bait_metric(context, "monitor_only_matches")
-    else:
-        _increment_bio_bait_metric(context, "enforced_matches")
-
 
 def _chunk_telegram_text(text: str, max_length: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> list[str]:
     """Split text into Telegram-safe chunks."""
@@ -393,7 +363,6 @@ async def handle_bio_bait_spam(
     )
 
     monitor_only = group_config.bio_bait_monitor_only
-    record_bio_bait_detection_metrics(context, detection_reason, monitor_only)
 
     if monitor_only:
         alert_chat_id = group_config.bio_bait_alert_chat_id
@@ -403,11 +372,10 @@ async def handle_bio_bait_spam(
                 logger.warning(
                     f"Skipping bio bait monitor alert: alert_chat_id matches monitored group (warning topic). group_id={group_config.group_id}"
                 )
-                _increment_bio_bait_metric(context, "owner_alert_skipped_warning_topic")
             else:
                 if user_bio is None:
                     user_bio = await get_cached_user_bio(context, user.id)
-                sent = await send_monitor_alert_to_owner(
+                await send_monitor_alert_to_owner(
                     context=context,
                     alert_chat_id=alert_chat_id,
                     group_id=group_config.group_id,
@@ -418,10 +386,6 @@ async def handle_bio_bait_spam(
                     message_text=text,
                     profile_bio=user_bio,
                 )
-                if sent:
-                    _increment_bio_bait_metric(context, "owner_alert_sent")
-                else:
-                    _increment_bio_bait_metric(context, "owner_alert_failed")
 
         logger.info(
             f"Bio bait monitor-only mode: no delete/restrict (user_id={user.id}, group_id={group_config.group_id})"

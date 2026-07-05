@@ -53,21 +53,6 @@ def resolve_plugin_toggles(
 
     return result
 
-def is_plugin_enabled(toggles: dict[str, bool], name: str) -> bool:
-    """Check if a single plugin is enabled from a resolved toggle dict.
-
-    Args:
-        toggles: Resolved toggle dict from ``resolve_plugin_toggles``.
-        name: Plugin name to check.
-
-    Returns:
-        True if plugin is enabled.
-
-    Raises:
-        KeyError: If ``name`` is not in ``toggles``.
-    """
-    return toggles[name]
-
 def is_plugin_enabled_for_group(
     effective_map: dict[int, dict[str, bool]],
     group_id: int,

@@ -38,19 +38,3 @@ def register_topic_guard(application: Application) -> list[BaseHandler]:  # type
     application.add_handler(handler, group=-1)
     logger.info("Registered handler: topic_guard (group=-1, message + edited_message)")
     return [handler]
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _TopicGuardPlugin:
-    """Plugin wrapper for topic_guard handler."""
-
-    name: str = "topic_guard"
-    description: str = "Intercept warning-topic messages before other handlers"
-    handler_group: int = -1
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register topic_guard handler onto application."""
-        return register_topic_guard(application)
-
-plugin = _TopicGuardPlugin()

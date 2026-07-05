@@ -41,19 +41,3 @@ def register_captcha(application: Application) -> list[BaseHandler]:  # type: ig
         registered.append(cloned)
     logger.info("Registered handler: captcha_handlers (group=0)")
     return registered
-
-# --- Coarse plugin class (keeps existing API) ---
-
-# Coarse plugin class for API compatibility. Unused by PluginManager.
-class _CaptchaPlugin:
-    """Plugin wrapper for captcha handlers."""
-
-    name: str = "captcha"
-    description: str = "Captcha verification for new members"
-    handler_group: int = 0
-
-    def register(self, application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-        """Register captcha handlers onto application."""
-        return register_captcha(application)
-
-plugin = _CaptchaPlugin()
