@@ -150,7 +150,10 @@ class PluginManager:
             handlers = registrar(application)
             result[name] = handlers
             noun = "job(s)" if name.endswith("_job") else "handler(s)"
-            logger.info("Registered plugin: %s (group=%d, %d %s)", name, defs_by_name[name]["handler_group"], len(handlers), noun)  # type: ignore[arg-type]
+            group = defs_by_name[name]["handler_group"]
+            logger.info(
+                f"Registered plugin: {name} (group={group}, {len(handlers)} {noun})"
+            )
 
         # Store metadata for later gating
         metadata: dict[str, dict] = {}
@@ -188,5 +191,5 @@ class PluginManager:
         plugins_default = getattr(settings, "plugins_default", {})
         effective_map = compute_effective_plugin_map(plugins_default, registry)
         application.bot_data["plugin_effective_map"] = effective_map  # type: ignore[index]
-        logger.info("Computed effective plugin map for %d group(s)", len(effective_map))
+        logger.info(f"Computed effective plugin map for {len(effective_map)} group(s)")
         return effective_map
