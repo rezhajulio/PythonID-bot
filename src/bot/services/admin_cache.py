@@ -9,6 +9,7 @@ between ``main.py`` and ``jobs.py``.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from bot.group_config import get_group_registry
@@ -60,6 +61,7 @@ async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     group_admin_ids = context.bot_data.get("group_admin_ids", {})
     all_admin_ids = context.bot_data.get("admin_ids", [])
     logger.info(f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)")
+    context.bot_data["last_admin_refresh"] = time.time()
 
 
 async def preload_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
