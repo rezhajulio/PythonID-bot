@@ -7,6 +7,7 @@ group may have different threshold settings.
 """
 
 import logging
+import time
 
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
@@ -135,3 +136,4 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.error(
                     f"Error auto-restricting user {warning.user_id} in group {group_config.group_id}: {e}", exc_info=True
                 )
+    context.bot_data["last_auto_restrict"] = time.time()

@@ -30,6 +30,7 @@ from bot.plugins.builtin import dm as dm_mod
 from bot.plugins.builtin import jobs as jobs_mod
 from bot.plugins.builtin import profile_monitor as pm_mod
 from bot.plugins.builtin import spam as spam_mod
+from bot.plugins.builtin import status as status_mod
 from bot.plugins.builtin import topic_guard as tg_mod
 from bot.plugins.config import resolve_plugin_toggles
 from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
@@ -65,6 +66,8 @@ _REGISTRY: dict[str, Registrar] = {
     "captcha": captcha_mod.register_captcha,
     # dm
     "dm": dm_mod.register_dm,
+    # status
+    "status": status_mod.register_status,
     # spam
     "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
     "bio_bait_spam": spam_mod.register_bio_bait_spam,

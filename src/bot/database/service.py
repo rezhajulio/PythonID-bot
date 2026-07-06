@@ -634,6 +634,17 @@ class DatabaseService:
             statement = select(PendingCaptchaValidation)
             return list(session.exec(statement).all())
 
+    def get_all_new_user_probations(self) -> list[NewUserProbation]:
+        """
+        Get all new-user probation records.
+
+        Returns:
+            list[NewUserProbation]: All probation records.
+        """
+        with Session(self._engine) as session:
+            statement = select(NewUserProbation)
+            return list(session.exec(statement).all())
+
     def start_new_user_probation(self, user_id: int, group_id: int) -> NewUserProbation:
         """
         Start or refresh probation for a new user.
