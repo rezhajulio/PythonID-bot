@@ -29,7 +29,12 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_registry
-from bot.services.telegram_utils import get_user_mention, get_user_status, unrestrict_user
+from bot.services.telegram_utils import (
+    get_user_mention,
+    get_user_status,
+    send_message_with_retry,
+    unrestrict_user,
+)
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -160,7 +165,8 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
                 user_mention=user_mention
             )
-            await context.bot.send_message(
+            await send_message_with_retry(
+                context.bot,
                 chat_id=gc.group_id,
                 message_thread_id=gc.warning_topic_id,
                 text=notification_message,

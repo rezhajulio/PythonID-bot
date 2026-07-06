@@ -30,6 +30,7 @@ from bot.services.telegram_utils import (
     get_user_mention,
     get_user_mention_by_id,
     require_admin_dm_target,
+    send_message_with_retry,
 )
 from bot.services.user_checker import check_user_profile
 
@@ -264,16 +265,18 @@ async def handle_warn_callback(
                 rules_link=group_config.rules_link,
             )
             try:
-                await context.bot.send_message(
+                ok = await send_message_with_retry(
+                    context.bot,
                     chat_id=group_config.group_id,
                     message_thread_id=group_config.warning_topic_id,
                     text=warn_message,
                     parse_mode="Markdown",
                 )
-                sent_to_any = True
-                logger.info(
-                    f"Admin {admin_user_id} sent warning to user {target_user_id} in group {group_config.group_id}"
-                )
+                if ok:
+                    sent_to_any = True
+                    logger.info(
+                        f"Admin {admin_user_id} sent warning to user {target_user_id} in group {group_config.group_id}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to send warning to group {group_config.group_id}: {e}")
 
