@@ -105,12 +105,8 @@ async def handle_status(
     effective_map = context.bot_data.get("plugin_effective_map", {})
     for gc in registry.all_groups():
         gid = gc.group_id
-        title = str(gid)
         captcha = "CAPTCHA" if gc.captcha_enabled else ""
-        group_line = (
-            f"  • `{escape_markdown(str(gid), version=1)}`"
-            f" — {escape_markdown(title, version=1)}"
-        )
+        group_line = f"  • `{escape_markdown(str(gid), version=1)}`"
         if captcha:
             group_line += f" _{captcha}_"
         toggles = effective_map.get(gid, {})
