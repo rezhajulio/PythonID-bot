@@ -14,9 +14,11 @@ data/
 
 # Agent/planning docs
 docs/
+plans/
 .pi/
 
 # Local review artifacts (parallel-reviewer outputs)
 reviews/
+.pi-subagents/
 
 .tokensave/

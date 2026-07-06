@@ -5,12 +5,14 @@ This module provides common helper functions for working with
 Telegram's API across different handlers and services.
 """
 
+import asyncio
 import logging
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from telegram import Bot, Chat, Message, Update, User
 from telegram.constants import ChatMemberStatus
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, RetryAfter
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown, mention_markdown
 
@@ -99,15 +101,15 @@ async def unrestrict_user(
 ) -> None:
     """
     Remove restrictions from a user by applying group's default permissions.
-    
+
     This restores the user to normal member status in the group.
     Does NOT update the database - caller must handle that separately.
-    
+
     Args:
         bot: Telegram bot instance.
         group_id: Telegram group ID.
         user_id: Telegram user ID to unrestrict.
-    
+
     Raises:
         BadRequest: If user not found or bot lacks permissions.
     """
@@ -116,13 +118,16 @@ async def unrestrict_user(
         # Get group's default permissions
         chat = await bot.get_chat(group_id)
         default_permissions = chat.permissions
-        
+
         # Apply default permissions to remove restrictions
-        await bot.restrict_chat_member(
+        ok = await restrict_chat_member_with_retry(
+            bot,
             chat_id=group_id,
             user_id=user_id,
             permissions=default_permissions,
         )
+        if not ok:
+            raise RuntimeError("Final RetryAfter exceeded on restrict_chat_member")
     except Exception as e:
         logger.error(
             f"Failed to unrestrict user_id={user_id} in group_id={group_id}: {e}",
@@ -251,6 +256,100 @@ def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bo
 
     trusted_ids = _get_trusted_ids(bot_data)
     return user_id in trusted_ids
+
+def _retry_after_seconds(e: RetryAfter) -> float:
+    """Extract RetryAfter.retry_after as seconds (handles int and timedelta)."""
+    return e.retry_after.total_seconds() if isinstance(e.retry_after, timedelta) else e.retry_after
+
+
+_MAX_RETRY_SLEEP_SECONDS = 30.0
+
+
+def _clamped_retry_seconds(e: RetryAfter) -> float:
+    """RetryAfter sleep capped at ``_MAX_RETRY_SLEEP_SECONDS`` so one bad
+    flood-control response can't stall a per-group loop for a minute-plus."""
+    return min(_retry_after_seconds(e) + 1, _MAX_RETRY_SLEEP_SECONDS)
+
+
+async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -> bool:
+    """
+    Send a message with one retry on RetryAfter (HTTP 429 / flood control).
+
+    Catches ``telegram.error.RetryAfter``, sleeps ``e.retry_after + 1`` seconds,
+    and retries exactly once. On a second RetryAfter it returns ``False``
+    (the error is logged). All other exceptions re-raise so the caller's
+    existing ``except Exception`` still catches them.
+
+    Args:
+        bot: Telegram Bot instance.
+        chat_id: Target chat / group ID.
+        **kwargs: Extra keyword arguments forwarded to ``bot.send_message``.
+
+    Returns:
+        bool: ``True`` if the message was sent successfully, ``False`` if a
+        second consecutive RetryAfter was encountered.
+    """
+    try:
+        await bot.send_message(chat_id=chat_id, **kwargs)
+        return True
+    except RetryAfter as e:
+        wait_seconds = int(_retry_after_seconds(e))
+        logger.warning(
+            f"RetryAfter on send_message to chat {chat_id}, sleeping {wait_seconds}s before retry"
+        )
+        await asyncio.sleep(_clamped_retry_seconds(e))
+        try:
+            await bot.send_message(chat_id=chat_id, **kwargs)
+            return True
+        except RetryAfter:
+            logger.error(
+                f"RetryAfter again on send_message to chat {chat_id}, giving up"
+            )
+            return False
+
+
+async def restrict_chat_member_with_retry(
+    bot: Bot, *, chat_id: int, user_id: int, permissions: object, **kwargs: object
+) -> bool:
+    """
+    Restrict a chat member with one retry on RetryAfter.
+
+    Same retry strategy as :func:`send_message_with_retry` but wraps
+    ``bot.restrict_chat_member``. Returns ``True`` on success, ``False`` after a
+    second consecutive RetryAfter. Other exceptions re-raise.
+
+    Args:
+        bot: Telegram Bot instance.
+        chat_id: Group ID.
+        user_id: User ID to restrict.
+        permissions: ``ChatPermissions`` to apply.
+        **kwargs: Extra keyword arguments forwarded to ``bot.restrict_chat_member``.
+
+    Returns:
+        bool: ``True`` if restriction applied, ``False`` after second RetryAfter.
+    """
+    try:
+        await bot.restrict_chat_member(
+            chat_id=chat_id, user_id=user_id, permissions=permissions, **kwargs
+        )
+        return True
+    except RetryAfter as e:
+        wait_seconds = int(_retry_after_seconds(e))
+        logger.warning(
+            f"RetryAfter on restrict_chat_member to chat {chat_id} (user {user_id}), sleeping {wait_seconds}s"
+        )
+        await asyncio.sleep(_clamped_retry_seconds(e))
+        try:
+            await bot.restrict_chat_member(
+                chat_id=chat_id, user_id=user_id, permissions=permissions, **kwargs
+            )
+            return True
+        except RetryAfter:
+            logger.error(
+                f"RetryAfter again on restrict_chat_member to chat {chat_id} (user {user_id}), giving up"
+            )
+            return False
+
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
     """

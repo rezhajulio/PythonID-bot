@@ -30,6 +30,7 @@ from bot.services.telegram_utils import (
     get_user_mention,
     get_user_mention_by_id,
     require_admin_dm_target,
+    send_message_with_retry,
 )
 from bot.services.user_checker import check_user_profile
 
@@ -205,6 +206,17 @@ async def handle_check_forwarded_message(
         logger.error(f"Error checking forwarded user {user_id}: {e}", exc_info=True)
 
 
+def _parse_warn_callback_data(data: str) -> tuple[int, str] | None:
+    """Parse warn callback data (warn:<user_id>:<missing_code>). Returns (user_id, missing_code) or None."""
+    try:
+        parts = data.split(":")
+        user_id = int(parts[1])
+        missing_code = parts[2] if len(parts) > 2 else ""
+        return (user_id, missing_code)
+    except (IndexError, ValueError):
+        return None
+
+
 async def handle_warn_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -231,14 +243,12 @@ async def handle_warn_callback(
         return
 
     # Parse callback data: warn:<user_id>:<missing_code>
-    try:
-        parts = query.data.split(":")
-        target_user_id = int(parts[1])
-        missing_code = parts[2] if len(parts) > 2 else ""
-    except (IndexError, ValueError):
+    parsed = _parse_warn_callback_data(query.data)
+    if parsed is None:
         await query.edit_message_text("❌ Data callback tidak valid.")
         logger.error(f"Invalid callback_data format: {query.data}")
         return
+    target_user_id, missing_code = parsed
 
     # Build missing items text
     missing_items = []
@@ -264,16 +274,18 @@ async def handle_warn_callback(
                 rules_link=group_config.rules_link,
             )
             try:
-                await context.bot.send_message(
+                ok = await send_message_with_retry(
+                    context.bot,
                     chat_id=group_config.group_id,
                     message_thread_id=group_config.warning_topic_id,
                     text=warn_message,
                     parse_mode="Markdown",
                 )
-                sent_to_any = True
-                logger.info(
-                    f"Admin {admin_user_id} sent warning to user {target_user_id} in group {group_config.group_id}"
-                )
+                if ok:
+                    sent_to_any = True
+                    logger.info(
+                        f"Admin {admin_user_id} sent warning to user {target_user_id} in group {group_config.group_id}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to send warning to group {group_config.group_id}: {e}")
 

@@ -63,7 +63,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Handler called: user_id={user.id}, user={user.full_name}, chat_id={update.effective_chat.id}"
     )
 
-    # Ignore messages from bots
     if user.is_bot:
         logger.info(f"Skipping message: user is bot (user_id={user.id})")
         return

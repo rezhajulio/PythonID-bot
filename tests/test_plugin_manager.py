@@ -140,6 +140,7 @@ class TestManifestOrder:
             "untrust_callback",
             "captcha",
             "dm",
+            "status",
             "inline_keyboard_spam",
             "contact_spam",
             "new_user_spam",

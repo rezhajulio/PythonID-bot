@@ -7,6 +7,7 @@ group may have different threshold settings.
 """
 
 import logging
+import time
 
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
@@ -20,7 +21,12 @@ from bot.constants import (
 from bot.database.service import get_database
 from bot.group_config import get_group_registry
 from bot.services.bot_info import BotInfoCache
-from bot.services.telegram_utils import get_user_mention, get_user_status
+from bot.services.telegram_utils import (
+    get_user_mention,
+    get_user_status,
+    restrict_chat_member_with_retry,
+    send_message_with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +86,17 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
 
                 logger.info(f"Applying restriction to user_id={warning.user_id}")
                 # Apply restriction (even if user left, they'll be restricted when they rejoin)
-                await bot.restrict_chat_member(
+                ok = await restrict_chat_member_with_retry(
+                    bot,
                     chat_id=group_config.group_id,
                     user_id=warning.user_id,
                     permissions=RESTRICTED_PERMISSIONS,
                 )
+                if not ok:
+                    logger.error(
+                        f"Gave up restricting user {warning.user_id} after RetryAfter"
+                    )
+                    continue
                 db.mark_user_restricted(warning.user_id, group_config.group_id)
 
                 # Get user info for proper mention
@@ -109,7 +121,8 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                     rules_link=group_config.rules_link,
                     dm_link=dm_link,
                 )
-                await bot.send_message(
+                await send_message_with_retry(
+                    bot,
                     chat_id=group_config.group_id,
                     message_thread_id=group_config.warning_topic_id,
                     text=restriction_message,
@@ -123,3 +136,4 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.error(
                     f"Error auto-restricting user {warning.user_id} in group {group_config.group_id}: {e}", exc_info=True
                 )
+    context.bot_data["last_auto_restrict"] = time.time()

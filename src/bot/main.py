@@ -6,6 +6,7 @@ via the plugin system, and starts the polling loop.
 """
 
 import logging
+import time
 from typing import Literal
 
 import logfire
@@ -121,6 +122,9 @@ async def post_init(application: Application) -> None:  # type: ignore[type-arg]
 
     # Use preload_admin_ids which preserves cache on failures
     await preload_admin_ids(application)
+
+    # Record start time for /status uptime
+    application.bot_data["start_time"] = time.monotonic()
 
     # Preload trusted users cache
     db = get_database()
