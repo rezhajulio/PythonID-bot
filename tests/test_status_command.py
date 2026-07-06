@@ -67,7 +67,6 @@ def mock_context():
             -1001: {"captcha": True, "spam": True},
             -1002: {"captcha": False, "spam": True, "profile_monitor": False},
         },
-        "group_titles": {},
     }
     return context
 

@@ -41,6 +41,7 @@ from bot.services.telegram_utils import (
     get_user_mention,
     is_user_admin_or_trusted,
     is_url_whitelisted,
+    restrict_chat_member_with_retry,
     send_message_with_retry,
 )
 
@@ -343,7 +344,8 @@ async def _enforce_bio_bait_restriction(
 
     restricted = False
     try:
-        await context.bot.restrict_chat_member(
+        await restrict_chat_member_with_retry(
+            context.bot,
             chat_id=group_config.group_id,
             user_id=user.id,
             permissions=RESTRICTED_PERMISSIONS,
@@ -369,7 +371,8 @@ async def _enforce_bio_bait_restriction(
             user_mention=user_mention,
             rules_link=group_config.rules_link,
         )
-        await context.bot.send_message(
+        await send_message_with_retry(
+            context.bot,
             chat_id=group_config.group_id,
             message_thread_id=group_config.warning_topic_id,
             text=notification_text,

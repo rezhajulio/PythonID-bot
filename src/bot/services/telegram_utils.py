@@ -262,6 +262,15 @@ def _retry_after_seconds(e: RetryAfter) -> float:
     return e.retry_after.total_seconds() if isinstance(e.retry_after, timedelta) else e.retry_after
 
 
+_MAX_RETRY_SLEEP_SECONDS = 30.0
+
+
+def _clamped_retry_seconds(e: RetryAfter) -> float:
+    """RetryAfter sleep capped at ``_MAX_RETRY_SLEEP_SECONDS`` so one bad
+    flood-control response can't stall a per-group loop for a minute-plus."""
+    return min(_retry_after_seconds(e) + 1, _MAX_RETRY_SLEEP_SECONDS)
+
+
 async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -> bool:
     """
     Send a message with one retry on RetryAfter (HTTP 429 / flood control).
@@ -289,7 +298,7 @@ async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -
             chat_id,
             _retry_after_seconds(e),
         )
-        await asyncio.sleep(_retry_after_seconds(e) + 1)
+        await asyncio.sleep(_clamped_retry_seconds(e))
         try:
             await bot.send_message(chat_id=chat_id, **kwargs)
             return True
@@ -332,7 +341,7 @@ async def restrict_chat_member_with_retry(
             user_id,
             _retry_after_seconds(e),
         )
-        await asyncio.sleep(_retry_after_seconds(e) + 1)
+        await asyncio.sleep(_clamped_retry_seconds(e))
         try:
             await bot.restrict_chat_member(
                 chat_id=chat_id, user_id=user_id, permissions=permissions, **kwargs

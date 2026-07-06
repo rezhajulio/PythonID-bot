@@ -15,7 +15,12 @@ from telegram.ext import ContextTypes
 from bot.constants import VERIFICATION_CLEARANCE_MESSAGE
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupRegistry, get_group_registry
-from bot.services.telegram_utils import get_user_mention, require_admin_dm_target, unrestrict_user
+from bot.services.telegram_utils import (
+    get_user_mention,
+    require_admin_dm_target,
+    send_message_with_retry,
+    unrestrict_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +61,9 @@ async def verify_user(
             try:
                 await unrestrict_user(bot, group_config.group_id, target_user_id)
                 logger.info(f"Unrestricted user {target_user_id} in group {group_config.group_id} during verification")
-            except BadRequest as e:
-                # User might not be restricted or not in group - that's okay
+            except (BadRequest, RuntimeError) as e:
+                # BadRequest: user might not be restricted or not in group - okay
+                # RuntimeError: flood control retries exhausted
                 logger.info(f"Could not unrestrict user {target_user_id} in group {group_config.group_id}: {e}")
 
             # Delete all warning records for this user in this group
@@ -74,11 +80,12 @@ async def verify_user(
                 clearance_message = VERIFICATION_CLEARANCE_MESSAGE.format(
                     user_mention=user_mention
                 )
-                await bot.send_message(
+                await send_message_with_retry(
+                    bot,
                     chat_id=group_config.group_id,
                     message_thread_id=group_config.warning_topic_id,
                     text=clearance_message,
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
                 )
                 logger.info(f"Sent clearance notification to warning topic for user {target_user_id} in group {group_config.group_id}")
         except Exception:
