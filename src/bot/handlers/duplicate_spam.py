@@ -33,6 +33,8 @@ from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trust
 logger = logging.getLogger(__name__)
 
 RECENT_MESSAGES_KEY = "duplicate_spam_recent"
+RECENT_MESSAGES_MAX_SIZE = 2000
+_RECENT_LAST_TOUCH_KEY = "duplicate_spam_recent_last_touch"
 
 
 @dataclass
@@ -133,6 +135,18 @@ async def handle_duplicate_spam(
         message_id=update.message.message_id,
     )
     dq.append(current_message)
+
+    # Track last-touch timestamp for cache eviction
+    last_touch = context.bot_data.setdefault(_RECENT_LAST_TOUCH_KEY, {})
+    last_touch[(group_config.group_id, user.id)] = now
+
+    # Evict oldest entries when cache exceeds the cap
+    recent = context.bot_data[RECENT_MESSAGES_KEY]
+    if len(recent) >= RECENT_MESSAGES_MAX_SIZE:
+        sorted_keys = sorted(last_touch, key=lambda k: last_touch[k])
+        for k in sorted_keys[:RECENT_MESSAGES_MAX_SIZE // 2]:
+            del recent[k]
+            del last_touch[k]
 
     if len(similar_messages) < group_config.duplicate_spam_threshold - 1:
         return

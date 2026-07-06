@@ -408,3 +408,121 @@ class TestHandleDuplicateSpam:
         mock_context.bot.delete_message.assert_called_once_with(
             chat_id=-100, message_id=100
         )
+
+
+class TestRecentMessagesCacheEviction:
+    """Tests for the in-memory cache eviction logic."""
+
+    @pytest.fixture
+    def group_config(self):
+        return GroupConfig(
+            group_id=-100,
+            warning_topic_id=0,
+            duplicate_spam_enabled=True,
+            duplicate_spam_min_length=20,
+            duplicate_spam_threshold=2,
+            duplicate_spam_window_seconds=120,
+            duplicate_spam_similarity=0.95,
+        )
+
+    @pytest.fixture
+    def mock_update(self):
+        update = MagicMock()
+        update.message.from_user.id = 42
+        update.message.from_user.is_bot = False
+        update.message.text = "Barangkali di sini ada yang sedang mencari kerja"
+        update.message.effective_chat.id = -100
+        update.message.message_id = 100
+        update.effective_chat.id = -100
+        update.effective_user.id = 42
+        update.effective_message = update.message
+        return update
+
+    @pytest.fixture
+    def mock_context(self):
+        context = MagicMock()
+        context.bot_data = {"group_admin_ids": {-100: [1, 2]}}
+        context.bot.send_message = AsyncMock()
+        return context
+
+    async def test_eviction_bounds_outer_dict(
+        self, mock_update, mock_context, group_config
+    ):
+        """Outer dict shrinks and stays bounded when it exceeds the cap."""
+        now = datetime.now(UTC)
+        max_size = 10
+        overage = 5
+
+        recent_dict: dict[tuple[int, int], deque[RecentMessage]] = {}
+        last_touch_dict: dict[tuple[int, int], datetime] = {}
+        for i in range(max_size + overage):
+            gid = -(1000 + i)
+            uid = i
+            recent_dict[(gid, uid)] = deque()
+            last_touch_dict[(gid, uid)] = now - timedelta(hours=i * 24)
+
+        mock_context.bot_data[RECENT_MESSAGES_KEY] = recent_dict
+        mock_context.bot_data["duplicate_spam_recent_last_touch"] = last_touch_dict
+
+        mock_update.message.from_user.id = 9999
+
+        with (
+            patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.duplicate_spam.RECENT_MESSAGES_MAX_SIZE", max_size),
+        ):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        outer = mock_context.bot_data[RECENT_MESSAGES_KEY]
+        assert len(outer) < max_size + overage, (
+            f"Dict size {len(outer)} did not shrink below {max_size + overage}"
+        )
+        assert len(outer) <= max_size + 1, (
+            f"Dict size {len(outer)} exceeds bounded limit {max_size + 1}"
+        )
+
+    async def test_eviction_keeps_recent_entries(
+        self, mock_update, mock_context, group_config
+    ):
+        """Recently-active entries survive eviction; old ones removed."""
+        now = datetime.now(UTC)
+        max_size = 10
+        half = max_size // 2
+
+        recent_dict: dict[tuple[int, int], deque[RecentMessage]] = {}
+        last_touch_dict: dict[tuple[int, int], datetime] = {}
+
+        # Old entries (oldest timestamps — should be evicted)
+        for i in range(half):
+            gid = -(1000 + i)
+            uid = i
+            recent_dict[(gid, uid)] = deque()
+            last_touch_dict[(gid, uid)] = now - timedelta(days=30)
+
+        # Recent entries (should survive)
+        for i in range(half, max_size):
+            gid = -(1000 + i)
+            uid = i
+            recent_dict[(gid, uid)] = deque()
+            last_touch_dict[(gid, uid)] = now
+
+        mock_context.bot_data[RECENT_MESSAGES_KEY] = recent_dict
+        mock_context.bot_data["duplicate_spam_recent_last_touch"] = last_touch_dict
+
+        mock_update.message.from_user.id = 9999
+
+        with (
+            patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.duplicate_spam.RECENT_MESSAGES_MAX_SIZE", max_size),
+        ):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        outer = mock_context.bot_data[RECENT_MESSAGES_KEY]
+
+        # Recent entries survive
+        for i in range(half, max_size):
+            assert (-(1000 + i), i) in outer, f"Recent entry ({i}) was evicted"
+
+        # Old entries gone
+        for i in range(half):
+            assert (-(1000 + i), i) not in outer, f"Old entry ({i}) survived eviction"
+
