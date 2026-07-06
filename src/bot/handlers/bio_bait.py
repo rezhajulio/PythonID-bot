@@ -312,6 +312,62 @@ async def get_cached_user_bio(
         cache[user_id] = (now + USER_BIO_FAILURE_CACHE_TTL_SECONDS, _BIO_CACHE_FAILURE)
         return None
 
+
+async def _enforce_bio_bait_restriction(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    group_config,
+    user,
+    detection_reason: str,
+) -> None:
+    """Delete, restrict, notify for confirmed bio bait spam. Caller raises ApplicationHandlerStop."""
+    user_mention = get_user_mention(user)
+
+    try:
+        await update.message.delete()
+        logger.info(f"Deleted bio bait spam from user_id={user.id}")
+    except Exception:
+        logger.error(f"Failed to delete bio bait spam: user_id={user.id}", exc_info=True)
+
+    restricted = False
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=group_config.group_id,
+            user_id=user.id,
+            permissions=RESTRICTED_PERMISSIONS,
+        )
+        restricted = True
+        clear_cached_user_bio(context, user.id)
+        logger.info(f"Restricted user_id={user.id} for bio bait spam")
+    except Exception:
+        logger.error(f"Failed to restrict user for bio bait spam: user_id={user.id}", exc_info=True)
+
+    try:
+        if detection_reason == "bio_links":
+            template = (
+                BIO_LINK_SPAM_NOTIFICATION if restricted
+                else BIO_LINK_SPAM_NOTIFICATION_NO_RESTRICT
+            )
+        else:
+            template = (
+                BIO_BAIT_SPAM_NOTIFICATION if restricted
+                else BIO_BAIT_SPAM_NOTIFICATION_NO_RESTRICT
+            )
+        notification_text = template.format(
+            user_mention=user_mention,
+            rules_link=group_config.rules_link,
+        )
+        await context.bot.send_message(
+            chat_id=group_config.group_id,
+            message_thread_id=group_config.warning_topic_id,
+            text=notification_text,
+            parse_mode="Markdown",
+        )
+        logger.info(f"Sent bio bait spam notification for user_id={user.id}")
+    except Exception:
+        logger.error(f"Failed to send bio bait spam notification: user_id={user.id}", exc_info=True)
+
+
 async def handle_bio_bait_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -392,50 +448,5 @@ async def handle_bio_bait_spam(
         )
         return
 
-    user_mention = get_user_mention(user)
-
-    try:
-        await update.message.delete()
-        logger.info(f"Deleted bio bait spam from user_id={user.id}")
-    except Exception:
-        logger.error(f"Failed to delete bio bait spam: user_id={user.id}", exc_info=True)
-
-    restricted = False
-    try:
-        await context.bot.restrict_chat_member(
-            chat_id=group_config.group_id,
-            user_id=user.id,
-            permissions=RESTRICTED_PERMISSIONS,
-        )
-        restricted = True
-        clear_cached_user_bio(context, user.id)
-        logger.info(f"Restricted user_id={user.id} for bio bait spam")
-    except Exception:
-        logger.error(f"Failed to restrict user for bio bait spam: user_id={user.id}", exc_info=True)
-
-    try:
-        if detection_reason == "bio_links":
-            template = (
-                BIO_LINK_SPAM_NOTIFICATION if restricted
-                else BIO_LINK_SPAM_NOTIFICATION_NO_RESTRICT
-            )
-        else:
-            template = (
-                BIO_BAIT_SPAM_NOTIFICATION if restricted
-                else BIO_BAIT_SPAM_NOTIFICATION_NO_RESTRICT
-            )
-        notification_text = template.format(
-            user_mention=user_mention,
-            rules_link=group_config.rules_link,
-        )
-        await context.bot.send_message(
-            chat_id=group_config.group_id,
-            message_thread_id=group_config.warning_topic_id,
-            text=notification_text,
-            parse_mode="Markdown",
-        )
-        logger.info(f"Sent bio bait spam notification for user_id={user.id}")
-    except Exception:
-        logger.error(f"Failed to send bio bait spam notification: user_id={user.id}", exc_info=True)
-
+    await _enforce_bio_bait_restriction(update, context, group_config, user, detection_reason)
     raise ApplicationHandlerStop

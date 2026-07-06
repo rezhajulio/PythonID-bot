@@ -35,6 +35,52 @@ from bot.services.user_checker import check_user_profile
 logger = logging.getLogger(__name__)
 
 
+
+async def _unrestrict_in_groups(
+    context: ContextTypes.DEFAULT_TYPE,
+    user,
+    restricted_groups: list,
+) -> int:
+    """Unrestrict user in all groups where restricted. Returns success count."""
+    db = get_database()
+    success_count = 0
+
+    for gc, user_status in restricted_groups:
+        if user_status != ChatMemberStatus.RESTRICTED:
+            db.mark_user_unrestricted(user.id, gc.group_id)
+            logger.info(
+                f"User {user.id} ({user.full_name}) already unrestricted in group {gc.group_id} - clearing record"
+            )
+            continue
+
+        logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
+        try:
+            await unrestrict_user(context.bot, gc.group_id, user.id)
+            db.mark_user_unrestricted(user.id, gc.group_id)
+            success_count += 1
+
+            user_mention = get_user_mention(user)
+            notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
+                user_mention=user_mention
+            )
+            await context.bot.send_message(
+                chat_id=gc.group_id,
+                message_thread_id=gc.warning_topic_id,
+                text=notification_message,
+                parse_mode="Markdown",
+            )
+            logger.info(
+                f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})"
+            )
+        except Exception:
+            logger.error(
+                f"Failed to unrestrict user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})",
+                exc_info=True,
+            )
+
+    return success_count
+
+
 async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle direct messages to the bot for unrestriction flow.
@@ -133,51 +179,12 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Unrestrict user from all groups where restricted by bot
-    unrestricted_any = False
-    all_already_unrestricted = True
+    had_any_restricted = any(status == ChatMemberStatus.RESTRICTED for _, status in restricted_groups)
+    success_count = await _unrestrict_in_groups(context, user, restricted_groups)
 
-    for gc, user_status in restricted_groups:
-        # User was restricted by bot but is no longer restricted on Telegram
-        # (e.g., admin already unrestricted them) - just clear our record
-        if user_status != ChatMemberStatus.RESTRICTED:
-            db.mark_user_unrestricted(user.id, gc.group_id)
-            logger.info(
-                f"User {user.id} ({user.full_name}) already unrestricted in group {gc.group_id} - clearing record"
-            )
-            continue
-
-        all_already_unrestricted = False
-
-        # Remove restriction
-        logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
-        try:
-            await unrestrict_user(context.bot, gc.group_id, user.id)
-            db.mark_user_unrestricted(user.id, gc.group_id)
-            unrestricted_any = True
-
-            # Send notification to warning topic
-            user_mention = get_user_mention(user)
-            notification_message = DM_UNRESTRICTION_NOTIFICATION.format(
-                user_mention=user_mention
-            )
-            await context.bot.send_message(
-                chat_id=gc.group_id,
-                message_thread_id=gc.warning_topic_id,
-                text=notification_message,
-                parse_mode="Markdown",
-            )
-            logger.info(
-                f"Unrestricted user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})"
-            )
-        except Exception:
-            logger.error(
-                f"Failed to unrestrict user {user.id} ({user.full_name}) via DM (group_id={gc.group_id})",
-                exc_info=True,
-            )
-
-    if unrestricted_any:
+    if success_count > 0:
         await update.message.reply_text(DM_UNRESTRICTION_SUCCESS_MESSAGE)
-    elif all_already_unrestricted:
+    elif not had_any_restricted:
         await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
     else:
         # All unrestriction attempts failed
