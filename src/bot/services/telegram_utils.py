@@ -7,6 +7,7 @@ Telegram's API across different handlers and services.
 
 import asyncio
 import logging
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from telegram import Bot, Chat, Message, Update, User
@@ -256,6 +257,11 @@ def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bo
     trusted_ids = _get_trusted_ids(bot_data)
     return user_id in trusted_ids
 
+def _retry_after_seconds(e: RetryAfter) -> float:
+    """Extract RetryAfter.retry_after as seconds (handles int and timedelta)."""
+    return e.retry_after.total_seconds() if isinstance(e.retry_after, timedelta) else e.retry_after
+
+
 async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -> bool:
     """
     Send a message with one retry on RetryAfter (HTTP 429 / flood control).
@@ -281,9 +287,9 @@ async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -
         logger.warning(
             "RetryAfter on send_message to chat %s, sleeping %.0fs before retry",
             chat_id,
-            e.retry_after,
+            _retry_after_seconds(e),
         )
-        await asyncio.sleep(e.retry_after + 1)
+        await asyncio.sleep(_retry_after_seconds(e) + 1)
         try:
             await bot.send_message(chat_id=chat_id, **kwargs)
             return True
@@ -324,9 +330,9 @@ async def restrict_chat_member_with_retry(
             "RetryAfter on restrict_chat_member to chat %s (user %s), sleeping %.0fs",
             chat_id,
             user_id,
-            e.retry_after,
+            _retry_after_seconds(e),
         )
-        await asyncio.sleep(e.retry_after + 1)
+        await asyncio.sleep(_retry_after_seconds(e) + 1)
         try:
             await bot.restrict_chat_member(
                 chat_id=chat_id, user_id=user_id, permissions=permissions, **kwargs
