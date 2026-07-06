@@ -206,6 +206,17 @@ async def handle_check_forwarded_message(
         logger.error(f"Error checking forwarded user {user_id}: {e}", exc_info=True)
 
 
+def _parse_warn_callback_data(data: str) -> tuple[int, str] | None:
+    """Parse warn callback data (warn:<user_id>:<missing_code>). Returns (user_id, missing_code) or None."""
+    try:
+        parts = data.split(":")
+        user_id = int(parts[1])
+        missing_code = parts[2] if len(parts) > 2 else ""
+        return (user_id, missing_code)
+    except (IndexError, ValueError):
+        return None
+
+
 async def handle_warn_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -232,14 +243,12 @@ async def handle_warn_callback(
         return
 
     # Parse callback data: warn:<user_id>:<missing_code>
-    try:
-        parts = query.data.split(":")
-        target_user_id = int(parts[1])
-        missing_code = parts[2] if len(parts) > 2 else ""
-    except (IndexError, ValueError):
+    parsed = _parse_warn_callback_data(query.data)
+    if parsed is None:
         await query.edit_message_text("❌ Data callback tidak valid.")
         logger.error(f"Invalid callback_data format: {query.data}")
         return
+    target_user_id, missing_code = parsed
 
     # Build missing items text
     missing_items = []

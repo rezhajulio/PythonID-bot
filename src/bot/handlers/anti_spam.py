@@ -348,6 +348,18 @@ async def handle_inline_keyboard_spam(
     )
 
 
+def _should_skip_new_user_spam_check(update, context, group_config) -> bool:
+    """Check if new user spam handler should skip this message."""
+    if group_config is None:
+        return True
+    user = update.message.from_user
+    if user.is_bot:
+        return True
+    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
+        return True
+    return False
+
+
 async def handle_new_user_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -371,15 +383,7 @@ async def handle_new_user_spam(
     group_config = get_group_config_for_update(update)
     user = update.message.from_user
 
-    # Only process messages from monitored groups
-    if group_config is None:
-        return
-
-    # Ignore bots
-    if user.is_bot:
-        return
-
-    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
+    if _should_skip_new_user_spam_check(update, context, group_config):
         return
 
     db = get_database()

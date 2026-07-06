@@ -30,6 +30,15 @@ from bot.services.user_checker import check_user_profile
 logger = logging.getLogger(__name__)
 
 
+def _should_skip_profile_check(update, context, group_config) -> bool:
+    """Check if profile check should be skipped for this message."""
+    user = update.message.from_user
+    if user.is_bot:
+        logger.info(f"Skipping message: user is bot (user_id={user.id})")
+        return True
+    return False
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle incoming group messages and check user profiles.
@@ -63,9 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Handler called: user_id={user.id}, user={user.full_name}, chat_id={update.effective_chat.id}"
     )
 
-    # Ignore messages from bots
-    if user.is_bot:
-        logger.info(f"Skipping message: user is bot (user_id={user.id})")
+    if _should_skip_profile_check(update, context, group_config):
         return
 
     # Check if user has complete profile (photo + username)
