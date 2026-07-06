@@ -51,6 +51,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     bot_username = await BotInfoCache.get_username(bot)
     dm_link = f"https://t.me/{bot_username}"
 
+    processed_any = False
     for group_config in registry.all_groups():
         try:
             # Get warnings that exceeded time threshold for this group
@@ -98,6 +99,7 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                     )
                     continue
                 db.mark_user_restricted(warning.user_id, group_config.group_id)
+                processed_any = True
 
                 # Get user info for proper mention
                 try:
@@ -136,4 +138,5 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.error(
                     f"Error auto-restricting user {warning.user_id} in group {group_config.group_id}: {e}", exc_info=True
                 )
-    context.bot_data["last_auto_restrict"] = time.time()
+    if processed_any:
+        context.bot_data["last_auto_restrict"] = time.time()

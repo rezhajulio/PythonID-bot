@@ -57,6 +57,7 @@ async def _check_status_prereqs(
     on any failure.
     """
     if not update.message or not update.message.from_user:
+        logger.warning("handle_status called without message or sender")
         return False
 
     if update.effective_chat and update.effective_chat.type != "private":
@@ -104,8 +105,7 @@ async def handle_status(
     effective_map = context.bot_data.get("plugin_effective_map", {})
     for gc in registry.all_groups():
         gid = gc.group_id
-        # group_titles not cached in bot_data yet — fallback to group_id
-        title = context.bot_data.get("group_titles", {}).get(gid, str(gid))
+        title = str(gid)
         captcha = "CAPTCHA" if gc.captcha_enabled else ""
         group_line = (
             f"  • `{escape_markdown(str(gid), version=1)}`"

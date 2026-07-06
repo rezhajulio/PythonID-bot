@@ -18,5 +18,6 @@ docs/
 
 # Local review artifacts (parallel-reviewer outputs)
 reviews/
+.pi-subagents/
 
 .tokensave/
