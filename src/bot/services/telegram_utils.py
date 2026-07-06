@@ -293,10 +293,9 @@ async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -
         await bot.send_message(chat_id=chat_id, **kwargs)
         return True
     except RetryAfter as e:
+        wait_seconds = int(_retry_after_seconds(e))
         logger.warning(
-            "RetryAfter on send_message to chat %s, sleeping %.0fs before retry",
-            chat_id,
-            _retry_after_seconds(e),
+            f"RetryAfter on send_message to chat {chat_id}, sleeping {wait_seconds}s before retry"
         )
         await asyncio.sleep(_clamped_retry_seconds(e))
         try:
@@ -304,7 +303,7 @@ async def send_message_with_retry(bot: Bot, *, chat_id: int, **kwargs: object) -
             return True
         except RetryAfter:
             logger.error(
-                "RetryAfter again on send_message to chat %s, giving up", chat_id
+                f"RetryAfter again on send_message to chat {chat_id}, giving up"
             )
             return False
 
@@ -335,11 +334,9 @@ async def restrict_chat_member_with_retry(
         )
         return True
     except RetryAfter as e:
+        wait_seconds = int(_retry_after_seconds(e))
         logger.warning(
-            "RetryAfter on restrict_chat_member to chat %s (user %s), sleeping %.0fs",
-            chat_id,
-            user_id,
-            _retry_after_seconds(e),
+            f"RetryAfter on restrict_chat_member to chat {chat_id} (user {user_id}), sleeping {wait_seconds}s"
         )
         await asyncio.sleep(_clamped_retry_seconds(e))
         try:
@@ -349,9 +346,7 @@ async def restrict_chat_member_with_retry(
             return True
         except RetryAfter:
             logger.error(
-                "RetryAfter again on restrict_chat_member to chat %s (user %s), giving up",
-                chat_id,
-                user_id,
+                f"RetryAfter again on restrict_chat_member to chat {chat_id} (user {user_id}), giving up"
             )
             return False
 
