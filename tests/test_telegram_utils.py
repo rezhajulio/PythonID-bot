@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import Chat, User
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, RetryAfter
 
 from bot.services.telegram_utils import (
     fetch_group_admin_ids,
@@ -10,6 +10,8 @@ from bot.services.telegram_utils import (
     get_user_mention_by_id,
     get_user_status,
     is_user_admin_or_trusted,
+    restrict_chat_member_with_retry,
+    send_message_with_retry,
     unrestrict_user,
 )
 
@@ -643,3 +645,131 @@ class TestFetchGroupAdminIds:
 
         with pytest.raises(Exception):
             await fetch_group_admin_ids(mock_bot, group_id=456)
+
+
+class TestSendMessageWithRetry:
+    """send_message_with_retry handles RetryAfter correctly."""
+
+    async def test_success_no_retry(self):
+        """Normal success: no retry, no sleep, returns True."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock(return_value=MagicMock())
+
+        result = await send_message_with_retry(bot, chat_id=-100, text="hello")
+
+        assert result is True
+        bot.send_message.assert_awaited_once_with(chat_id=-100, text="hello")
+
+    async def test_retries_on_retry_after(self):
+        """RetryAfter once then success: sleeps, retries, returns True."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock(
+            side_effect=[
+                RetryAfter(retry_after=2),
+                MagicMock(),
+            ]
+        )
+
+        with patch("bot.services.telegram_utils.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            result = await send_message_with_retry(bot, chat_id=-100, text="hello")
+
+        assert result is True
+        assert bot.send_message.await_count == 2
+        mock_sleep.assert_called_once_with(3)
+
+    async def test_gives_up_after_second_retry_after(self):
+        """Second RetryAfter: returns False."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock(
+            side_effect=RetryAfter(retry_after=1),
+        )
+
+        with patch("bot.services.telegram_utils.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            result = await send_message_with_retry(bot, chat_id=-100, text="hello")
+
+        assert result is False
+        assert bot.send_message.await_count == 2
+
+    async def test_propagates_other_telegram_error(self):
+        """Non-RetryAfter TelegramError re-raises (caller's except catches it)."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock(side_effect=BadRequest("User not found"))
+
+        with pytest.raises(BadRequest):
+            await send_message_with_retry(bot, chat_id=-100, text="hello")
+
+        bot.send_message.assert_awaited_once()
+
+
+class TestRestrictChatMemberWithRetry:
+    """restrict_chat_member_with_retry handles RetryAfter correctly."""
+
+    async def test_success_no_retry(self):
+        """Normal success: returns True."""
+        bot = MagicMock()
+        bot.restrict_chat_member = AsyncMock(return_value=MagicMock())
+        permissions = MagicMock()
+
+        result = await restrict_chat_member_with_retry(
+            bot, chat_id=-100, user_id=123, permissions=permissions,
+        )
+
+        assert result is True
+        bot.restrict_chat_member.assert_awaited_once_with(
+            chat_id=-100, user_id=123, permissions=permissions,
+        )
+
+    async def test_retries_on_retry_after(self):
+        """RetryAfter once then success: sleeps, retries, returns True."""
+        bot = MagicMock()
+        permissions = MagicMock()
+        bot.restrict_chat_member = AsyncMock(
+            side_effect=[
+                RetryAfter(retry_after=2),
+                MagicMock(),
+            ]
+        )
+
+        with patch("bot.services.telegram_utils.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            result = await restrict_chat_member_with_retry(
+                bot, chat_id=-100, user_id=123, permissions=permissions,
+            )
+
+        assert result is True
+        assert bot.restrict_chat_member.await_count == 2
+        mock_sleep.assert_called_once_with(3)
+
+    async def test_gives_up_after_second_retry_after(self):
+        """Second RetryAfter: returns False."""
+        bot = MagicMock()
+        permissions = MagicMock()
+        bot.restrict_chat_member = AsyncMock(
+            side_effect=RetryAfter(retry_after=1),
+        )
+
+        with patch("bot.services.telegram_utils.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            result = await restrict_chat_member_with_retry(
+                bot, chat_id=-100, user_id=123, permissions=permissions,
+            )
+
+        assert result is False
+        assert bot.restrict_chat_member.await_count == 2
+
+    async def test_propagates_other_telegram_error(self):
+        """Non-RetryAfter TelegramError re-raises."""
+        bot = MagicMock()
+        permissions = MagicMock()
+        bot.restrict_chat_member = AsyncMock(
+            side_effect=BadRequest("User not found"),
+        )
+
+        with pytest.raises(BadRequest):
+            await restrict_chat_member_with_retry(
+                bot, chat_id=-100, user_id=123, permissions=permissions,
+            )
+
+        bot.restrict_chat_member.assert_awaited_once()

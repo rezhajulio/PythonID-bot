@@ -37,7 +37,12 @@ from bot.constants import (
     WHITELISTED_TELEGRAM_PATHS,
 )
 from bot.group_config import get_group_config_for_update
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted, is_url_whitelisted
+from bot.services.telegram_utils import (
+    get_user_mention,
+    is_user_admin_or_trusted,
+    is_url_whitelisted,
+    send_message_with_retry,
+)
 
 # Filter for bio-bait handler registration in main.py.
 # Must NOT restrict to TEXT|CAPTION so non-text messages (e.g. photos
@@ -269,7 +274,14 @@ async def send_monitor_alert_to_owner(
 
     try:
         for chunk in _chunk_telegram_text(alert_text):
-            await context.bot.send_message(chat_id=alert_chat_id, text=chunk)
+            ok = await send_message_with_retry(
+                context.bot, chat_id=alert_chat_id, text=chunk
+            )
+            if not ok:
+                logger.error(
+                    f"Failed to send bio bait monitor alert chunk: user_id={user_id}, group_id={group_id}"
+                )
+                return False
         return True
     except Exception:
         logger.error(f"Failed to send bio bait monitor alert: user_id={user_id}, group_id={group_id}")

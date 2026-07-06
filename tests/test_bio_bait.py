@@ -18,6 +18,7 @@ from bot.handlers.bio_bait import (
     has_suspicious_bio_links,
     is_bio_bait_spam,
     normalize_bio_bait_text,
+    send_monitor_alert_to_owner,
 )
 
 class TestNormalizeBioBaitText:
@@ -706,3 +707,53 @@ class TestGetCachedUserBio:
         result = await get_cached_user_bio(mock_context, user_id=123)
         assert result == "new bio"
         mock_context.bot.get_chat.assert_called_once()
+
+
+class TestSendMonitorAlertToOwner:
+    """Tests for send_monitor_alert_to_owner error handling."""
+
+    @pytest.fixture
+    def mock_context(self):
+        context = MagicMock()
+        context.bot = MagicMock()
+        context.bot.send_message = AsyncMock()
+        return context
+
+    async def test_propagates_send_error_to_except(self, mock_context):
+        """Non-RetryAfter error re-raises; caught by outer except Exception, returns False."""
+        from telegram.error import BadRequest
+        mock_context.bot.send_message = AsyncMock(side_effect=BadRequest("Test error"))
+
+        result = await send_monitor_alert_to_owner(
+            context=mock_context,
+            alert_chat_id=57747812,
+            group_id=-100,
+            user_id=42,
+            user_name="Test",
+            username="test",
+            detection_reason="message_bait",
+            message_text="cek bio",
+            profile_bio=None,
+        )
+        assert result is False
+
+    async def test_retry_after_failure_returns_false(self, mock_context):
+        """Second RetryAfter in send_message_with_retry returns False; logs and returns False."""
+        from telegram.error import RetryAfter
+        mock_context.bot.send_message = AsyncMock(
+            side_effect=RetryAfter(retry_after=1)
+        )
+
+        with patch("bot.services.telegram_utils.asyncio.sleep"):
+            result = await send_monitor_alert_to_owner(
+                context=mock_context,
+                alert_chat_id=57747812,
+                group_id=-100,
+                user_id=42,
+                user_name="Test",
+                username="test",
+                detection_reason="message_bait",
+                message_text="cek bio",
+                profile_bio=None,
+            )
+        assert result is False
