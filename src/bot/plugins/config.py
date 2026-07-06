@@ -147,7 +147,7 @@ def guard_plugin(
             effective_map: dict[int, dict[str, bool]] = context.bot_data.get("plugin_effective_map", {})
 
             if not is_plugin_enabled_for_group(effective_map, group_id, plugin_name):
-                logger.debug("Plugin '%s' disabled for group %d, skipping", plugin_name, group_id)
+                logger.debug(f"Plugin '{plugin_name}' disabled for group {group_id}, skipping")
                 return
 
             await callback(update, context, *args, **kwargs)
