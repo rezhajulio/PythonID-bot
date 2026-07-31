@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from bot.constants import (
+    TRUST_NO_GROUP_PERMISSION_MESSAGE,
     TRUST_USER_ID_INVALID_MESSAGE,
     TRUST_USER_ID_REQUIRED_MESSAGE,
 )
@@ -119,9 +120,6 @@ class TestTrustCommands:
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
         mock_context.args = ["1111"]
 
-        unrestrict = AsyncMock()
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", unrestrict)
-
         db = get_database()
         db.start_new_user_probation(user_id=1111, group_id=-1001)
         db.start_new_user_probation(user_id=1111, group_id=-1002)
@@ -133,7 +131,6 @@ class TestTrustCommands:
         assert isinstance(mock_context.bot_data["trusted_user_ids"], set)
         assert db.get_new_user_probation(1111, -1001) is None
         assert db.get_new_user_probation(1111, -1002) is None
-        assert unrestrict.await_count == 2
         reply_args = mock_update.message.reply_text.call_args
         assert "ditambahkan" in reply_args.args[0].lower()
         assert reply_args.kwargs.get("parse_mode") == "Markdown"
@@ -148,7 +145,6 @@ class TestTrustCommands:
     ):
         """Admin without a public @handle must round-trip admin_username=None."""
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
         mock_update.message.from_user.username = None
         mock_context.args = ["1111"]
 
@@ -164,7 +160,6 @@ class TestTrustCommands:
         self, mock_update, mock_context, mock_registry, monkeypatch
     ):
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
 
         forwarded_user = MagicMock()
         forwarded_user.id = 4444
@@ -178,7 +173,6 @@ class TestTrustCommands:
 
     async def test_trust_command_duplicate(self, mock_update, mock_context, mock_registry, monkeypatch):
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
         mock_context.args = ["1111"]
 
         db = get_database()
@@ -191,30 +185,13 @@ class TestTrustCommands:
         assert "sudah" in reply_args.args[0].lower()
         assert reply_args.kwargs.get("parse_mode") == "Markdown"
 
-    async def test_trust_command_continues_on_unrestrict_error(
+    async def test_trust_command_continues_when_probation_lookup_fails(
         self, mock_update, mock_context, mock_registry, monkeypatch
     ):
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-
-        unrestrict = AsyncMock(side_effect=[Exception("failed"), None])
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", unrestrict)
-        mock_context.args = ["2111"]
-
-        await handle_trust_command(mock_update, mock_context)
-
-        assert get_database().is_user_trusted(2111) is True
-
-    async def test_trust_command_unrestrict_attempted_even_when_probation_lookup_fails(
-        self, mock_update, mock_context, mock_registry, monkeypatch
-    ):
-        """If probation lookup raises, unrestrict_user is still called for that group."""
-        monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        unrestrict = AsyncMock()
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", unrestrict)
         mock_context.args = ["9111"]
 
         db = get_database()
-        # Force get_new_user_probation to blow up for both groups.
         monkeypatch.setattr(
             db,
             "get_new_user_probation",
@@ -223,14 +200,10 @@ class TestTrustCommands:
 
         await handle_trust_command(mock_update, mock_context)
 
-        # Unrestrict was still attempted once per group despite probation
-        # cleanup raising.
-        assert unrestrict.await_count == 2
+        assert db.is_user_trusted(9111) is True
         reply_args = mock_update.message.reply_text.call_args
         assert "ditambahkan" in reply_args.args[0].lower()
-        # Probation count is 0, unrestrict count is 2.
         assert "0" in reply_args.args[0]
-        assert "2" in reply_args.args[0]
 
     async def test_untrust_command_requires_private_chat(self, mock_update, mock_context):
         mock_update.effective_chat.type = "group"
@@ -432,8 +405,8 @@ class TestTrustCallbacks:
 
     async def test_trust_callback_success(self, mock_callback_update, mock_context, mock_registry, monkeypatch):
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
-        mock_callback_update.callback_query.data = "trust:7001"
+        mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
+        mock_callback_update.callback_query.data = "trust:-1001:7001"
 
         await handle_trust_callback(mock_callback_update, mock_context)
 
@@ -454,9 +427,9 @@ class TestTrustCallbacks:
     ):
         """Callback path with admin username=None must round-trip None to DB."""
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
+        mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
         mock_callback_update.callback_query.from_user.username = None
-        mock_callback_update.callback_query.data = "trust:7001"
+        mock_callback_update.callback_query.data = "trust:-1001:7001"
 
         await handle_trust_callback(mock_callback_update, mock_context)
 
@@ -483,7 +456,8 @@ class TestTrustCallbacks:
     async def test_untrust_callback_success(self, mock_callback_update, mock_context):
         get_database().add_trusted_user(user_id=7002, trusted_by_admin_id=12345)
         mock_context.bot_data["trusted_user_ids"] = {7002}
-        mock_callback_update.callback_query.data = "untrust:7002"
+        mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
+        mock_callback_update.callback_query.data = "untrust:-1001:7002"
 
         await handle_untrust_callback(mock_callback_update, mock_context)
 
@@ -499,9 +473,9 @@ class TestTrustCallbacks:
     ):
         """Trust callback for already-trusted user yields TRUST_ALREADY_EXISTS message."""
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        monkeypatch.setattr("bot.handlers.trust.unrestrict_user", AsyncMock())
         get_database().add_trusted_user(user_id=7003, trusted_by_admin_id=12345)
-        mock_callback_update.callback_query.data = "trust:7003"
+        mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
+        mock_callback_update.callback_query.data = "trust:-1001:7003"
 
         await handle_trust_callback(mock_callback_update, mock_context)
 
@@ -511,7 +485,8 @@ class TestTrustCallbacks:
 
     async def test_untrust_callback_missing_user(self, mock_callback_update, mock_context):
         """Untrust callback for user not in trusted list yields not-found message."""
-        mock_callback_update.callback_query.data = "untrust:7004"
+        mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
+        mock_callback_update.callback_query.data = "untrust:-1001:7004"
 
         await handle_untrust_callback(mock_callback_update, mock_context)
 
@@ -521,21 +496,29 @@ class TestTrustCallbacks:
 
     async def test_callback_non_admin_rejected(self, mock_callback_update, mock_context):
         mock_callback_update.callback_query.from_user.id = 99999
-        mock_callback_update.callback_query.data = "trust:8003"
+        mock_context.bot_data["group_admin_ids"] = {}
+        mock_callback_update.callback_query.data = "trust:-1001:8003"
 
         await handle_trust_callback(mock_callback_update, mock_context)
 
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
-        assert "izin" in mock_callback_update.callback_query.edit_message_text.call_args.args[0].lower()
+        assert (
+            mock_callback_update.callback_query.edit_message_text.call_args.args[0]
+            == TRUST_NO_GROUP_PERMISSION_MESSAGE
+        )
 
     async def test_untrust_callback_non_admin_rejected(self, mock_callback_update, mock_context):
         mock_callback_update.callback_query.from_user.id = 99999
-        mock_callback_update.callback_query.data = "untrust:8003"
+        mock_context.bot_data["group_admin_ids"] = {}
+        mock_callback_update.callback_query.data = "untrust:-1001:8003"
 
         await handle_untrust_callback(mock_callback_update, mock_context)
 
         mock_callback_update.callback_query.edit_message_text.assert_called_once()
-        assert "izin" in mock_callback_update.callback_query.edit_message_text.call_args.args[0].lower()
+        assert (
+            mock_callback_update.callback_query.edit_message_text.call_args.args[0]
+            == TRUST_NO_GROUP_PERMISSION_MESSAGE
+        )
 
 
 class TestResolveTargetUserId:

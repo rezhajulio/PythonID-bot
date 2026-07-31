@@ -257,6 +257,49 @@ def is_user_admin_or_trusted(context: object, group_id: int, user_id: int) -> bo
     trusted_ids = _get_trusted_ids(bot_data)
     return user_id in trusted_ids
 
+
+def is_user_admin_in_group(context: object, group_id: int, user_id: int) -> bool:
+    """
+    Check whether a user is a human admin of a specific group.
+
+    Unlike ``is_user_admin_or_trusted``, this checks only the per-group
+    admin cache — it does NOT consider trusted users. Use this for
+    admin authorization on moderation actions where trust bypass is
+    not appropriate.
+
+    Args:
+        context: Telegram context with ``bot_data``.
+        group_id: Telegram group ID.
+        user_id: Telegram user ID.
+
+    Returns:
+        bool: True if the user is an admin of the given group.
+    """
+    bot_data = getattr(context, "bot_data", {})
+    admin_ids = bot_data.get("group_admin_ids", {}).get(group_id, [])
+    return user_id in admin_ids
+
+
+def get_admin_groups(context: object, user_id: int) -> list[int]:
+    """
+    Return the list of group IDs where the given user is an admin.
+
+    Uses the per-group admin cache in ``bot_data["group_admin_ids"]``.
+    Useful for determining which groups an admin can act on.
+
+    Args:
+        context: Telegram context with ``bot_data``.
+        user_id: Telegram user ID.
+
+    Returns:
+        list[int]: Group IDs where the user is an admin (may be empty).
+    """
+    bot_data = getattr(context, "bot_data", {})
+    group_admin_ids: dict[int, list[int]] = bot_data.get("group_admin_ids", {})
+    return [
+        gid for gid, ids in group_admin_ids.items() if user_id in ids
+    ]
+
 def _retry_after_seconds(e: RetryAfter) -> float:
     """Extract RetryAfter.retry_after as seconds (handles int and timedelta)."""
     return e.retry_after.total_seconds() if isinstance(e.retry_after, timedelta) else e.retry_after

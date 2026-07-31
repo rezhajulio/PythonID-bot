@@ -167,6 +167,38 @@ VERIFICATION_CLEARANCE_MESSAGE = (
     "✅ {user_mention} telah diverifikasi oleh admin. Silakan berdiskusi kembali."
 )
 
+VERIFY_SUCCESS_MESSAGE = (
+    "✅ User dengan ID {user_id} telah diverifikasi:\n"
+    "• Ditambahkan ke whitelist foto profil\n"
+    "• Riwayat warning dihapus di grup {group_id}\n\n"
+    "User ini tidak akan dicek foto profil lagi."
+)
+
+VERIFY_SUCCESS_WITH_UNRESTRICT_MESSAGE = (
+    "✅ User dengan ID {user_id} telah diverifikasi:\n"
+    "• Ditambahkan ke whitelist foto profil\n"
+    "• Pembatasan bot dicabut di grup {group_id}\n"
+    "• Riwayat warning dihapus\n\n"
+    "User ini tidak akan dicek foto profil lagi."
+)
+
+UNVERIFY_SUCCESS_MESSAGE = (
+    "✅ User dengan ID {target_user_id} telah dihapus dari whitelist verifikasi foto."
+)
+
+UNRESTRICT_SUCCESS_MESSAGE = (
+    "✅ Pembatasan bot untuk user `{user_id}` telah dicabut di grup {group_id}."
+)
+
+UNRESTRICT_FAILED_MESSAGE = (
+    "❌ Gagal membuka pembatasan untuk user `{user_id}` di grup {group_id}. "
+    "Pastikan bot memiliki izin yang cukup."
+)
+
+UNRESTRICT_NOT_NEEDED_MESSAGE = (
+    "ℹ️ User `{user_id}` tidak dibatasi oleh bot di grup {group_id}."
+)
+
 ADMIN_CHECK_PROMPT = (
     "📋 User: {user_mention} (ID: `{user_id}`)\n\n"
     "Status Profil:\n"
@@ -178,6 +210,18 @@ ADMIN_CHECK_PROMPT = (
 ADMIN_CHECK_ACTION_COMPLETE = "✅ Profil lengkap, tidak ada aksi yang diperlukan."
 
 ADMIN_CHECK_ACTION_INCOMPLETE = "⚠️ Profil tidak lengkap. Pilih aksi:"
+
+ADMIN_CHECK_GROUP_PROMPT = (
+    "📋 User: {user_mention} (ID: `{user_id}`)\n\n"
+    "Status Profil:\n"
+    "• Foto Profil: {photo_status}\n"
+    "• Username: {username_status}\n\n"
+    "Pilih grup untuk melakukan aksi:"
+)
+
+ADMIN_CHECK_GROUP_NONE = (
+    "❌ Kamu bukan admin di grup mana pun yang dipantau oleh bot ini."
+)
 
 ADMIN_WARN_USER_MESSAGE = (
     "⚠️ Hai {user_mention}, mohon lengkapi {missing_text} kamu "
@@ -194,9 +238,10 @@ TRUST_USER_ID_REQUIRED_MESSAGE = (
 TRUST_USER_ID_INVALID_MESSAGE = "❌ User ID harus berupa angka."
 
 TRUST_ADDED_MESSAGE = (
-    "✅ User `{user_id}` ditambahkan ke trusted list.\n"
-    "• Probation dibersihkan di {probation_clear_count} grup\n"
-    "• Unrestrict dicoba di {unrestrict_count} grup"
+    "✅ User `{user_id}` ditambahkan ke trusted list (kecualikan dari anti-spam).\n"
+    "• Probation dibersihkan di {probation_clear_count} grup\n\n"
+    "Catatan: Trust tidak membuka pembatasan. Gunakan tombol \"Buka pembatasan bot\" "
+    "untuk mencabut pembatasan yang diterapkan oleh bot ini."
 )
 
 TRUST_ALREADY_EXISTS_MESSAGE = "ℹ️ User `{user_id}` sudah ada di trusted list."
@@ -219,9 +264,21 @@ TRUST_NO_PERMISSION_MESSAGE = (
 
 TRUST_CALLBACK_INVALID_MESSAGE = "❌ Data callback tidak valid."
 
-CHECK_TRUST_BUTTON_LABEL = "🤝 Trust User"
+TRUST_NO_GROUP_PERMISSION_MESSAGE = (
+    "❌ Kamu bukan admin di grup ini."
+)
 
-CHECK_UNTRUST_BUTTON_LABEL = "🤝 Untrust User"
+CHECK_TRUST_BUTTON_LABEL = "🛡️ Kecualikan dari anti-spam"
+
+CHECK_UNTRUST_BUTTON_LABEL = "🛡️ Cabut pengecualian anti-spam"
+
+CHECK_VERIFY_BUTTON_LABEL = "📷 Izinkan foto tersembunyi"
+
+CHECK_UNVERIFY_BUTTON_LABEL = "❌ Cabut izin foto"
+
+CHECK_UNRESTRICT_BUTTON_LABEL = "🔓 Buka pembatasan bot"
+
+CHECK_WARN_BUTTON_LABEL = "⚠️ Beri peringatan"
 
 # Anti-spam probation warning for new users
 NEW_USER_SPAM_WARNING = (

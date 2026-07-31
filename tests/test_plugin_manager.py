@@ -116,7 +116,7 @@ class TestPluginDefinitions:
         """verify_callback description says 'Admin verify confirm button callback' not 'Captcha verify'."""
         defs = get_plugin_definitions()
         defs_by_name = {d["name"]: d for d in defs}
-        assert defs_by_name["verify_callback"]["description"] == "Admin verify confirm button callback"
+        assert defs_by_name["verify_callback"]["description"] == "Admin verify (photo exemption) button callback"
 
 class TestManifestOrder:
     """MANIFEST_ORDER defines deterministic handler registration order matching main.py."""
@@ -133,11 +133,13 @@ class TestManifestOrder:
             "untrust",
             "trusted_list",
             "check_forwarded_message",
+            "check_group_callback",
             "verify_callback",
             "unverify_callback",
             "warn_callback",
             "trust_callback",
             "untrust_callback",
+            "unrestrict_callback",
             "captcha",
             "dm",
             "status",
