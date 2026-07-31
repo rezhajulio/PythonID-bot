@@ -9,9 +9,6 @@ commands/callbacks. Admin overrides must work in every group regardless
 of plugin toggle state. This matches pre-refactor behavior where admin
 commands were never gated.
 
-See ``bot.plugins.definitions.ADMIN_COMMANDS`` for the canonical set
-of admin-only plugins that skip runtime gating.
-
 Also exposes individual registrar functions (register_verify,
 register_unverify, etc.) for fine-grained plugin registration.
 """
@@ -23,7 +20,12 @@ from typing import TYPE_CHECKING
 
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
-from bot.handlers.check import handle_check_command, handle_check_forwarded_message, handle_warn_callback
+from bot.handlers.check import (
+    handle_check_command,
+    handle_check_forwarded_message,
+    handle_check_group_callback,
+    handle_warn_callback,
+)
 from bot.handlers.trust import (
     handle_trust_callback,
     handle_trust_command,
@@ -32,6 +34,7 @@ from bot.handlers.trust import (
     handle_untrust_command,
 )
 from bot.handlers.verify import (
+    handle_unrestrict_callback,
     handle_unverify_callback,
     handle_unverify_command,
     handle_verify_callback,
@@ -100,36 +103,64 @@ def register_check_forwarded_message(application: Application) -> list[BaseHandl
     return _register(application, handler, "check_forwarded_message")
 
 
+def register_check_group_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register group selector callback for /check."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_check_group_callback,
+        pattern=r"^checkgrp:-?\d+:\d+$",
+    )
+    return _register(application, handler, "check_group_callback")
+
+
 def register_verify_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register verify callback handler."""
+    """Register verify callback handler (group-scoped)."""
     handler: BaseHandler = CallbackQueryHandler(
         handle_verify_callback,
-        # User IDs are always positive in Telegram, so \d+ (no negative lookbehind) is correct.
-        # Group IDs can be negative, but callback data only encodes user IDs.
-        pattern=r"^verify:\d+$",
+        pattern=r"^verify:-?\d+:\d+$",
     )
     return _register(application, handler, "verify_callback")
 
 
 def register_unverify_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register unverify callback handler."""
-    handler: BaseHandler = CallbackQueryHandler(handle_unverify_callback, pattern=r"^unverify:\d+$")
+    """Register unverify callback handler (group-scoped)."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_unverify_callback,
+        pattern=r"^unverify:-?\d+:\d+$",
+    )
     return _register(application, handler, "unverify_callback")
 
 
 def register_warn_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register warn callback handler."""
-    handler: BaseHandler = CallbackQueryHandler(handle_warn_callback, pattern=r"^warn:\d+:")
+    """Register warn callback handler (group-scoped)."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_warn_callback,
+        pattern=r"^warn:-?\d+:\d+:",
+    )
     return _register(application, handler, "warn_callback")
 
 
 def register_trust_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register trust callback handler."""
-    handler: BaseHandler = CallbackQueryHandler(handle_trust_callback, pattern=r"^trust:\d+$")
+    """Register trust callback handler (group-scoped)."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_trust_callback,
+        pattern=r"^trust:-?\d+:\d+$",
+    )
     return _register(application, handler, "trust_callback")
 
 
 def register_untrust_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register untrust callback handler."""
-    handler: BaseHandler = CallbackQueryHandler(handle_untrust_callback, pattern=r"^untrust:\d+$")
+    """Register untrust callback handler (group-scoped)."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_untrust_callback,
+        pattern=r"^untrust:-?\d+:\d+$",
+    )
     return _register(application, handler, "untrust_callback")
+
+
+def register_unrestrict_callback(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register unrestrict callback handler (group-scoped)."""
+    handler: BaseHandler = CallbackQueryHandler(
+        handle_unrestrict_callback,
+        pattern=r"^unrestrict:-?\d+:\d+$",
+    )
+    return _register(application, handler, "unrestrict_callback")

@@ -7,8 +7,10 @@ from telegram.error import TimedOut
 
 from bot.group_config import GroupConfig, GroupRegistry
 from bot.handlers.check import (
+    _parse_warn_callback_data,
     handle_check_command,
     handle_check_forwarded_message,
+    handle_check_group_callback,
     handle_warn_callback,
 )
 from bot.services.user_checker import ProfileCheckResult
@@ -67,7 +69,10 @@ def mock_context():
     mock_chat.username = "testuser"
     context.bot.get_chat.return_value = mock_chat
 
-    context.bot_data = {"admin_ids": [12345]}
+    context.bot_data = {
+        "admin_ids": [12345],
+        "group_admin_ids": {-1001234567890: [12345]},
+    }
     context.args = []
     return context
 
@@ -76,7 +81,10 @@ class TestHandleCheckCommand:
     async def test_check_command_non_admin(self, mock_update, mock_context):
         """Non-admin cannot use /check."""
         mock_update.message.from_user.id = 99999
-        mock_context.bot_data = {"admin_ids": [12345]}
+        mock_context.bot_data = {
+            "admin_ids": [12345],
+            "group_admin_ids": {-1001234567890: []},
+        }
         mock_context.args = ["123456"]
 
         await handle_check_command(mock_update, mock_context)
@@ -134,7 +142,7 @@ class TestHandleCheckCommand:
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
         callback_data = [btn.callback_data for btn in buttons]
-        assert any(data == "trust:555666" for data in callback_data)
+        assert any(data == "trust:-1001234567890:555666" for data in callback_data)
         assert not any("unverify" in data for data in callback_data)
 
     async def test_check_command_complete_profile_shows_trust_button_when_not_trusted(
@@ -161,7 +169,7 @@ class TestHandleCheckCommand:
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
         callback_data = [btn.callback_data for btn in buttons]
-        assert any(data == "trust:555666" for data in callback_data)
+        assert any(data == "trust:-1001234567890:555666" for data in callback_data)
 
     async def test_check_command_complete_profile_whitelisted(
         self, mock_update, mock_context
@@ -192,8 +200,38 @@ class TestHandleCheckCommand:
         keyboard = call_args.kwargs.get("reply_markup")
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
-        assert any("unverify:555666" in btn.callback_data for btn in buttons)
-        assert any("Unverify User" in btn.text for btn in buttons)
+        assert any(
+            btn.callback_data == "unverify:-1001234567890:555666"
+            for btn in buttons
+        )
+        assert any("Cabut izin foto" in btn.text for btn in buttons)
+
+    async def test_check_command_multiple_admin_groups_shows_group_selector(
+        self, mock_update, mock_context
+    ):
+        """Admins of multiple groups choose the group before acting."""
+        mock_context.args = ["555666"]
+        mock_context.bot_data["group_admin_ids"] = {
+            -1001234567890: [12345],
+            -1009876543210: [12345],
+        }
+        result = ProfileCheckResult(has_profile_photo=True, has_username=True)
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_command(mock_update, mock_context)
+
+        keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
+        callback_data = [row[0].callback_data for row in keyboard.inline_keyboard]
+        assert callback_data == [
+            "checkgrp:-1001234567890:555666",
+            "checkgrp:-1009876543210:555666",
+        ]
 
     async def test_check_command_incomplete_profile(self, mock_update, mock_context):
         """Shows incomplete profile with warn button."""
@@ -224,8 +262,8 @@ class TestHandleCheckCommand:
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
         callback_data = [btn.callback_data for btn in buttons]
-        assert any("warn:555666" in data for data in callback_data)
-        assert any("verify:555666" in data for data in callback_data)
+        assert "warn:-1001234567890:555666:pu" in callback_data
+        assert "verify:-1001234567890:555666" in callback_data
 
     async def test_check_command_incomplete_profile_shows_trust_button(
         self, mock_update, mock_context
@@ -249,9 +287,9 @@ class TestHandleCheckCommand:
 
         keyboard = mock_update.message.reply_text.call_args.kwargs.get("reply_markup")
         assert keyboard is not None
-        buttons = keyboard.inline_keyboard[0]
+        buttons = [button for row in keyboard.inline_keyboard for button in row]
         callback_data = [btn.callback_data for btn in buttons]
-        assert any(data == "trust:555666" for data in callback_data)
+        assert "trust:-1001234567890:555666" in callback_data
 
     async def test_check_command_complete_profile_shows_untrust_button_when_trusted(
         self, mock_update, mock_context
@@ -277,7 +315,9 @@ class TestHandleCheckCommand:
         assert keyboard is not None
         buttons = keyboard.inline_keyboard[0]
         callback_data = [btn.callback_data for btn in buttons]
-        assert any(data == "untrust:555666" for data in callback_data)
+        assert any(
+            data == "untrust:-1001234567890:555666" for data in callback_data
+        )
 
     async def test_check_command_only_private(self, mock_update, mock_context):
         """Command only works in private chat."""
@@ -330,20 +370,32 @@ class TestHandleCheckCommand:
 
 class TestHandleCheckForwardedMessage:
     async def test_check_forwarded_non_admin(self, mock_update, mock_context):
-        """Non-admin cannot forward for check."""
+        """Forwarded checks show no available groups for a non-admin."""
         mock_update.message.from_user.id = 99999
-        mock_context.bot_data = {"admin_ids": [12345]}
+        mock_context.bot_data = {
+            "admin_ids": [12345],
+            "group_admin_ids": {-1001234567890: []},
+        }
 
         forwarded_user = MagicMock()
         forwarded_user.id = 555666
         forwarded_user.full_name = "Forwarded User"
         mock_update.message.forward_from = forwarded_user
 
-        await handle_check_forwarded_message(mock_update, mock_context)
+        result = ProfileCheckResult(has_profile_photo=True, has_username=True)
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_forwarded_message(mock_update, mock_context)
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "izin" in call_args.args[0]
+        assert "admin" in call_args.args[0]
 
     async def test_check_forwarded_hidden_user(self, mock_update, mock_context):
         """Hidden forward privacy shows error."""
@@ -460,7 +512,80 @@ class TestHandleCheckForwardedMessage:
         assert "timeout" in call_args.args[0].lower()
 
 
+class TestHandleCheckGroupCallback:
+    async def test_group_callback_shows_group_scoped_actions(self, mock_context):
+        """A group selection displays actions encoded for that group."""
+        update = MagicMock()
+        update.message = None
+        query = MagicMock()
+        query.from_user.id = 12345
+        query.data = "checkgrp:-1001234567890:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        result = ProfileCheckResult(has_profile_photo=False, has_username=True)
+        mock_db = MagicMock()
+        mock_db.is_user_photo_whitelisted.return_value = False
+        mock_db.is_user_trusted.return_value = False
+
+        with (
+            patch("bot.handlers.check.check_user_profile", return_value=result),
+            patch("bot.handlers.check.get_database", return_value=mock_db),
+        ):
+            await handle_check_group_callback(update, mock_context)
+
+        query.answer.assert_awaited_once()
+        keyboard = query.edit_message_text.call_args.kwargs["reply_markup"]
+        callback_data = [
+            button.callback_data
+            for row in keyboard.inline_keyboard
+            for button in row
+        ]
+        assert "warn:-1001234567890:555666:p" in callback_data
+        assert "verify:-1001234567890:555666" in callback_data
+        assert "unrestrict:-1001234567890:555666" in callback_data
+
+    async def test_group_callback_rejects_non_admin(self, mock_context):
+        """A caller must be an admin of the selected group."""
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user.id = 99999
+        query.data = "checkgrp:-1001234567890:555666"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_check_group_callback(update, mock_context)
+
+        query.edit_message_text.assert_awaited_once()
+        assert "bukan admin" in query.edit_message_text.call_args.args[0]
+        mock_context.bot.get_chat.assert_not_awaited()
+
+    async def test_group_callback_rejects_invalid_data(self, mock_context):
+        """Malformed group callback data is rejected."""
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user.id = 12345
+        query.data = "checkgrp:invalid"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        await handle_check_group_callback(update, mock_context)
+
+        assert "tidak valid" in query.edit_message_text.call_args.args[0]
+
+
 class TestHandleWarnCallback:
+    def test_parse_warn_callback_data_includes_group_id(self):
+        """Warn callback parsing preserves group, user, and missing code."""
+        assert _parse_warn_callback_data("warn:-1001234567890:555666:pu") == (
+            -1001234567890,
+            555666,
+            "pu",
+        )
+        assert _parse_warn_callback_data("warn:invalid") is None
+
     async def test_warn_callback_non_admin(self, mock_context):
         """Non-admin cannot use warn callback."""
         update = MagicMock()
@@ -468,30 +593,32 @@ class TestHandleWarnCallback:
         query.from_user = MagicMock()
         query.from_user.id = 99999
         query.from_user.full_name = "Non Admin"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
 
-        mock_context.bot_data = {"admin_ids": [12345]}
+        mock_context.bot_data = {
+            "group_admin_ids": {-1001234567890: []},
+        }
 
         await handle_warn_callback(update, mock_context)
 
         query.answer.assert_called_once()
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "izin" in call_args.args[0]
+        assert "bukan admin" in call_args.args[0]
 
     async def test_warn_callback_success(
         self, mock_context, mock_settings, group_config, mock_registry
     ):
-        """Successfully sends warning to all monitored groups."""
+        """Successfully sends warning to the selected group."""
         update = MagicMock()
         query = MagicMock()
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -533,7 +660,7 @@ class TestHandleWarnCallback:
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:p"
+        query.data = "warn:-1001234567890:555666:p"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -607,7 +734,7 @@ class TestHandleWarnCallback:
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -638,7 +765,7 @@ class TestHandleWarnCallback:
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -656,8 +783,6 @@ class TestHandleWarnCallback:
         ):
             await handle_warn_callback(update, mock_context)
 
-        # TimedOut is caught per-group inside the loop, so all groups fail
-        # and the "failed to send to all groups" message is shown
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
         assert "Gagal mengirim" in call_args.args[0]
@@ -671,7 +796,7 @@ class TestHandleWarnCallback:
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -690,16 +815,16 @@ class TestHandleWarnCallback:
         call_args = query.edit_message_text.call_args
         assert "timeout" in call_args.args[0].lower()
 
-    async def test_warn_callback_per_group_send_failure_all_groups(
+    async def test_warn_callback_send_failure(
         self, mock_context, mock_settings, mock_registry
     ):
-        """When send_message fails for all groups, shows 'all groups failed' message."""
+        """A selected-group send failure shows an error."""
         update = MagicMock()
         query = MagicMock()
         query.from_user = MagicMock()
         query.from_user.id = 12345
         query.from_user.full_name = "Admin User"
-        query.data = "warn:555666:pu"
+        query.data = "warn:-1001234567890:555666:pu"
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         update.callback_query = query
@@ -720,4 +845,4 @@ class TestHandleWarnCallback:
 
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "Gagal mengirim peringatan ke semua grup" in call_args.args[0]
+        assert "Gagal mengirim peringatan" in call_args.args[0]

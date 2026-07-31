@@ -1,11 +1,13 @@
 """Trusted-user command handlers for anti-spam bypass management.
 
-Note on the trust unrestrict policy:
-    Adding a user to the trusted list (via ``/trust`` or the Trust button in
-    ``/check``) ALSO unrestricts that user in every monitored group as a side
-    effect, including restrictions that may have been applied manually by
-    other admins for unrelated reasons. Admins should be aware that trusting
-    a user lifts any active restriction across all groups.
+Trust adds a user to the anti-spam bypass list and clears their probation.
+It does NOT unrestrict the user — use the separate "Buka pembatasan bot"
+action for that. This separation prevents trust from lifting manual
+admin restrictions as a side effect.
+
+Commands /trust, /untrust, /trusted are DM-only and require admin status.
+Callback buttons (trust/untrust) are group-scoped: they encode group_id
+and verify the caller is an admin of that specific group.
 """
 
 import logging
@@ -22,6 +24,7 @@ from bot.constants import (
     TRUST_DM_ONLY_MESSAGE,
     TRUST_LIST_EMPTY_MESSAGE,
     TRUST_LIST_HEADER,
+    TRUST_NO_GROUP_PERMISSION_MESSAGE,
     TRUST_NO_PERMISSION_MESSAGE,
     TRUST_REMOVED_MESSAGE,
     TRUST_USER_ID_INVALID_MESSAGE,
@@ -30,7 +33,10 @@ from bot.constants import (
 )
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupRegistry, get_group_registry
-from bot.services.telegram_utils import extract_forwarded_user, unrestrict_user
+from bot.services.telegram_utils import (
+    extract_forwarded_user,
+    is_user_admin_in_group,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +50,7 @@ def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> N
 
 
 def _format_person(full_name: str, user_id: int) -> str:
-    """Return a markdown-safe display for a stored person.
-
-    Uses the cached ``full_name`` from the DB. Falls back to ``User <id>``
-    if the name is empty (e.g. trust granted via callback without name,
-    or pre-cache row from before the feature was deployed).
-    """
+    """Return a markdown-safe display for a stored person."""
     if full_name:
         return escape_markdown(full_name, version=1)
     return f"User {user_id}"
@@ -65,13 +66,7 @@ def _format_person_with_username(full_name: str, username: str | None, user_id: 
 def _resolve_target_user_id(
     update: Update, args: list[str]
 ) -> tuple[int | None, str | None]:
-    """Resolve the target user ID from CLI args or a forwarded message.
-
-    Returns:
-        tuple[int | None, str | None]: ``(user_id, None)`` on success, or
-            ``(None, error_message)`` where ``error_message`` is a user-facing
-            template from :mod:`bot.constants`.
-    """
+    """Resolve the target user ID from CLI args or a forwarded message."""
     if args:
         try:
             return int(args[0]), None
@@ -87,7 +82,6 @@ def _resolve_target_user_id(
 
 
 async def trust_user(
-    bot: object,
     db: DatabaseService,
     registry: GroupRegistry,
     target_user_id: int,
@@ -96,19 +90,20 @@ async def trust_user(
     target_username: str | None = None,
     admin_full_name: str = "",
     admin_username: str | None = None,
-) -> tuple[int, int]:
-    """Add a trusted user and apply cleanup side effects.
+    group_id: int | None = None,
+) -> int:
+    """Add a trusted user and clear probation.
 
-    Trust ALSO unrestricts the user in every monitored group as part of the
-    cleanup loop. This intentionally lifts any active restriction — including
-    restrictions previously applied manually by other admins for unrelated
-    reasons.
+    Trust does NOT unrestrict the user. Unrestriction is a separate
+    action ("Buka pembatasan bot") so that trusting a user doesn't
+    inadvertently lift manual admin restrictions.
+
+    If ``group_id`` is provided, probation is cleared only in that group.
+    Otherwise, probation is cleared in all monitored groups (legacy behavior
+    for the /trust command).
 
     Returns:
-        tuple[int, int]: (probation_clear_count, unrestrict_attempt_count).
-            Both counts increment independently per group; a probation lookup
-            failure does not prevent the unrestrict attempt for that group,
-            and vice versa.
+        int: Number of groups where probation was cleared.
     """
     db.add_trusted_user(
         user_id=target_user_id,
@@ -120,8 +115,12 @@ async def trust_user(
     )
 
     cleared_probation = 0
-    unrestricted_groups = 0
-    for group_config in registry.all_groups():
+    groups_to_check = (
+        [registry.get(group_id)] if group_id is not None else registry.all_groups()
+    )
+    for group_config in groups_to_check:
+        if group_config is None:
+            continue
         try:
             if db.get_new_user_probation(target_user_id, group_config.group_id):
                 db.clear_new_user_probation(target_user_id, group_config.group_id)
@@ -132,26 +131,13 @@ async def trust_user(
                 exc_info=True,
             )
 
-        try:
-            await unrestrict_user(bot, group_config.group_id, target_user_id)
-            unrestricted_groups += 1
-        except Exception:
-            logger.warning(
-                f"Unrestrict failed for user {target_user_id} in group {group_config.group_id}",
-                exc_info=True,
-            )
-
-    return cleared_probation, unrestricted_groups
+    return cleared_probation
 
 
 async def handle_trust_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /trust command in bot DM.
-
-    Trusting a user ALSO unrestricts them in every monitored group, including
-    restrictions that may have been applied manually by other admins.
-    """
+    """Handle /trust command in bot DM."""
     if not update.message or not update.message.from_user:
         return
 
@@ -170,7 +156,6 @@ async def handle_trust_command(
         await update.message.reply_text(error_message)
         return
 
-    # Resolve target user's display name
     target_full_name = ""
     target_username = None
     if update.message.forward_from:
@@ -181,8 +166,8 @@ async def handle_trust_command(
     registry = get_group_registry()
 
     try:
-        cleared_count, unrestricted_count = await trust_user(
-            context.bot, db, registry, target_user_id, admin_user_id,
+        cleared_count = await trust_user(
+            db, registry, target_user_id, admin_user_id,
             target_user_full_name=target_full_name,
             target_username=target_username,
             admin_full_name=update.message.from_user.full_name,
@@ -193,7 +178,6 @@ async def handle_trust_command(
             TRUST_ADDED_MESSAGE.format(
                 user_id=target_user_id,
                 probation_clear_count=cleared_count,
-                unrestrict_count=unrestricted_count,
             ),
             parse_mode="Markdown",
         )
@@ -273,7 +257,6 @@ async def handle_trusted_list_command(
             trusted_at = trusted_at.replace(tzinfo=UTC)
         trusted_at_display = trusted_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
-        # Use stored name/username — no API calls
         user_display = _format_person_with_username(
             record.user_full_name, record.username, record.user_id
         )
@@ -295,10 +278,9 @@ async def handle_trusted_list_command(
 async def handle_trust_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle trust callback button.
+    """Handle trust callback button (group-scoped).
 
-    Trusting a user ALSO unrestricts them in every monitored group, including
-    restrictions that may have been applied manually by other admins.
+    Callback data format: trust:{group_id}:{user_id}
     """
     query = update.callback_query
     if not query or not query.from_user or not query.data:
@@ -306,33 +288,34 @@ async def handle_trust_callback(
 
     await query.answer()
 
-    admin_user_id = query.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-    if admin_user_id not in admin_ids:
-        await query.edit_message_text(TRUST_NO_PERMISSION_MESSAGE)
-        return
-
+    parts = query.data.split(":")
     try:
-        target_user_id = int(query.data.split(":")[1])
+        group_id = int(parts[1])
+        target_user_id = int(parts[2])
     except (IndexError, ValueError):
         await query.edit_message_text(TRUST_CALLBACK_INVALID_MESSAGE)
+        return
+
+    admin_user_id = query.from_user.id
+    if not is_user_admin_in_group(context, group_id, admin_user_id):
+        await query.edit_message_text(TRUST_NO_GROUP_PERMISSION_MESSAGE)
         return
 
     db = get_database()
     registry = get_group_registry()
 
     try:
-        cleared_count, unrestricted_count = await trust_user(
-            context.bot, db, registry, target_user_id, admin_user_id,
+        cleared_count = await trust_user(
+            db, registry, target_user_id, admin_user_id,
             admin_full_name=query.from_user.full_name,
             admin_username=query.from_user.username,
+            group_id=group_id,
         )
         _add_trusted_cache(context, target_user_id)
         await query.edit_message_text(
             TRUST_ADDED_MESSAGE.format(
                 user_id=target_user_id,
                 probation_clear_count=cleared_count,
-                unrestrict_count=unrestricted_count,
             ),
             parse_mode="Markdown",
         )
@@ -346,23 +329,27 @@ async def handle_trust_callback(
 async def handle_untrust_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle untrust callback button."""
+    """Handle untrust callback button (group-scoped).
+
+    Callback data format: untrust:{group_id}:{user_id}
+    """
     query = update.callback_query
     if not query or not query.from_user or not query.data:
         return
 
     await query.answer()
 
-    admin_user_id = query.from_user.id
-    admin_ids = context.bot_data.get("admin_ids", [])
-    if admin_user_id not in admin_ids:
-        await query.edit_message_text(TRUST_NO_PERMISSION_MESSAGE)
-        return
-
+    parts = query.data.split(":")
     try:
-        target_user_id = int(query.data.split(":")[1])
+        group_id = int(parts[1])
+        target_user_id = int(parts[2])
     except (IndexError, ValueError):
         await query.edit_message_text(TRUST_CALLBACK_INVALID_MESSAGE)
+        return
+
+    admin_user_id = query.from_user.id
+    if not is_user_admin_in_group(context, group_id, admin_user_id):
+        await query.edit_message_text(TRUST_NO_GROUP_PERMISSION_MESSAGE)
         return
 
     db = get_database()
