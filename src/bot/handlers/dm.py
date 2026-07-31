@@ -7,7 +7,11 @@ unrestriction flow. When a restricted user DMs the bot:
 2. Check if user has an active pending captcha (redirect to group)
 3. Check if user's profile is complete
 4. If profile-restricted by bot and profile complete, unrestrict them
-   across all monitored groups where they are restricted
+   in the groups where they are restricted
+
+Supports deep-link payloads via /start verify_<group_id> for group-specific
+recovery. The DM message uses the target group's rules_link instead of
+the global settings fallback.
 """
 
 import logging
@@ -16,8 +20,8 @@ from telegram import Update
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
 
-from bot.config import get_settings
 from bot.constants import (
+    CAPTCHA_PENDING_DM_GROUP_LINE,
     CAPTCHA_PENDING_DM_MESSAGE,
     DM_ALREADY_UNRESTRICTED_MESSAGE,
     DM_INCOMPLETE_PROFILE_MESSAGE,
@@ -39,6 +43,31 @@ from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
 
+_VERIFY_DEEP_LINK_PREFIX = "verify_"
+
+
+def _parse_deep_link_payload(text: str) -> int | None:
+    """Extract a group_id from a /start deep-link payload.
+
+    Supports payloads like ``verify_-1001234567890`` (from
+    ``https://t.me/BotUsername?start=verify_-1001234567890``).
+
+    Returns the group_id as int, or None if the payload is not a
+    verify deep link.
+    """
+    if not text:
+        return None
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+    payload = parts[1].strip()
+    if not payload.startswith(_VERIFY_DEEP_LINK_PREFIX):
+        return None
+    group_id_str = payload[len(_VERIFY_DEEP_LINK_PREFIX):]
+    try:
+        return int(group_id_str)
+    except ValueError:
+        return None
 
 
 async def _unrestrict_in_groups(
@@ -91,33 +120,37 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle direct messages to the bot for unrestriction flow.
 
-    This handler processes DMs (including /start) and:
+    This handler processes DMs (including /start with deep-link payloads) and:
     1. Checks if user is a member of any monitored group
     2. Checks if user has an active pending captcha (redirect to group)
     3. Checks if user's profile is complete (photo + username)
     4. If user was restricted by the bot and now has complete profile,
-       removes the restriction in all groups where restricted
+       removes the restriction in the groups where restricted
+
+    If a /start deep-link with ``verify_<group_id>`` is provided, the
+    handler prioritizes that group for recovery messaging and uses
+    that group's rules_link.
 
     Args:
         update: Telegram update containing the message.
         context: Bot context with helper methods.
     """
-    # Skip if no message or sender
     if not update.message or not update.message.from_user:
         logger.info("Skipping DM handler - no message or sender")
         return
 
-    # Only handle private chats
     if update.effective_chat and update.effective_chat.type != "private":
         logger.info(f"Skipping non-private chat type: {update.effective_chat.type}")
         return
 
     user = update.message.from_user
-    settings = get_settings()
     registry = get_group_registry()
     db = get_database()
 
     logger.info(f"DM handler called for user_id={user.id} ({user.full_name})")
+
+    # Parse deep-link payload (e.g., /start verify_-1001234567890)
+    deep_link_group_id = _parse_deep_link_payload(update.message.text or "")
 
     # Check user's membership across all monitored groups
     member_groups = []
@@ -141,15 +174,23 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Check if user has an active pending captcha in any group
+    pending_groups = []
     for gc, _ in member_groups:
-        logger.info(f"Checking for pending captcha for user_id={user.id} in group_id={gc.group_id}")
         pending_captcha = db.get_pending_captcha(user.id, gc.group_id)
         if pending_captcha:
-            await update.message.reply_text(CAPTCHA_PENDING_DM_MESSAGE)
-            logger.info(
-                f"DM from user {user.id} ({user.full_name}) - has pending captcha (group_id={gc.group_id})"
-            )
-            return
+            pending_groups.append(gc.group_id)
+
+    if pending_groups:
+        group_lines = "\n".join(
+            CAPTCHA_PENDING_DM_GROUP_LINE.format(group_id=gid) for gid in pending_groups
+        )
+        await update.message.reply_text(
+            CAPTCHA_PENDING_DM_MESSAGE.format(group_list=group_lines)
+        )
+        logger.info(
+            f"DM from user {user.id} ({user.full_name}) - has pending captcha in groups: {pending_groups}"
+        )
+        return
 
     # Check if user's profile is complete
     logger.info(f"Checking user profile completeness for user_id={user.id} ({user.full_name})")
@@ -159,9 +200,19 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not result.is_complete:
         missing = result.get_missing_items()
         missing_text = MISSING_ITEMS_SEPARATOR.join(missing)
+
+        # Use the deep-linked group's rules_link, or fall back to the first
+        # member group's rules_link, or the first member group's config
+        rules_link_gc = None
+        if deep_link_group_id is not None:
+            rules_link_gc = registry.get(deep_link_group_id)
+        if rules_link_gc is None and member_groups:
+            rules_link_gc = member_groups[0][0]
+        rules_link = rules_link_gc.rules_link if rules_link_gc else ""
+
         reply_message = DM_INCOMPLETE_PROFILE_MESSAGE.format(
             missing_text=missing_text,
-            rules_link=settings.rules_link,
+            rules_link=rules_link,
         )
         await update.message.reply_text(reply_message, parse_mode="Markdown")
         logger.info(
@@ -193,7 +244,6 @@ async def handle_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif not had_any_restricted:
         await update.message.reply_text(DM_ALREADY_UNRESTRICTED_MESSAGE)
     else:
-        # All unrestriction attempts failed
         logger.error(f"Failed to unrestrict user {user.id} in any group")
         await update.message.reply_text(
             "❌ Gagal membuka pembatasan. Silakan hubungi admin grup."

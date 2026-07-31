@@ -286,6 +286,29 @@ class DatabaseService:
             )
             return count
 
+    def get_active_user_warning(self, user_id: int, group_id: int) -> UserWarning | None:
+        """
+        Get an existing active (non-restricted) warning record without creating one.
+
+        Unlike ``get_or_create_user_warning``, this does NOT create a record
+        if none exists. Used to check for stale warnings when a user's profile
+        becomes compliant.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            UserWarning | None: Active warning record, or None if none exists.
+        """
+        with Session(self._engine) as session:
+            statement = select(UserWarning).where(
+                UserWarning.user_id == user_id,
+                UserWarning.group_id == group_id,
+                ~UserWarning.is_restricted,
+            )
+            return session.exec(statement).first()
+
     def add_photo_verification_whitelist(
         self, user_id: int, verified_by_admin_id: int, notes: str | None = None
     ) -> PhotoVerificationWhitelist:

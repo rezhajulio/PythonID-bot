@@ -59,7 +59,7 @@ async def handle_captcha_expiration(
         db.mark_user_restricted(user_id, group_id)
 
     bot_username = await BotInfoCache.get_username(bot)
-    dm_link = f"[hubungi robot](https://t.me/{bot_username})"
+    dm_link = f"[hubungi robot](https://t.me/{bot_username}?start=verify_{group_id})"
     user_mention = get_user_mention_by_id(user_id, user_full_name)
 
     try:

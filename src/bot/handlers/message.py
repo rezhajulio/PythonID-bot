@@ -70,8 +70,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check if user has complete profile (photo + username)
     result = await check_user_profile(context.bot, user)
 
-    # User has complete profile, nothing to do
+    # User has complete profile — clear any stale active warnings
     if result.is_complete:
+        db = get_database()
+        existing = db.get_active_user_warning(user.id, group_config.group_id)
+        if existing is not None:
+            deleted = db.delete_user_warnings(user.id, group_config.group_id)
+            if deleted > 0:
+                logger.info(
+                    f"Cleared {deleted} stale warning(s) for user {user.id} "
+                    f"(profile now complete, group_id={group_config.group_id})"
+                )
         logger.info(
             f"User has complete profile: user_id={user.id}, user={user.full_name}"
         )
@@ -88,13 +97,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Warning mode: just send warning, don't restrict
     if not group_config.restrict_failed_users:
         try:
-            threshold_display = format_threshold_display(
-                group_config.warning_time_threshold_minutes
-            )
             warning_message = WARNING_MESSAGE_NO_RESTRICTION.format(
                 user_mention=user_mention,
                 missing_text=missing_text,
-                threshold_display=threshold_display,
                 rules_link=group_config.rules_link,
             )
             await context.bot.send_message(
@@ -167,7 +172,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             # Get bot username for DM link (cached to avoid repeated API calls)
             bot_username = await BotInfoCache.get_username(context.bot)
-            dm_link = f"https://t.me/{bot_username}"
+            dm_link = f"https://t.me/{bot_username}?start=verify_{group_config.group_id}"
 
             # Send restriction notice with DM link for appeal
             restriction_message = RESTRICTION_MESSAGE_AFTER_MESSAGES.format(
