@@ -319,27 +319,9 @@ async def captcha_callback_handler(
         )
         return
 
-    # DB finalization first (reversible). If it fails, user stays restricted
-    # in Telegram, DB row preserved, timeout still armed — user can retry.
-    try:
-        removed = db.remove_pending_captcha(target_user_id, group_config.group_id)
-        if not removed:
-            # Duplicate callback delivery (e.g. double-tap) raced us here —
-            # the other delivery already finalized this user. Ack and stop.
-            logger.info(f"Captcha for user {target_user_id} already finalized, ignoring duplicate callback")
-            await query.answer()
-            return
-        db.start_new_user_probation(target_user_id, group_config.group_id)
-    except Exception:
-        logger.error(f"DB finalization failed for user {target_user_id}", exc_info=True)
-        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
-        return
-
-    # Telegram unrestrict second (irreversible). If it fails after DB cleanup,
-    # user is still restricted on Telegram, DB row is gone so
-    # handle_captcha_expiration is a no-op, and the verify button is gone.
-    # User waits for admin action. Acceptable: we never reported success on a
-    # state we couldn't fully transition.
+    # Telegram unrestrict first. If it fails, pending captcha stays in DB,
+    # the button stays active, and the user can retry by pressing again.
+    # The timeout job is still armed as a safety net.
     try:
         await unrestrict_user(context.bot, group_config.group_id, target_user_id)
         logger.info(f"Unrestricted verified user {target_user_id}")
@@ -347,6 +329,21 @@ async def captcha_callback_handler(
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return
+
+    # DB finalization after Telegram success. Idempotent guard:
+    # remove_pending_captcha returns False if a concurrent callback already
+    # cleaned up — ack quietly and stop.
+    try:
+        removed = db.remove_pending_captcha(target_user_id, group_config.group_id)
+        if not removed:
+            logger.info(f"Captcha for user {target_user_id} already finalized, ignoring duplicate callback")
+            await query.answer()
+            return
+        db.start_new_user_probation(target_user_id, group_config.group_id)
+    except Exception:
+        logger.error(f"DB finalization failed for user {target_user_id}", exc_info=True)
+        # User is already unrestricted on Telegram. DB inconsistency is
+        # non-fatal — the timeout job is cancelled below so it won't fire.
 
     job_name = get_captcha_job_name(group_config.group_id, target_user_id)
     for job in context.job_queue.get_jobs_by_name(job_name):

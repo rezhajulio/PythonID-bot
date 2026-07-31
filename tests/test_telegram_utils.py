@@ -515,9 +515,7 @@ class TestFetchGroupAdminIds:
         result = await fetch_group_admin_ids(mock_bot, group_id=456)
 
         assert result == [123]
-        mock_bot.get_chat_administrators.assert_called_once_with(
-            456, api_kwargs={"return_bots": False}
-        )
+        mock_bot.get_chat_administrators.assert_called_once_with(456)
 
     async def test_fetch_multiple_admins(self, mock_bot):
         """Test fetching multiple admin IDs."""
@@ -592,9 +590,7 @@ class TestFetchGroupAdminIds:
         result = await fetch_group_admin_ids(mock_bot, group_id=-1001234567890)
 
         assert result == [123]
-        mock_bot.get_chat_administrators.assert_called_once_with(
-            -1001234567890, api_kwargs={"return_bots": False}
-        )
+        mock_bot.get_chat_administrators.assert_called_once_with(-1001234567890)
 
     async def test_fetch_admins_empty_list(self, mock_bot):
         """Test when group has no admins (edge case)."""

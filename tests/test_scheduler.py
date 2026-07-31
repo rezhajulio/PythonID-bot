@@ -200,6 +200,15 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock(side_effect=Exception("API error"))
+        mock_bot.send_message = AsyncMock()
+
+        mock_user = MagicMock()
+        mock_user.username = "testuser"
+        mock_user.full_name = "Test User"
+        mock_user.id = 123
+        mock_member = MagicMock()
+        mock_member.user = mock_user
+        mock_bot.get_chat_member = AsyncMock(return_value=mock_member)
 
         mock_context = MagicMock()
         mock_context.bot = mock_bot
