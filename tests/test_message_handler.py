@@ -90,6 +90,8 @@ class TestHandleMessage:
         self, mock_update, mock_context, group_config
     ):
         complete_result = ProfileCheckResult(has_profile_photo=True, has_username=True)
+        mock_db = MagicMock()
+        mock_db.get_active_user_warning.return_value = None
 
         with (
             patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
@@ -97,9 +99,34 @@ class TestHandleMessage:
                 "bot.handlers.message.check_user_profile",
                 return_value=complete_result,
             ),
+            patch("bot.handlers.message.get_database", return_value=mock_db),
         ):
             await handle_message(mock_update, mock_context)
 
+        mock_db.get_active_user_warning.assert_called_once_with(12345, -1001234567890)
+        mock_db.delete_user_warnings.assert_not_called()
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_complete_profile_clears_stale_warnings(
+        self, mock_update, mock_context, group_config
+    ):
+        complete_result = ProfileCheckResult(has_profile_photo=True, has_username=True)
+        mock_db = MagicMock()
+        mock_db.get_active_user_warning.return_value = MagicMock()
+        mock_db.delete_user_warnings.return_value = 1
+
+        with (
+            patch("bot.handlers.message.get_group_config_for_update", return_value=group_config),
+            patch(
+                "bot.handlers.message.check_user_profile",
+                return_value=complete_result,
+            ),
+            patch("bot.handlers.message.get_database", return_value=mock_db),
+        ):
+            await handle_message(mock_update, mock_context)
+
+        mock_db.get_active_user_warning.assert_called_once_with(12345, -1001234567890)
+        mock_db.delete_user_warnings.assert_called_once_with(12345, -1001234567890)
         mock_context.bot.send_message.assert_not_called()
 
     async def test_missing_photo_sends_warning(

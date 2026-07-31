@@ -237,6 +237,8 @@ class TestCaptchaCallbackHandler:
         query = MagicMock()
         query.data = f"captcha_verify_{group_id}_{user_id}"
         query.from_user = MagicMock(id=user_id, full_name=full_name, username=username)
+        query.message.chat_id = group_id
+        query.message.message_id = 999
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         return query
@@ -526,6 +528,8 @@ class TestCaptchaCallbackHandler:
         query.from_user.username = None
         query.from_user.full_name = "Test User"
         query.data = "captcha_verify_-1001234567890_12345"
+        query.message.chat_id = -1001234567890
+        query.message.message_id = 999
         query.edit_message_text = AsyncMock()
 
         update = MagicMock()

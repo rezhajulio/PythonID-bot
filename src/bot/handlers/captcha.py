@@ -284,8 +284,23 @@ async def captcha_callback_handler(
 
     group_config = registry.get(group_id)
 
-    if group_config is None or not db.get_pending_captcha(target_user_id, group_id):
+    pending = db.get_pending_captcha(target_user_id, group_id)
+    if group_config is None or not pending:
         logger.warning(f"No pending captcha found for user {target_user_id} in group {group_id}")
+        await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
+        return
+
+    # Validate that this callback comes from the original challenge message.
+    # Prevents stale or spoofed callbacks from acting on a different challenge.
+    if query.message and (
+        query.message.chat_id != pending.chat_id
+        or query.message.message_id != pending.message_id
+    ):
+        logger.warning(
+            f"Captcha callback from wrong message for user {target_user_id}: "
+            f"expected chat={pending.chat_id} msg={pending.message_id}, "
+            f"got chat={query.message.chat_id} msg={query.message.message_id}"
+        )
         await query.answer(CAPTCHA_FAILED_VERIFICATION_MESSAGE, show_alert=True)
         return
 

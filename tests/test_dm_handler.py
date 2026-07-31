@@ -27,13 +27,6 @@ def mock_registry(group_config):
 
 
 @pytest.fixture
-def mock_settings():
-    settings = MagicMock()
-    settings.rules_link = "https://t.me/test/rules"
-    return settings
-
-
-@pytest.fixture
 def mock_update():
     update = MagicMock()
     update.message = MagicMock()
@@ -41,6 +34,7 @@ def mock_update():
     update.message.from_user.id = 12345
     update.message.from_user.username = "testuser"
     update.message.from_user.full_name = "Test User"
+    update.message.text = ""
     update.message.reply_text = AsyncMock()
     update.effective_chat = MagicMock()
     update.effective_chat.type = "private"
@@ -90,10 +84,9 @@ class TestHandleDM:
         mock_update.message.reply_text.assert_not_called()
 
     async def test_user_not_in_group(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -109,11 +102,10 @@ class TestHandleDM:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_get_user_status_exception_continues(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         """When get_user_status raises an Exception, handler catches it and treats user as not in group."""
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -128,10 +120,9 @@ class TestHandleDM:
         assert "belum bergabung di grup" in call_args.args[0]
 
     async def test_user_left_group(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -146,10 +137,9 @@ class TestHandleDM:
         assert "belum bergabung di grup" in call_args.args[0]
 
     async def test_user_kicked_from_group(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -164,14 +154,13 @@ class TestHandleDM:
         assert "belum bergabung di grup" in call_args.args[0]
 
     async def test_missing_profile_sends_requirements(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=False, has_username=True
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -192,14 +181,13 @@ class TestHandleDM:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_missing_username_sends_requirements(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         incomplete_result = ProfileCheckResult(
             has_profile_photo=True, has_username=False
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -217,14 +205,13 @@ class TestHandleDM:
         assert "username" in call_args.args[0]
 
     async def test_complete_profile_not_restricted_by_bot(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         complete_result = ProfileCheckResult(
             has_profile_photo=True, has_username=True
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -244,7 +231,7 @@ class TestHandleDM:
         mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_complete_profile_unrestricts_user(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -259,7 +246,6 @@ class TestHandleDM:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -284,7 +270,7 @@ class TestHandleDM:
         assert db.is_user_restricted_by_bot(12345, -1001234567890) is False
 
     async def test_user_already_unrestricted_on_telegram(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -299,7 +285,6 @@ class TestHandleDM:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -319,7 +304,7 @@ class TestHandleDM:
         assert db.is_user_restricted_by_bot(12345, -1001234567890) is False
 
     async def test_does_not_unrestrict_admin_restricted_user(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -331,7 +316,6 @@ class TestHandleDM:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -350,7 +334,7 @@ class TestHandleDM:
         assert "tidak memiliki pembatasan dari bot" in call_args.args[0]
 
     async def test_redirects_user_with_pending_captcha_to_group(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -364,7 +348,6 @@ class TestHandleDM:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -387,7 +370,7 @@ class TestHandleDM:
         assert db.get_pending_captcha(12345, -1001234567890) is not None
 
     async def test_pending_captcha_check_takes_priority_over_profile_check(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -401,7 +384,6 @@ class TestHandleDM:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",
@@ -448,7 +430,7 @@ class TestDatabaseIsUserRestrictedByBot:
 
 class TestUnrestrictUserError:
     async def test_unrestrict_user_exception_logged_and_raised(
-        self, mock_update, mock_context, mock_settings, mock_registry, temp_db
+        self, mock_update, mock_context, mock_registry, temp_db
     ):
         from bot.database.service import get_database
 
@@ -463,7 +445,6 @@ class TestUnrestrictUserError:
         )
 
         with (
-            patch("bot.handlers.dm.get_settings", return_value=mock_settings),
             patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
             patch(
                 "bot.handlers.dm.get_user_status",

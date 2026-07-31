@@ -27,6 +27,7 @@ from bot.services.telegram_utils import (
     restrict_chat_member_with_retry,
     send_message_with_retry,
 )
+from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     warning_time_threshold_minutes. Finds all active warnings past the
     configured threshold and applies restrictions (mutes) to those users.
 
+    Before restricting, rechecks the user's profile to avoid restricting
+    users who have already fixed their profile since the last warning.
+
     Args:
         context: Telegram job context for sending messages.
     """
@@ -46,14 +50,11 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
     registry = get_group_registry()
     db = get_database()
 
-    # Get bot username once for all DM links
     bot = context.bot
     bot_username = await BotInfoCache.get_username(bot)
-    dm_link = f"https://t.me/{bot_username}"
 
     for group_config in registry.all_groups():
         try:
-            # Get warnings that exceeded time threshold for this group
             expired_warnings = db.get_warnings_past_time_threshold_for_group(
                 group_config.group_id, group_config.warning_time_threshold_timedelta
             )
@@ -73,10 +74,8 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
         for warning in expired_warnings:
             try:
                 logger.info(f"Checking status for user_id={warning.user_id}")
-                # Check if user is kicked
                 user_status = await get_user_status(bot, group_config.group_id, warning.user_id)
 
-                # Skip if user is kicked (can't rejoin without admin re-invite)
                 if user_status == ChatMemberStatus.BANNED:
                     db.delete_user_warnings(warning.user_id, warning.group_id)
                     logger.info(
@@ -84,8 +83,33 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                     )
                     continue
 
+                # Recheck profile before restricting — user may have fixed it
+                # since the last warning. Skip restriction if profile is now complete.
+                # Also fetch user info for the mention here to avoid a second API call.
+                user_mention = f"User {warning.user_id}"
+                try:
+                    user_member = await bot.get_chat_member(
+                        chat_id=group_config.group_id,
+                        user_id=warning.user_id,
+                    )
+                    user_mention = get_user_mention(user_member.user)
+
+                    profile_result = await check_user_profile(bot, user_member.user)
+                    if profile_result.is_complete:
+                        db.delete_user_warnings(warning.user_id, warning.group_id)
+                        logger.info(
+                            f"Skipped auto-restriction for user {warning.user_id} "
+                            f"- profile now complete (group_id={group_config.group_id})"
+                        )
+                        continue
+                except Exception:
+                    logger.warning(
+                        f"Profile recheck failed for user {warning.user_id}, "
+                        f"proceeding with restriction",
+                        exc_info=True,
+                    )
+
                 logger.info(f"Applying restriction to user_id={warning.user_id}")
-                # Apply restriction (even if user left, they'll be restricted when they rejoin)
                 ok = await restrict_chat_member_with_retry(
                     bot,
                     chat_id=group_config.group_id,
@@ -97,24 +121,12 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                         f"Gave up restricting user {warning.user_id} after RetryAfter"
                     )
                     continue
-                db.mark_user_restricted(warning.user_id, group_config.group_id)
+                db.mark_user_restricted(warning.user_id, warning.group_id)
 
-                # Get user info for proper mention
-                try:
-                    user_member = await bot.get_chat_member(
-                        chat_id=group_config.group_id,
-                        user_id=warning.user_id,
-                    )
-                    user = user_member.user
-                    user_mention = get_user_mention(user)
-                except Exception:
-                    # Fallback to user ID if we can't get user info
-                    user_mention = f"User {warning.user_id}"
-
-                # Send notification to warning topic
                 threshold_display = format_threshold_display(
                     group_config.warning_time_threshold_minutes
                 )
+                dm_link = f"https://t.me/{bot_username}?start=verify_{group_config.group_id}"
                 restriction_message = RESTRICTION_MESSAGE_AFTER_TIME.format(
                     user_mention=user_mention,
                     threshold_display=threshold_display,

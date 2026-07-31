@@ -69,8 +69,7 @@ def format_hours_display(hours: int) -> str:
 # Warning mode (default): No restrictions, just warnings
 WARNING_MESSAGE_NO_RESTRICTION = (
     "⚠️ Hai {user_mention}, mohon lengkapi {missing_text} kamu "
-    "untuk mematuhi aturan grup.\n"
-    "Kamu akan dibatasi setelah {threshold_display}.\n\n"
+    "untuk mematuhi aturan grup.\n\n"
     "📖 [Baca aturan grup]({rules_link})"
 )
 
@@ -117,9 +116,11 @@ CAPTCHA_TIMEOUT_MESSAGE = (
 )
 
 CAPTCHA_PENDING_DM_MESSAGE = (
-    "⏳ Kamu memiliki verifikasi captcha yang tertunda.\n"
+    "⏳ Kamu memiliki verifikasi captcha yang tertunda di grup berikut:\n{group_list}\n\n"
     "Silakan cek grup dan tekan tombol verifikasi."
 )
+
+CAPTCHA_PENDING_DM_GROUP_LINE = "• Grup {group_id}"
 
 CAPTCHA_INCOMPLETE_PROFILE_MESSAGE = (
     "❌ Lengkapi {missing_text} terlebih dahulu, lalu tekan tombol ini lagi."
