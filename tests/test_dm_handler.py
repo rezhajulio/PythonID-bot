@@ -464,3 +464,39 @@ class TestUnrestrictUserError:
             mock_update.message.reply_text.assert_called_with(
                 "❌ Gagal membuka pembatasan. Silakan hubungi admin grup."
             )
+
+
+class TestParseDeepLinkPayload:
+    """Tests for _parse_deep_link_payload."""
+
+    def test_valid_verify_deep_link(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start verify_-1001234567890") == -1001234567890
+
+    def test_valid_verify_deep_link_positive_id(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start verify_123") == 123
+
+    def test_non_verify_payload_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start something_else") is None
+
+    def test_empty_text_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("") is None
+
+    def test_no_payload_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start") is None
+
+    def test_non_numeric_group_id_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start verify_abc") is None
+
+    def test_none_text_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload(None) is None  # type: ignore[arg-type]
+
+    def test_verify_prefix_only_returns_none(self):
+        from bot.handlers.dm import _parse_deep_link_payload
+        assert _parse_deep_link_payload("/start verify_") is None

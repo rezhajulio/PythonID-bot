@@ -103,19 +103,24 @@ PythonID/
 
 | File | Lines | Role |
 |------|-------|------|
-| `database/service.py` | 813 | **Complexity hotspot** - handles warnings, captcha, probation state |
-| `constants.py` | 666 | Templates + massive whitelists (Indonesian tech community) |
+| `database/service.py` | 850 | **Complexity hotspot** - handles warnings, captcha, probation state |
+| `constants.py` | 724 | Templates + massive whitelists (Indonesian tech community) |
 | `handlers/anti_spam.py` | 494 | Anti-spam: contact cards, inline keyboards, probation enforcement |
 | `handlers/bio_bait.py` | 441 | Bio-bait spam: obfuscated bait phrases + suspicious profile bio links |
-| `handlers/captcha.py` | 412 | New member join → restrict → verify (with profile check) → unrestrict lifecycle |
-| `handlers/trust.py` | 381 | /trust, /untrust, /trusted admin commands + cache |
-| `handlers/verify.py` | 320 | Admin verification commands + inline button callbacks |
+| `handlers/check.py` | 437 | Admin /check: group selector + group-scoped action buttons |
+| `handlers/captcha.py` | 427 | New member join → restrict → verify (with profile check) → unrestrict lifecycle |
+| `handlers/verify.py` | 400 | Photo exemption + bot-owned unrestriction (group-scoped) |
+| `handlers/trust.py` | 368 | /trust, /untrust, /trusted admin commands (no auto-unrestrict) |
+| `handlers/dm.py` | 250 | DM unrestriction flow with deep-link group recovery |
+| `handlers/message.py` | 208 | Profile compliance monitoring + stale warning clearing |
+| `handlers/status.py` | 181 | Group-scoped /status (admin's groups only, Indonesian labels) |
+| `services/scheduler.py` | 151 | Auto-restriction with pre-restriction profile recheck |
 | `group_config.py` | 255 | Multi-group config, registry, JSON loading, .env fallback |
-| `handlers/duplicate_spam.py` | 216 | Duplicate message detection |
 | `main.py` | 191 | Entry point, logging, post_init, PluginManager bootstrap |
 | `plugins/manager.py` | 188 | PluginManager — static registry + deterministic registration order |
 | `plugins/config.py` | 156 | `guard_plugin` runtime gate + toggle resolution |
-| `plugins/definitions.py` | 69 | `MANIFEST_ORDER` / `PLUGIN_NAMES` — single source of truth for plugin names + groups |
+| `plugins/definitions.py` | 72 | `MANIFEST_ORDER` / `PLUGIN_NAMES` — single source of truth for plugin names + groups |
+| `plugins/builtin/commands.py` | 166 | Wraps all command + callback handlers with group-scoped patterns |
 | `plugins/builtin/spam.py` | 93 | Wraps all 5 anti-spam handlers with `guard_plugin` |
 | `plugins/builtin/captcha.py` | 43 | Wraps captcha handler + applies guard_plugin gating |
 
@@ -123,11 +128,14 @@ PythonID/
 
 ### Modular Plugin System
 - Built-in plugins live in `src/bot/plugins/builtin/`, one per handler domain (captcha, spam, topic_guard, profile_monitor, commands, dm, jobs)
-- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 23 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
+- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 25 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
 - `PluginManager.register_all()` (called from `main.py:main`, not `post_init`) walks `MANIFEST_ORDER` against a static `_REGISTRY` dict (name → registrar function) and stores results in `application.bot_data["plugin_handlers"]`
 - The plugin wrapper pattern: `bot.plugins.builtin.X` imports from `bot.handlers.X`, clones the handler list, and applies `guard_plugin("X")` for per-group runtime gating
 - To add a new plugin: add a `register_*(application) -> list[BaseHandler]` function in `builtin/`, add its name + group to `_PLUGIN_DEFINITIONS` in `definitions.py`, wire it into `_REGISTRY` in `manager.py`
 - Handler modules stay decoupled from plugin internals — changes to `bot/handlers/X.py` flow through transparently
+- **Callback data format**: All admin action callbacks encode `group_id` for per-group authorization: `action:{group_id}:{user_id}[:missing_code]`. The captcha callback uses `captcha_verify_{group_id}_{user_id}`. Callback handlers verify the caller is an admin of the specific group via `is_user_admin_in_group()`
+- **Trust does not unrestrict**: Adding a user to the trusted list only clears probation — it does NOT lift restrictions. Use the separate "Buka pembatasan bot" (unrestrict) action to lift bot-applied restrictions. This prevents trust from inadvertently lifting manual admin restrictions
+- **Admin cache excludes bots**: `fetch_group_admin_ids` passes `return_bots=False` to the Telegram API and filters `is_bot` client-side, so automated admin-bots are not treated as human admins
 
 ### Handler Priority Groups
 ```python
@@ -154,7 +162,7 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 - New members must have a public profile photo AND username before captcha verification completes
 - `check_user_profile()` in `services/user_checker.py` queries both via Bot API
 - Profile-incomplete path: alert shown, captcha record preserved, timeout still armed, user can fix profile and retry
-- DB finalization (remove_pending_captcha + start_new_user_probation) runs **before** `unrestrict_user` — the irreversible Telegram side effect goes last, so a failure leaves the user still restricted + DB consistent
+- Telegram `unrestrict_user` runs **before** DB finalization (remove_pending_captcha + start_new_user_probation) — if unrestrict fails, the pending captcha stays in DB and the user can retry by pressing the button again
 
 ### Bio Bait Detection
 - `handlers/bio_bait.py` catches two vectors: (1) a bait phrase in the message itself ("cek bio aku"), (2) the sender's Telegram **profile bio** containing a promo/invite link — bio is fetched via `get_chat` and cached per-user for 1 hour (5 min on fetch failure) to avoid hammering the API
@@ -282,7 +290,7 @@ if user.id not in admin_ids:
 
 ## Notes
 
-- Registration order for all 23 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
+- Registration order for all 25 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
 - `duplicate_spam` and `bio_bait_spam` both run at `group=4`; `auto_restrict_job` / `refresh_admin_ids_job` run as JobQueue jobs tagged `group=6` (not a PTB handler group)
 - Topic guard runs at `group=-1` to intercept unauthorized messages BEFORE other handlers
 - Topic guard handles both messages and edited messages, raises `ApplicationHandlerStop` to block downstream handlers
@@ -296,7 +304,7 @@ if user.id not in admin_ids:
 - DM handler scans all groups in registry for user membership and unrestriction
 - **Trust feature**: `TrustedUser` table caches user_full_name + admin_full_name at trust time so `/trusted` lists admin info without Telegram API calls. Backfill script at `scripts/backfill_trusted_names.py` for pre-existing rows
 - **Local review artifacts**: `reviews/` directory contains output from parallel reviewer subagents. Gitignored; not part of the source tree
-- **Captcha DB ordering**: The captcha callback handler does DB writes (remove_pending_captcha, start_new_user_probation) BEFORE the Telegram `unrestrict_user` call. Reversible side effects first, irreversible last
+- **Captcha DB ordering**: The captcha callback handler calls Telegram `unrestrict_user` BEFORE DB writes (remove_pending_captcha, start_new_user_probation). If unrestrict fails, the pending captcha stays in DB and the user can retry. DB finalization is idempotent — `remove_pending_captcha` returning False means a concurrent callback already finalized
 
 ## Policy
 

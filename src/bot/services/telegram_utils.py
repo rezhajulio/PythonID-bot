@@ -413,10 +413,7 @@ async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
         TelegramAdminFetchError: If unable to fetch administrators (bot not in group, etc.).
     """
     try:
-        admins = await bot.get_chat_administrators(
-            group_id,
-            api_kwargs={"return_bots": False},
-        )
+        admins = await bot.get_chat_administrators(group_id)
         admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot]
         logger.info(f"Fetched {len(admin_ids)} human admins from group_id={group_id}")
         return admin_ids
