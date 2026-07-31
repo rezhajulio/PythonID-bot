@@ -353,22 +353,29 @@ async def restrict_chat_member_with_retry(
 
 async def fetch_group_admin_ids(bot: Bot, group_id: int) -> list[int]:
     """
-    Fetch all administrator user IDs from a group.
+    Fetch all human administrator user IDs from a group.
+
+    Bot accounts are excluded from the returned list so that automated
+    admin-bots do not get treated as human admins for authorization
+    or bypass decisions.
 
     Args:
         bot: Telegram bot instance.
         group_id: Telegram group ID.
 
     Returns:
-        list[int]: List of admin user IDs (including creator and administrators).
+        list[int]: List of human admin user IDs (creator + administrators).
 
     Raises:
         TelegramAdminFetchError: If unable to fetch administrators (bot not in group, etc.).
     """
     try:
-        admins = await bot.get_chat_administrators(group_id)
-        admin_ids = [admin.user.id for admin in admins]
-        logger.info(f"Fetched {len(admin_ids)} admins from group_id={group_id}")
+        admins = await bot.get_chat_administrators(
+            group_id,
+            api_kwargs={"return_bots": False},
+        )
+        admin_ids = [admin.user.id for admin in admins if not admin.user.is_bot]
+        logger.info(f"Fetched {len(admin_ids)} human admins from group_id={group_id}")
         return admin_ids
     except (BadRequest, Forbidden) as e:
         logger.error(
