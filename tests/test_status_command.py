@@ -62,6 +62,7 @@ def mock_context():
     context.bot = MagicMock()
     context.bot_data = {
         "admin_ids": [12345],
+        "group_admin_ids": {-1001: [12345], -1002: [12345]},
         "start_time": time.monotonic(),
         "plugin_effective_map": {
             -1001: {"captcha": True, "spam": True},
@@ -114,6 +115,7 @@ class TestHandleStatus:
         with (
             patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001, -1002]),
         ):
             await handle_status(mock_update, mock_context)
 
@@ -121,16 +123,29 @@ class TestHandleStatus:
         args, kwargs = mock_update.message.reply_text.call_args
         text = args[0]
         assert "*Uptime:*" in text
-        assert "*Groups:*" in text
-        assert "*Probation:*" in text
-        assert "*Captcha:*" in text
+        assert "*Grup yang kamu admin:*" in text
         assert "*Database:*" in text
-        assert "*Last jobs:*" in text
+        assert "*Jadwal terakhir:*" in text
 
-    async def test_handle_status_shows_pending_captcha_count(
+    async def test_handle_status_shows_enforcement_mode(
         self, mock_update, mock_context, mock_registry, mock_settings,
     ):
-        """Pending captchas appear in status reply."""
+        """Enforcement mode (Restriksi/Peringatan) appears per group."""
+        with (
+            patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001, -1002]),
+        ):
+            await handle_status(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        text = args[0]
+        assert "Restriksi" in text or "Peringatan" in text
+
+    async def test_handle_status_shows_per_group_captcha_count(
+        self, mock_update, mock_context, mock_registry, mock_settings,
+    ):
+        """Per-group pending captcha counts appear in status reply."""
         db = get_database()
         db.add_pending_captcha(
             user_id=111, group_id=-1001,
@@ -146,12 +161,29 @@ class TestHandleStatus:
         with (
             patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001, -1002]),
         ):
             await handle_status(mock_update, mock_context)
 
         args, _ = mock_update.message.reply_text.call_args
         text = args[0]
-        assert "*Captcha:* 2 pending" in text
+        assert "Captcha: 1" in text
+
+    async def test_handle_status_shows_disabled_plugins(
+        self, mock_update, mock_context, mock_registry, mock_settings,
+    ):
+        """Disabled plugins appear in per-group section."""
+        with (
+            patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001, -1002]),
+        ):
+            await handle_status(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        text = args[0]
+        assert "Plugin nonaktif" in text
+        assert "profile" in text and "monitor" in text
 
     async def test_handle_status_shows_last_job_timestamps(
         self, mock_update, mock_context, mock_registry, mock_settings,
@@ -163,11 +195,43 @@ class TestHandleStatus:
         with (
             patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
             patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001, -1002]),
         ):
             await handle_status(mock_update, mock_context)
 
         args, _ = mock_update.message.reply_text.call_args
         text = args[0]
-        assert "admin refresh:" in text
-        assert "auto restrict:" in text
-        assert "never" not in text.split("admin refresh:")[1].split("\n")[0]
+        assert "Refresh admin:" in text
+        assert "Auto-restrict:" in text
+        assert "belum pernah" not in text
+
+    async def test_handle_status_no_admin_groups(
+        self, mock_update, mock_context, mock_registry, mock_settings,
+    ):
+        """Admin with no group admin rights sees empty group list."""
+        with (
+            patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[]),
+        ):
+            await handle_status(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        text = args[0]
+        assert "Tidak ada grup yang dipantau" in text
+
+    async def test_handle_status_scoped_to_admin_groups_only(
+        self, mock_update, mock_context, mock_registry, mock_settings,
+    ):
+        """Only groups where caller is admin are shown."""
+        with (
+            patch("bot.handlers.status.get_group_registry", return_value=mock_registry),
+            patch("bot.handlers.status.get_settings", return_value=mock_settings),
+            patch("bot.handlers.status.get_admin_groups", return_value=[-1001]),
+        ):
+            await handle_status(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        text = args[0]
+        assert "-1001" in text
+        assert "-1002" not in text

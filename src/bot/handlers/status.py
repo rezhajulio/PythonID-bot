@@ -2,8 +2,10 @@
 Status command handler for the PythonID bot.
 
 Provides a DM-only, admin-only ``/status`` command that shows bot
-operational state: uptime, per-group config summary, probation and
-captcha queue lengths, database file size, and last job timestamps.
+operational state scoped to the groups the caller actually administers:
+uptime, per-group config summary (enforcement mode, captcha, disabled
+plugins), per-group probation and captcha queue lengths, database file
+size, and last job timestamps.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from telegram.helpers import escape_markdown
 from bot.config import get_settings
 from bot.database.service import get_database
 from bot.group_config import get_group_registry
+from bot.services.telegram_utils import get_admin_groups
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +87,12 @@ async def _check_status_prereqs(
 async def handle_status(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle /status command in bot DM — show operational state."""
+    """Handle /status command in bot DM — show scoped operational state."""
     if not await _check_status_prereqs(update, context):
         return
+
+    admin_user_id = update.message.from_user.id
+    admin_group_ids = set(get_admin_groups(context, admin_user_id))
 
     lines: list[str] = []
 
@@ -98,61 +104,71 @@ async def handle_status(
     else:
         lines.append("*Uptime:* N/A")
 
-    # --- Per-group summary ---
+    # --- Per-group summary (scoped to caller's admin groups) ---
     lines.append("")
-    lines.append("*Groups:*")
+    lines.append("*Grup yang kamu admin:*")
     registry = get_group_registry()
     effective_map = context.bot_data.get("plugin_effective_map", {})
+    db = get_database()
+
+    all_probations = db.get_all_new_user_probations()
+    all_pending = db.get_all_pending_captchas()
+
+    shown_groups = 0
     for gc in registry.all_groups():
+        if gc.group_id not in admin_group_ids:
+            continue
+        shown_groups += 1
         gid = gc.group_id
+        enforcement = "Restriksi" if gc.restrict_failed_users else "Peringatan"
         captcha = "CAPTCHA" if gc.captcha_enabled else ""
-        group_line = f"  • `{escape_markdown(str(gid), version=1)}`"
+        group_line = f"  • `{escape_markdown(str(gid), version=1)}` — _{enforcement}_"
         if captcha:
             group_line += f" _{captcha}_"
+
+        # Per-group counts
+        probation_count = sum(1 for p in all_probations if p.group_id == gid)
+        pending_count = sum(1 for p in all_pending if p.group_id == gid)
+        group_line += f"\n    Probation: {probation_count}, Captcha: {pending_count}"
+
         toggles = effective_map.get(gid, {})
         disabled = [k for k, v in toggles.items() if not v]
         if disabled:
             disabled_str = ", ".join(sorted(disabled))
             group_line += (
-                f"\n    plugins off: {escape_markdown(disabled_str, version=1)}"
+                f"\n    Plugin nonaktif: {escape_markdown(disabled_str, version=1)}"
             )
         lines.append(group_line)
 
-    # --- Probation count ---
-    lines.append("")
-    db = get_database()
-    probation_records = db.get_all_new_user_probations()
-    lines.append(f"*Probation:* {len(probation_records)} user(s)")
-
-    # --- Pending captcha count ---
-    pending = db.get_all_pending_captchas()
-    lines.append(f"*Captcha:* {len(pending)} pending")
+    if shown_groups == 0:
+        lines.append("  (Tidak ada grup yang dipantau)")
 
     # --- Database size ---
+    lines.append("")
     db_path = get_settings().database_path
     size_str = _format_filesize(db_path)
     lines.append(f"*Database:* {size_str}")
 
     # --- Last jobs ---
     lines.append("")
-    lines.append("*Last jobs:*")
+    lines.append("*Jadwal terakhir:*")
     refresh_ts = context.bot_data.get("last_admin_refresh")
     if refresh_ts is not None:
         lines.append(
-            "  • admin refresh: "
+            "  • Refresh admin: "
             f"{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(refresh_ts))}"
         )
     else:
-        lines.append("  • admin refresh: never")
+        lines.append("  • Refresh admin: belum pernah")
 
     restrict_ts = context.bot_data.get("last_auto_restrict")
     if restrict_ts is not None:
         lines.append(
-            "  • auto restrict: "
+            "  • Auto-restrict: "
             f"{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(restrict_ts))}"
         )
     else:
-        lines.append("  • auto restrict: never")
+        lines.append("  • Auto-restrict: belum pernah")
 
     await update.message.reply_text(
         "\n".join(lines),
