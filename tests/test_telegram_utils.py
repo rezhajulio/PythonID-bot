@@ -509,26 +509,32 @@ class TestFetchGroupAdminIds:
         admin = MagicMock()
         admin.user = MagicMock()
         admin.user.id = 123
+        admin.user.is_bot = False
         mock_bot.get_chat_administrators.return_value = [admin]
 
         result = await fetch_group_admin_ids(mock_bot, group_id=456)
 
         assert result == [123]
-        mock_bot.get_chat_administrators.assert_called_once_with(456)
+        mock_bot.get_chat_administrators.assert_called_once_with(
+            456, api_kwargs={"return_bots": False}
+        )
 
     async def test_fetch_multiple_admins(self, mock_bot):
         """Test fetching multiple admin IDs."""
         admin1 = MagicMock()
         admin1.user = MagicMock()
         admin1.user.id = 111
+        admin1.user.is_bot = False
 
         admin2 = MagicMock()
         admin2.user = MagicMock()
         admin2.user.id = 222
+        admin2.user.is_bot = False
 
         admin3 = MagicMock()
         admin3.user = MagicMock()
         admin3.user.id = 333
+        admin3.user.is_bot = False
 
         mock_bot.get_chat_administrators.return_value = [admin1, admin2, admin3]
 
@@ -545,6 +551,7 @@ class TestFetchGroupAdminIds:
             admin = MagicMock()
             admin.user = MagicMock()
             admin.user.id = admin_id
+            admin.user.is_bot = False
             admins.append(admin)
 
         mock_bot.get_chat_administrators.return_value = admins
@@ -579,12 +586,15 @@ class TestFetchGroupAdminIds:
         admin = MagicMock()
         admin.user = MagicMock()
         admin.user.id = 123
+        admin.user.is_bot = False
         mock_bot.get_chat_administrators.return_value = [admin]
 
         result = await fetch_group_admin_ids(mock_bot, group_id=-1001234567890)
 
         assert result == [123]
-        mock_bot.get_chat_administrators.assert_called_once_with(-1001234567890)
+        mock_bot.get_chat_administrators.assert_called_once_with(
+            -1001234567890, api_kwargs={"return_bots": False}
+        )
 
     async def test_fetch_admins_empty_list(self, mock_bot):
         """Test when group has no admins (edge case)."""
@@ -603,6 +613,7 @@ class TestFetchGroupAdminIds:
             admin = MagicMock()
             admin.user = MagicMock()
             admin.user.id = admin_id
+            admin.user.is_bot = False
             admins.append(admin)
 
         mock_bot.get_chat_administrators.return_value = admins
@@ -617,6 +628,7 @@ class TestFetchGroupAdminIds:
         admin = MagicMock()
         admin.user = MagicMock()
         admin.user.id = 9999999999
+        admin.user.is_bot = False
         mock_bot.get_chat_administrators.return_value = [admin]
 
         result = await fetch_group_admin_ids(mock_bot, group_id=123)
@@ -645,6 +657,25 @@ class TestFetchGroupAdminIds:
 
         with pytest.raises(Exception):
             await fetch_group_admin_ids(mock_bot, group_id=456)
+
+    async def test_fetch_admins_excludes_bots(self, mock_bot):
+        """Test that bot accounts are excluded from admin IDs."""
+        human_admin = MagicMock()
+        human_admin.user = MagicMock()
+        human_admin.user.id = 111
+        human_admin.user.is_bot = False
+
+        bot_admin = MagicMock()
+        bot_admin.user = MagicMock()
+        bot_admin.user.id = 222
+        bot_admin.user.is_bot = True
+
+        mock_bot.get_chat_administrators.return_value = [human_admin, bot_admin]
+
+        result = await fetch_group_admin_ids(mock_bot, group_id=456)
+
+        assert result == [111]
+        assert 222 not in result
 
 
 class TestSendMessageWithRetry:

@@ -8,7 +8,7 @@ dependencies = [
     "logfire>=2.6.1",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.2",
-    "python-telegram-bot[job-queue]>=22.5",
+    "python-telegram-bot[job-queue]>=22.8",
     "sqlmodel>=0.0.28",
 ]
 
