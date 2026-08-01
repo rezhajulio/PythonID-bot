@@ -37,6 +37,7 @@ def mock_update():
     update.message.chat_id = -1001234567890
     update.message.message_id = 999
     update.message.reply_to_message = None
+    update.message.forum_topic_created = None
     update.effective_chat = MagicMock()
     update.effective_chat.id = -1001234567890
     update.effective_chat.type = "supergroup"
@@ -69,6 +70,7 @@ def _make_target_user(user_id=67890, full_name="Bad Member", username="badmember
 def _make_reply_message(target_user):
     msg = MagicMock()
     msg.from_user = target_user
+    msg.forum_topic_created = None
     return msg
 
 
@@ -322,11 +324,12 @@ class TestHandleWarnCommand:
     async def test_reply_without_from_user_falls_to_id_mode(
         self, mock_update, mock_context, mock_registry
     ):
-        """Reply to a channel message (no from_user) falls through to ID mode."""
+        """Reply to a channel message (no from_user) with ID arg uses ID mode."""
         target = _make_target_user()
         mock_context.bot.get_chat_member.return_value = _make_chat_member(target)
         mock_update.message.reply_to_message = MagicMock()
         mock_update.message.reply_to_message.from_user = None
+        mock_update.message.reply_to_message.forum_topic_created = None
         mock_context.args = ["67890", "spam"]
 
         with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
@@ -338,7 +341,7 @@ class TestHandleWarnCommand:
         mock_context.bot.send_message.assert_called_once()
         call_kwargs = mock_context.bot.send_message.call_args.kwargs
         assert "spam" in call_kwargs["text"]
-        assert "67890" not in call_kwargs["text"] or "badmember" in call_kwargs["text"]
+        assert "badmember" in call_kwargs["text"]
 
     async def test_reason_with_markdown_is_escaped(
         self, mock_update, mock_context, mock_registry
@@ -464,3 +467,123 @@ class TestHandleWarnCommand:
             await handle_warn_command(mock_update, mock_context)
 
         assert call_order[0] == "delete"
+
+    async def test_id_mode_takes_priority_over_reply(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Bug fix: /warn USER_ID reason as a reply warns the ID target, not the replied-to user."""
+        reply_target = _make_target_user(user_id=11111, full_name="Replied User", username="replieduser")
+        id_target = _make_target_user(user_id=67890, full_name="ID Target", username="idtarget")
+        mock_update.message.reply_to_message = _make_reply_message(reply_target)
+        mock_context.bot.get_chat_member.return_value = _make_chat_member(id_target)
+        mock_context.args = ["67890", "spamming"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.get_chat_member.assert_called_once_with(
+            chat_id=-1001234567890, user_id=67890
+        )
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert "idtarget" in call_kwargs["text"]
+        assert "replieduser" not in call_kwargs["text"]
+        assert "spamming" in call_kwargs["text"]
+
+    async def test_forum_topic_anchor_not_treated_as_reply(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Bug fix: forum topic anchor (auto reply_to_message) is not treated as a real reply."""
+        target = _make_target_user()
+        mock_context.bot.get_chat_member.return_value = _make_chat_member(target)
+        # Simulate a forum topic anchor: reply_to_message exists with forum_topic_created set
+        mock_update.message.reply_to_message = MagicMock()
+        mock_update.message.reply_to_message.from_user = _make_target_user(user_id=11111, full_name="Topic Creator")
+        mock_update.message.reply_to_message.forum_topic_created = MagicMock()
+        mock_context.args = ["67890", "reason"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.get_chat_member.assert_called_once_with(
+            chat_id=-1001234567890, user_id=67890
+        )
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert "badmember" in call_kwargs["text"]
+        assert "11111" not in call_kwargs["text"]
+
+    async def test_forum_topic_anchor_no_args_shows_usage(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Forum topic anchor with no args shows usage (not treated as reply)."""
+        mock_update.message.reply_to_message = MagicMock()
+        mock_update.message.reply_to_message.from_user = _make_target_user(user_id=11111)
+        mock_update.message.reply_to_message.forum_topic_created = MagicMock()
+        mock_context.args = []
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        assert "Penggunaan" in mock_update.message.reply_text.call_args.args[0]
+        mock_context.bot.send_message.assert_not_called()
+
+    async def test_username_mode_with_reason(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Admin uses /warn @username <reason>."""
+        mock_context.args = ["@badmember", "stop", "spamming"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.get_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert "@badmember" in call_kwargs["text"]
+        assert "stop spamming" in call_kwargs["text"]
+
+    async def test_username_mode_without_reason(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Admin uses /warn @username with no reason."""
+        mock_context.args = ["@badmember"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.get_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert "@badmember" in call_kwargs["text"]
+        assert "patuhi aturan grup" in call_kwargs["text"]
+
+    async def test_username_mode_takes_priority_over_reply(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """@username takes priority over a real reply."""
+        reply_target = _make_target_user(user_id=11111, full_name="Replied User", username="replieduser")
+        mock_update.message.reply_to_message = _make_reply_message(reply_target)
+        mock_context.args = ["@badmember", "reason"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.get_chat_member.assert_not_called()
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert "@badmember" in call_kwargs["text"]
+        assert "replieduser" not in call_kwargs["text"]
+        assert "reason" in call_kwargs["text"]
+
+    async def test_username_mode_skips_bot_and_self_checks(
+        self, mock_update, mock_context, mock_registry
+    ):
+        """Username mode cannot check is_bot/self since we don't have the User object."""
+        mock_context.args = ["@somebot"]
+
+        with patch("bot.handlers.warn.get_group_config_for_update", return_value=mock_registry.get(-1001234567890)):
+            await handle_warn_command(mock_update, mock_context)
+
+        mock_context.bot.send_message.assert_called_once()
