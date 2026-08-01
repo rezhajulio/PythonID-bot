@@ -32,6 +32,7 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **/verify command**: Whitelist users with hidden profile pictures (DM only)
 - **/unverify command**: Remove users from verification whitelist (DM only)
 - **Inline verification**: Forward messages to bot for quick verify/unverify buttons
+- **/warn command**: Admin-issued bot warnings to in-group members by replying with `/warn [reason]` or using `/warn USER_ID [reason]`; optional reasons are Markdown-escaped, and the admin's command is deleted to protect their identity. Authorization is per-group, ID targets are checked for active membership, and bots, self-targets, and non-admin callers are silently ignored. Warnings go to `moderation_topic_id` when configured, otherwise to the main group chat, and do not create progressive-enforcement database records.
 - **/trust command**: Add trusted users (DM only, supports user ID or forwarded message)
 - **/untrust command**: Remove trusted users from trusted list (DM only)
 - **/trusted command**: List all trusted users (DM only)
@@ -124,6 +125,7 @@ Add `GROUPS_CONFIG_PATH=groups.json` to your `.env` file, then edit `groups.json
   {
     "group_id": -1001234567890,
     "warning_topic_id": 123,
+    "moderation_topic_id": null,
     "restrict_failed_users": false,
     "warning_threshold": 3,
     "warning_time_threshold_minutes": 180,
@@ -136,6 +138,7 @@ Add `GROUPS_CONFIG_PATH=groups.json` to your `.env` file, then edit `groups.json
   {
     "group_id": -1009876543210,
     "warning_topic_id": 456,
+    "moderation_topic_id": null,
     "restrict_failed_users": true,
     "warning_threshold": 5,
     "warning_time_threshold_minutes": 60,
@@ -148,7 +151,7 @@ Add `GROUPS_CONFIG_PATH=groups.json` to your `.env` file, then edit `groups.json
 ]
 ```
 
-When `groups.json` is present, per-group settings override the `.env` defaults. Each group can have its own warning thresholds, captcha settings, probation rules, and rules link. Each group entry can also add a `"plugins": {"bio_bait_spam": false}`-style object to disable specific built-in plugins just for that group, overriding the bot-wide `PLUGINS_DEFAULT`.
+When `groups.json` is present, per-group settings override the `.env` defaults. Each group can have its own warning thresholds, moderation topic (`moderation_topic_id`), captcha settings, probation rules, and rules link. Each group entry can also add a `"plugins": {"bio_bait_spam": false}`-style object to disable specific built-in plugins just for that group, overriding the bot-wide `PLUGINS_DEFAULT`.
 
 **Backward compatibility**: If no `groups.json` is configured (i.e., `GROUPS_CONFIG_PATH` is not set), the bot falls back to single-group mode using `GROUP_ID`, `WARNING_TOPIC_ID`, and other settings from `.env`.
 
@@ -262,6 +265,7 @@ PythonID/
 │   ├── test_trust_handler.py
 │   ├── test_user_checker.py
 │   ├── test_verify_handler.py
+│   ├── test_warn.py
 │   └── test_whitelist.py
 └── src/
     └── bot/
@@ -289,6 +293,7 @@ PythonID/
         │   ├── topic_guard.py   # Warning topic protection
         │   ├── trust.py         # /trust, /untrust, /trusted admin commands
         │   ├── verify.py        # /verify and /unverify command handlers
+        │   ├── warn.py          # Per-group admin /warn command
         │   ├── duplicate_spam.py # Duplicate message detection
         │   └── bio_bait.py      # Bio-bait spam (bait phrases + suspicious profile bio links)
         ├── database/
@@ -583,6 +588,7 @@ The bot is organized into clear modules for maintainability:
   - `verify.py`: /verify and /unverify command handlers
   - `check.py`: /check command + forwarded message handling
   - `trust.py`: /trust, /untrust, /trusted admin commands (TrustedUser table caches names at trust time so /trusted renders without API calls)
+  - `warn.py`: Per-group admin /warn messages by reply or member ID, routed to the configured moderation topic without database enforcement records
 - **services/**: Business logic and utilities
   - `scheduler.py`: JobQueue background job that runs every 5 minutes for time-based auto-restrictions
   - `user_checker.py`: Profile validation (photo + username check) — used by both the captcha gate and the per-message monitor
@@ -673,6 +679,7 @@ When a restricted user DMs the bot (or sends `/start`):
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | Required |
 | `GROUP_ID` | Group ID to monitor (negative number) | Required |
 | `WARNING_TOPIC_ID` | Topic ID for warning messages | Required |
+| `MODERATION_TOPIC_ID` | Topic ID for admin /warn moderation messages (optional) | None |
 | `RESTRICT_FAILED_USERS` | Enable progressive restriction mode | `false` |
 | `WARNING_THRESHOLD` | Messages before restriction (message-based) | `3` |
 | `WARNING_TIME_THRESHOLD_MINUTES` | Minutes before auto-restriction (time-based) | `180` (3 hours) |
