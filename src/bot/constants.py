@@ -232,6 +232,21 @@ ADMIN_WARN_USER_MESSAGE = (
 
 ADMIN_WARN_SENT_MESSAGE = "✅ Peringatan telah dikirim ke {user_mention} di grup."
 
+# Generic /warn command templates (admin-issued, in-group)
+WARN_COMMAND_USAGE = (
+    "❌ Penggunaan: balas pesan member dengan /warn [alasan] "
+    "atau gunakan /warn USER_ID [alasan]"
+)
+WARN_COMMAND_NOT_FOUND = "❌ Tidak dapat menemukan user dengan ID {user_id}."
+WARN_COMMAND_NOT_MEMBER = "❌ User {user_id} bukan member grup ini."
+WARN_COMMAND_WITH_REASON = (
+    "⚠️ {user_mention}, kamu telah diperingatkan oleh admin: {reason}"
+)
+WARN_COMMAND_NO_REASON = (
+    "⚠️ {user_mention}, kamu telah diperingatkan oleh admin. "
+    "Mohon patuhi aturan grup."
+)
+
 TRUST_USER_ID_REQUIRED_MESSAGE = (
     "❌ Penggunaan: /trust USER_ID atau /untrust USER_ID, atau forward pesan user ke bot."
 )
