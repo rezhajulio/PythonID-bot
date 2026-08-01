@@ -140,6 +140,7 @@ class TestManifestOrder:
             "trust_callback",
             "untrust_callback",
             "unrestrict_callback",
+            "warn_command",
             "captcha",
             "dm",
             "status",

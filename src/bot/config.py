@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     bio_bait_enabled: bool = True
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
+    moderation_topic_id: int | None = None
     groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
@@ -152,6 +153,7 @@ class Settings(BaseSettings):
             "bio_bait_enabled",
             "bio_bait_monitor_only",
             "bio_bait_alert_chat_id",
+            "moderation_topic_id",
         ):
             logger.debug(f"{field}: {getattr(self, field)}")
         logger.debug(f"telegram_bot_token: {'***' + self.telegram_bot_token[-4:]}")

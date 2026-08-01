@@ -40,6 +40,7 @@ from bot.handlers.verify import (
     handle_verify_callback,
     handle_verify_command,
 )
+from bot.handlers.warn import handle_warn_command
 
 if TYPE_CHECKING:
     from telegram.ext import Application, BaseHandler
@@ -164,3 +165,9 @@ def register_unrestrict_callback(application: Application) -> list[BaseHandler]:
         pattern=r"^unrestrict:-?\d+:\d+$",
     )
     return _register(application, handler, "unrestrict_callback")
+
+
+def register_warn_command(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
+    """Register /warn command handler (in-group, admin-issued)."""
+    handler: BaseHandler = CommandHandler("warn", handle_warn_command)
+    return _register(application, handler, "warn_command")

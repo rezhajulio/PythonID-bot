@@ -31,6 +31,7 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "trust_callback", "handler_group": 0, "description": "Admin trust (anti-spam exempt) button callback"},
     {"name": "untrust_callback", "handler_group": 0, "description": "Admin untrust button callback"},
     {"name": "unrestrict_callback", "handler_group": 0, "description": "Admin unrestrict (bot restriction only) button callback"},
+    {"name": "warn_command", "handler_group": 0, "description": "Admin /warn command (in-group, bot-issued warning)"},
     {"name": "captcha", "handler_group": 0, "description": "Captcha verification for new members"},
     {"name": "dm", "handler_group": 0, "description": "Direct message unrestriction flow"},
     {"name": "status", "handler_group": 0, "description": "Admin /status command"},

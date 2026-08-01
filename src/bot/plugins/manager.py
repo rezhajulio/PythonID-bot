@@ -64,6 +64,7 @@ _REGISTRY: dict[str, Registrar] = {
     "trust_callback": commands.register_trust_callback,
     "untrust_callback": commands.register_untrust_callback,
     "unrestrict_callback": commands.register_unrestrict_callback,
+    "warn_command": commands.register_warn_command,
     # captcha
     "captcha": captcha_mod.register_captcha,
     # dm
