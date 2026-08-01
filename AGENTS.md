@@ -45,7 +45,7 @@ PythonID/
 ├── src/bot/
 │   ├── main.py           # Entry point + handler registration (priority groups!)
 │   ├── config.py         # Pydantic settings (get_settings() cached)
-│   ├── constants.py      # Indonesian templates + URL whitelists (528 lines)
+│   ├── constants.py      # Indonesian templates + URL whitelists (739 lines)
 │   ├── group_config.py   # Multi-group config (GroupConfig, GroupRegistry)
 │   ├── plugins/          # Modular plugin system (wraps handlers)
 │   │   ├── manager.py          # PluginManager — discovers + registers built-ins
@@ -68,6 +68,7 @@ PythonID/
 │   │   ├── dm.py         # DM unrestriction flow
 │   │   ├── topic_guard.py # Warning topic protection (group=-1)
 │   │   ├── trust.py      # /trust, /untrust, /trusted admin commands
+│   │   ├── warn.py       # Admin /warn command (reply or user ID)
 │   │   ├── duplicate_spam.py # Duplicate message detection
 │   │   └── bio_bait.py   # Bio-bait spam (bait phrases + suspicious profile bio links)
 │   ├── services/
@@ -81,7 +82,8 @@ PythonID/
 │       ├── models.py     # SQLModel schemas (5 tables: UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation, TrustedUser)
 │       └── service.py    # DatabaseService singleton (645 lines)
 ├── tests/                # pytest-asyncio + Hypothesis (30+ files)
-│   └── test_properties.py # Property-based tests for pure functions
+│   ├── test_properties.py # Property-based tests for pure functions
+│   └── test_warn.py      # /warn command tests (23 tests)
 ├── scripts/
 │   └── backfill_trusted_names.py  # One-shot backfill for trusted user names
 └── data/bot.db           # SQLite (auto-created, WAL mode)
@@ -98,6 +100,7 @@ PythonID/
 | Add URL whitelist | `constants.py` → `WHITELISTED_URL_DOMAINS` | Suffix-based matching |
 | Add Telegram whitelist | `constants.py` → `WHITELISTED_TELEGRAM_PATHS` | Lowercase, exact path match |
 | Multi-group config | `group_config.py` | GroupConfig model, GroupRegistry, groups.json loading |
+| Warn a member | `handlers/warn.py` + `plugins/builtin/commands.py` | Admin `/warn` by reply or user ID; registered as `warn_command` |
 
 ## Code Map (Key Files)
 
@@ -114,6 +117,7 @@ PythonID/
 | `handlers/dm.py` | 250 | DM unrestriction flow with deep-link group recovery |
 | `handlers/message.py` | 208 | Profile compliance monitoring + stale warning clearing |
 | `handlers/status.py` | 181 | Group-scoped /status (admin's groups only, Indonesian labels) |
+| `handlers/warn.py` | 170 | Admin-issued generic warning by reply or user ID; optional moderation-topic routing |
 | `services/scheduler.py` | 151 | Auto-restriction with pre-restriction profile recheck |
 | `group_config.py` | 255 | Multi-group config, registry, JSON loading, .env fallback |
 | `main.py` | 191 | Entry point, logging, post_init, PluginManager bootstrap |
@@ -128,7 +132,7 @@ PythonID/
 
 ### Modular Plugin System
 - Built-in plugins live in `src/bot/plugins/builtin/`, one per handler domain (captcha, spam, topic_guard, profile_monitor, commands, dm, jobs)
-- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 25 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
+- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 27 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
 - `PluginManager.register_all()` (called from `main.py:main`, not `post_init`) walks `MANIFEST_ORDER` against a static `_REGISTRY` dict (name → registrar function) and stores results in `application.bot_data["plugin_handlers"]`
 - The plugin wrapper pattern: `bot.plugins.builtin.X` imports from `bot.handlers.X`, clones the handler list, and applies `guard_plugin("X")` for per-group runtime gating
 - To add a new plugin: add a `register_*(application) -> list[BaseHandler]` function in `builtin/`, add its name + group to `_PLUGIN_DEFINITIONS` in `definitions.py`, wire it into `_REGISTRY` in `manager.py`
@@ -141,7 +145,7 @@ PythonID/
 ```python
 # Registration order comes from MANIFEST_ORDER (plugins/definitions.py), not main.py directly
 group=-1  # topic_guard: Runs FIRST
-group=0   # commands, verify/unverify/check/trust callbacks, captcha, dm (14 plugins, order-independent)
+group=0   # commands (including warn_command), callbacks, captcha, dm (18 plugins, order-independent)
 group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
 group=2   # contact_spam: Blocks contact card sharing
 group=3   # new_user_spam: Probation enforcement (links/forwards)
@@ -191,7 +195,7 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 - Handler + JobQueue registration (`PluginManager.register_all()`) and effective-plugin-map computation happen later, in `main()` after `post_init` is wired up but before `run_polling` — not inside `post_init` itself
 
 ### Multi-Group Support
-- `GroupConfig` — Pydantic model with 20 per-group settings: warning thresholds, captcha, probation, contact/duplicate/bio-bait spam tuning, `rules_link`, and a `plugins: dict[str, bool] | None` override
+- `GroupConfig` — Pydantic model with 21 per-group settings: warning thresholds, captcha, probation, contact/duplicate/bio-bait spam tuning, `rules_link`, optional `moderation_topic_id`, and a `plugins: dict[str, bool] | None` override
 - `GroupRegistry` — O(1) lookup by group_id, manages all monitored groups
 - `groups.json` — Per-group config file; falls back to `.env` for single-group mode (missing fields default from `GroupConfig.model_fields`)
 - `get_group_config_for_update()` — Helper to resolve config for incoming Telegram updates
@@ -290,7 +294,7 @@ if user.id not in admin_ids:
 
 ## Notes
 
-- Registration order for all 25 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
+- Registration order for all 27 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
 - `duplicate_spam` and `bio_bait_spam` both run at `group=4`; `auto_restrict_job` / `refresh_admin_ids_job` run as JobQueue jobs tagged `group=6` (not a PTB handler group)
 - Topic guard runs at `group=-1` to intercept unauthorized messages BEFORE other handlers
 - Topic guard handles both messages and edited messages, raises `ApplicationHandlerStop` to block downstream handlers
@@ -302,6 +306,7 @@ if user.id not in admin_ids:
 - Captcha callback data encodes group_id: `captcha_verify_{group_id}_{user_id}` to avoid ambiguity
 - Scheduler iterates all groups with per-group exception isolation
 - DM handler scans all groups in registry for user membership and unrestriction
+- **Warn command**: A per-group admin can reply with `/warn [reason]` or use `/warn USER_ID [reason]`. The command is deleted before network lookups to protect the admin's identity; non-admins, bots, and self-targets are silently ignored. ID mode verifies membership with `get_chat_member`, reasons are Markdown-escaped, and the warning is sent to `moderation_topic_id` when configured or the main group otherwise. `moderation_topic_id` is distinct from `warning_topic_id`, which is used for bot logging. This command creates no DB record and is not gated by `guard_plugin`
 - **Trust feature**: `TrustedUser` table caches user_full_name + admin_full_name at trust time so `/trusted` lists admin info without Telegram API calls. Backfill script at `scripts/backfill_trusted_names.py` for pre-existing rows
 - **Local review artifacts**: `reviews/` directory contains output from parallel reviewer subagents. Gitignored; not part of the source tree
 - **Captcha DB ordering**: The captcha callback handler calls Telegram `unrestrict_user` BEFORE DB writes (remove_pending_captcha, start_new_user_probation). If unrestrict fails, the pending captcha stays in DB and the user can retry. DB finalization is idempotent — `remove_pending_captcha` returning False means a concurrent callback already finalized
