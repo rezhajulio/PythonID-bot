@@ -73,6 +73,7 @@ _REGISTRY: dict[str, Registrar] = {
     "status": status_mod.register_status,
     # spam
     "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
+    "guest_bot_block": spam_mod.register_guest_bot_block,
     "bio_bait_spam": spam_mod.register_bio_bait_spam,
     "contact_spam": spam_mod.register_contact_spam,
     "new_user_spam": spam_mod.register_new_user_spam,

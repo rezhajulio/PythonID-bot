@@ -297,6 +297,12 @@ class TestRefactoredBuiltinModules:
         assert hasattr(spam, "register_inline_keyboard_spam")
         assert callable(spam.register_inline_keyboard_spam)
 
+    def test_spam_has_guest_bot_block_registrar(self):
+        """bot.plugins.builtin.spam has register_guest_bot_block function."""
+        from bot.plugins.builtin import spam
+        assert hasattr(spam, "register_guest_bot_block")
+        assert callable(spam.register_guest_bot_block)
+
     def test_spam_has_bio_bait_spam_registrar(self):
         """bot.plugins.builtin.spam has register_bio_bait_spam function."""
         from bot.plugins.builtin import spam
@@ -442,3 +448,22 @@ class TestIndividualRegistrars:
         assert call_kwargs["group"] == 1
         from telegram.ext import MessageHandler
         assert isinstance(call_args[0], MessageHandler)
+
+    def test_guest_bot_block_registrar_adds_handler(self):
+        """register_guest_bot_block adds a guest-only handler to group=1."""
+        from telegram.ext import MessageHandler
+
+        from bot.handlers.guest_bot import GuestBotFilter
+        from bot.plugins.builtin.spam import register_guest_bot_block
+
+        app = MagicMock()
+        app.bot_data = {}
+        app.add_handler = MagicMock()
+        handlers = register_guest_bot_block(app)
+        assert len(handlers) >= 1
+        assert app.add_handler.call_count == 1
+        call_args, call_kwargs = app.add_handler.call_args
+        assert len(call_args) == 1
+        assert call_kwargs["group"] == 1
+        assert isinstance(call_args[0], MessageHandler)
+        assert isinstance(call_args[0].filters, GuestBotFilter)

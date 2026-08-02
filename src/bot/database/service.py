@@ -58,6 +58,7 @@ class DatabaseService:
 
         # Migrate existing tables: add new columns if missing
         self._migrate_trusted_users()
+        self._migrate_user_warnings()
 
     def _migrate_trusted_users(self) -> None:
         """Add new columns to trusted_users if missing."""
@@ -80,7 +81,24 @@ class DatabaseService:
                     logger.info(f"Migrated trusted_users: added {col} column")
             conn.commit()
 
-    def get_or_create_user_warning(self, user_id: int, group_id: int) -> UserWarning:
+    def _migrate_user_warnings(self) -> None:
+        """Add warning_kind column to user_warnings if missing."""
+        with self._engine.connect() as conn:
+            columns = {
+                row[1] for row in conn.exec_driver_sql(
+                    "PRAGMA table_info(user_warnings)"
+                ).fetchall()
+            }
+            if "warning_kind" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE user_warnings ADD COLUMN warning_kind TEXT DEFAULT 'profile'"
+                )
+                logger.info("Migrated user_warnings: added warning_kind column")
+            conn.commit()
+
+    def get_or_create_user_warning(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> UserWarning:
         """
         Get existing warning record or create a new one.
 
@@ -90,6 +108,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             UserWarning: Active warning record for the user.
@@ -99,13 +118,14 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
 
             if record:
                 logger.info(
-                    f"Returning existing warning for user_id={user_id}, group_id={group_id}"
+                    f"Returning existing warning for user_id={user_id}, group_id={group_id}, kind={warning_kind}"
                 )
                 return record
 
@@ -116,16 +136,19 @@ class DatabaseService:
                 message_count=1,
                 first_warned_at=datetime.now(UTC),
                 last_message_at=datetime.now(UTC),
+                warning_kind=warning_kind,
             )
             session.add(new_record)
             session.commit()
             session.refresh(new_record)
             logger.info(
-                f"Created new warning for user_id={user_id}, group_id={group_id}"
+                f"Created new warning for user_id={user_id}, group_id={group_id}, kind={warning_kind}"
             )
             return new_record
 
-    def increment_message_count(self, user_id: int, group_id: int) -> UserWarning:
+    def increment_message_count(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> UserWarning:
         """
         Increment message count for an existing warning record.
 
@@ -135,6 +158,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             UserWarning: Updated warning record.
@@ -146,6 +170,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
@@ -157,15 +182,17 @@ class DatabaseService:
                 session.commit()
                 session.refresh(record)
                 logger.info(
-                    f"Incremented message count for user_id={user_id}, group_id={group_id}, new_count={record.message_count}"
+                    f"Incremented message count for user_id={user_id}, group_id={group_id}, kind={warning_kind}, new_count={record.message_count}"
                 )
                 return record
 
             raise ValueError(
-                f"No warning record found for user {user_id} in group {group_id}"
+                f"No warning record found for user {user_id} in group {group_id} (kind={warning_kind})"
             )
 
-    def mark_user_restricted(self, user_id: int, group_id: int) -> UserWarning:
+    def mark_user_restricted(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> UserWarning:
         """
         Mark user as restricted after reaching threshold.
 
@@ -175,6 +202,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             UserWarning: Updated warning record.
@@ -186,6 +214,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 ~UserWarning.is_restricted,
             )
             record = session.exec(statement).first()
@@ -198,15 +227,17 @@ class DatabaseService:
                 session.commit()
                 session.refresh(record)
                 logger.info(
-                    f"Marked user as restricted: user_id={user_id}, group_id={group_id}"
+                    f"Marked user as restricted: user_id={user_id}, group_id={group_id}, kind={warning_kind}"
                 )
                 return record
 
             raise ValueError(
-                f"No warning record found for user {user_id} in group {group_id}"
+                f"No warning record found for user {user_id} in group {group_id} (kind={warning_kind})"
             )
 
-    def is_user_restricted_by_bot(self, user_id: int, group_id: int) -> bool:
+    def is_user_restricted_by_bot(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> bool:
         """
         Check if user was restricted by this bot.
 
@@ -217,6 +248,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             bool: True if user was restricted by this bot.
@@ -225,13 +257,16 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 UserWarning.is_restricted,
                 UserWarning.restricted_by_bot,
             )
             record = session.exec(statement).first()
             return record is not None
 
-    def mark_user_unrestricted(self, user_id: int, group_id: int) -> None:
+    def mark_user_unrestricted(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> None:
         """
         Clear bot restriction flag after user is unrestricted via DM.
 
@@ -241,11 +276,13 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
         """
         with Session(self._engine) as session:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 UserWarning.is_restricted,
                 UserWarning.restricted_by_bot,
             )
@@ -256,10 +293,12 @@ class DatabaseService:
                 session.add(record)
                 session.commit()
                 logger.info(
-                    f"Cleared restriction flag: user_id={user_id}, group_id={group_id}"
+                    f"Cleared restriction flag: user_id={user_id}, group_id={group_id}, kind={warning_kind}"
                 )
 
-    def delete_user_warnings(self, user_id: int, group_id: int) -> int:
+    def delete_user_warnings(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> int:
         """
         Delete all warning records for a user in a specific group.
 
@@ -269,6 +308,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             int: Number of warning records deleted.
@@ -277,16 +317,19 @@ class DatabaseService:
             delete_statement = delete(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
             )
             result = session.exec(delete_statement)
             session.commit()
             count = result.rowcount
             logger.info(
-                f"Deleted warnings: user_id={user_id}, group_id={group_id}, count={count}"
+                f"Deleted warnings: user_id={user_id}, group_id={group_id}, kind={warning_kind}, count={count}"
             )
             return count
 
-    def get_active_user_warning(self, user_id: int, group_id: int) -> UserWarning | None:
+    def get_active_user_warning(
+        self, user_id: int, group_id: int, warning_kind: str = "profile"
+    ) -> UserWarning | None:
         """
         Get an existing active (non-restricted) warning record without creating one.
 
@@ -297,6 +340,7 @@ class DatabaseService:
         Args:
             user_id: Telegram user ID.
             group_id: Telegram group ID.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             UserWarning | None: Active warning record, or None if none exists.
@@ -305,6 +349,7 @@ class DatabaseService:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 ~UserWarning.is_restricted,
             )
             return session.exec(statement).first()
@@ -540,7 +585,7 @@ class DatabaseService:
             return list(session.exec(statement).all())
 
     def get_warnings_past_time_threshold_for_group(
-        self, group_id: int, threshold: timedelta
+        self, group_id: int, threshold: timedelta, warning_kind: str = "profile"
     ) -> list[UserWarning]:
         """
         Find active warnings for a specific group that exceeded the time threshold.
@@ -548,6 +593,7 @@ class DatabaseService:
         Args:
             group_id: Telegram group ID to filter by.
             threshold: Time duration since first warning to trigger restriction.
+            warning_kind: Discriminator for the warning source.
 
         Returns:
             list[UserWarning]: Warning records that should be auto-restricted.
@@ -556,6 +602,7 @@ class DatabaseService:
             cutoff_time = datetime.now(UTC) - threshold
             statement = select(UserWarning).where(
                 UserWarning.group_id == group_id,
+                UserWarning.warning_kind == warning_kind,
                 ~UserWarning.is_restricted,
                 UserWarning.first_warned_at <= cutoff_time,
             )

@@ -11,9 +11,10 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class Settings(BaseSettings):
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
     moderation_topic_id: int | None = None
+    guest_bot_whitelist: Annotated[list[str], NoDecode] = []
     groups_config_path: str = "groups.json"
     logfire_token: str | None = None
     logfire_service_name: str = "pythonid-bot"
@@ -119,6 +121,18 @@ class Settings(BaseSettings):
             return {}
         from bot.plugins.config import validate_plugin_map
         return validate_plugin_map(parsed)
+
+    @field_validator("guest_bot_whitelist", mode="before")
+    @classmethod
+    def parse_guest_bot_whitelist(cls, v: object) -> list[str]:
+        """Parse GUEST_BOT_WHITELIST env var as comma-separated usernames."""
+        if isinstance(v, list):
+            return [str(entry).strip().removeprefix("@").lower() for entry in v if str(entry).strip()]
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            return [entry.strip().removeprefix("@").lower() for entry in v.split(",") if entry.strip()]
+        return []
 
     def model_post_init(self, __context):
         """Validate and log non-sensitive configuration values after initialization."""

@@ -32,6 +32,9 @@ class UserWarning(SQLModel, table=True):
         restricted_by_bot: True if restriction was applied by this bot
             (vs manually by an admin). Only bot-created restrictions
             can be lifted via DM.
+        warning_kind: Discriminator for the warning source
+            (``"profile"`` or ``"guest_bot"``). Prevents cross-source
+            state interference.
     """
 
     __tablename__ = "user_warnings"
@@ -44,6 +47,7 @@ class UserWarning(SQLModel, table=True):
     last_message_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_restricted: bool = Field(default=False)
     restricted_by_bot: bool = Field(default=False)
+    warning_kind: str = Field(default="profile", index=True)
 
 
 class PhotoVerificationWhitelist(SQLModel, table=True):

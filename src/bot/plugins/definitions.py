@@ -35,6 +35,7 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "captcha", "handler_group": 0, "description": "Captcha verification for new members"},
     {"name": "dm", "handler_group": 0, "description": "Direct message unrestriction flow"},
     {"name": "status", "handler_group": 0, "description": "Admin /status command"},
+    {"name": "guest_bot_block", "handler_group": 1, "description": "Block non-whitelisted guest bot messages"},
     {"name": "inline_keyboard_spam", "handler_group": 1, "description": "Block inline keyboard URL spam"},
     {"name": "contact_spam", "handler_group": 2, "description": "Block contact card sharing"},
     {"name": "new_user_spam", "handler_group": 3, "description": "Probation enforcement for new users"},
