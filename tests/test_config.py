@@ -142,6 +142,26 @@ class TestSettings:
         assert settings.bio_bait_monitor_only is True
         assert settings.bio_bait_alert_chat_id == 57747812
 
+    def test_guest_bot_whitelist_from_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("GUEST_BOT_WHITELIST", "@somebot,anotherbot")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.guest_bot_whitelist == ["somebot", "anotherbot"]
+
+    def test_guest_bot_whitelist_empty_env(self, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("GUEST_BOT_WHITELIST", "")
+
+        settings = Settings(_env_file=None)
+
+        assert settings.guest_bot_whitelist == []
+
 class TestPluginsDefault:
     def test_default_empty_dict(self, monkeypatch):
         """Test plugins_default defaults to empty dict when not set."""

@@ -344,6 +344,19 @@ CONTACT_SPAM_NOTIFICATION_NO_RESTRICT = (
     "📌 [Peraturan Grup]({rules_link})"
 )
 
+GUEST_BOT_WARNING = (
+    "⚠️ {user_mention}, bot tamu tidak diizinkan di grup ini. "
+    "Pelanggaran berikutnya dapat menyebabkan pembatasan setelah "
+    "{warning_threshold} pesan.\n\n"
+    "Silakan baca [peraturan grup]({rules_link})."
+)
+
+GUEST_BOT_RESTRICTION = (
+    "🔇 {user_mention} dibatasi setelah memanggil bot tamu sebanyak "
+    "{message_count} kali.\n\n"
+    "Silakan baca [peraturan grup]({rules_link})."
+)
+
 # Duplicate message spam notification
 DUPLICATE_SPAM_RESTRICTION = (
     "🚫 *Spam Pesan Duplikat*\n\n"

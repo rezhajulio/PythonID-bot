@@ -144,6 +144,7 @@ class TestManifestOrder:
             "captcha",
             "dm",
             "status",
+            "guest_bot_block",
             "inline_keyboard_spam",
             "contact_spam",
             "new_user_spam",

@@ -43,6 +43,7 @@ class GroupConfig(BaseModel):
     bio_bait_enabled: bool = True
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
+    guest_bot_whitelist: list[str] = []
     moderation_topic_id: int | None = None
     plugins: dict[str, bool] | None = None
 
@@ -91,6 +92,19 @@ class GroupConfig(BaseModel):
         if not isinstance(v, dict):
             raise ValueError("plugins must be a dict or None")
         return validate_plugin_map(v)
+
+    @field_validator("guest_bot_whitelist", mode="before")
+    @classmethod
+    def normalize_guest_bot_whitelist(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(entry).strip().removeprefix("@").lower() for entry in v if str(entry).strip()]
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            return [entry.strip().removeprefix("@").lower() for entry in v.split(",") if entry.strip()]
+        return []
 
     @property
     def probation_timedelta(self) -> timedelta:

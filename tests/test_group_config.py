@@ -138,6 +138,34 @@ class TestGroupConfig:
         with pytest.raises(ValidationError, match="plugins must be a dict"):
             GroupConfig(group_id=-1, warning_topic_id=42, plugins=[1, 2, 3])
 
+    def test_guest_bot_whitelist_default_empty(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42)
+        assert gc.guest_bot_whitelist == []
+
+    def test_guest_bot_whitelist_normalizes_entries(self):
+        gc = GroupConfig(
+            group_id=-1,
+            warning_topic_id=42,
+            guest_bot_whitelist=["@SomeBot", "AnotherBot", "  @lowerbot  "],
+        )
+        assert gc.guest_bot_whitelist == ["somebot", "anotherbot", "lowerbot"]
+
+    def test_guest_bot_whitelist_string_env_format(self):
+        gc = GroupConfig(
+            group_id=-1,
+            warning_topic_id=42,
+            guest_bot_whitelist="@Bot1,Bot2, @Bot3",
+        )
+        assert gc.guest_bot_whitelist == ["bot1", "bot2", "bot3"]
+
+    def test_guest_bot_whitelist_empty_string(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42, guest_bot_whitelist="")
+        assert gc.guest_bot_whitelist == []
+
+    def test_guest_bot_whitelist_none(self):
+        gc = GroupConfig(group_id=-1, warning_topic_id=42, guest_bot_whitelist=None)
+        assert gc.guest_bot_whitelist == []
+
 class TestGroupRegistry:
     def test_register_and_get(self):
         registry = GroupRegistry()
