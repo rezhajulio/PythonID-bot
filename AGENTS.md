@@ -70,7 +70,8 @@ PythonID/
 │   │   ├── trust.py      # /trust, /untrust, /trusted admin commands
 │   │   ├── warn.py       # Admin /warn command (reply or user ID)
 │   │   ├── duplicate_spam.py # Duplicate message detection
-│   │   └── bio_bait.py   # Bio-bait spam (bait phrases + suspicious profile bio links)
+│   │   ├── bio_bait.py   # Bio-bait spam (bait phrases + suspicious profile bio links)
+│   │   └── guest_bot.py  # Guest Mode moderation (delete + progressive restriction)
 │   ├── services/
 │   │   ├── user_checker.py      # Profile validation (photo + username)
 │   │   ├── scheduler.py         # JobQueue auto-restriction (every 5 min)
@@ -101,6 +102,7 @@ PythonID/
 | Add Telegram whitelist | `constants.py` → `WHITELISTED_TELEGRAM_PATHS` | Lowercase, exact path match |
 | Multi-group config | `group_config.py` | GroupConfig model, GroupRegistry, groups.json loading |
 | Warn a member | `handlers/warn.py` + `plugins/builtin/commands.py` | Admin `/warn` by reply or user ID; registered as `warn_command` |
+| Block guest bots | `handlers/guest_bot.py` + `plugins/builtin/spam.py` | `guest_bot_block` plugin (group=1); whitelist via `GUEST_BOT_WHITELIST` env or `guest_bot_whitelist` per-group JSON |
 
 ## Code Map (Key Files)
 
@@ -110,6 +112,7 @@ PythonID/
 | `constants.py` | 724 | Templates + massive whitelists (Indonesian tech community) |
 | `handlers/anti_spam.py` | 494 | Anti-spam: contact cards, inline keyboards, probation enforcement |
 | `handlers/bio_bait.py` | 441 | Bio-bait spam: obfuscated bait phrases + suspicious profile bio links |
+| `handlers/guest_bot.py` | 118 | Guest Mode moderation: delete non-whitelisted guest bot messages + progressive restriction of the human caller |
 | `handlers/check.py` | 437 | Admin /check: group selector + group-scoped action buttons |
 | `handlers/captcha.py` | 427 | New member join → restrict → verify (with profile check) → unrestrict lifecycle |
 | `handlers/verify.py` | 400 | Photo exemption + bot-owned unrestriction (group-scoped) |
@@ -125,7 +128,7 @@ PythonID/
 | `plugins/config.py` | 156 | `guard_plugin` runtime gate + toggle resolution |
 | `plugins/definitions.py` | 72 | `MANIFEST_ORDER` / `PLUGIN_NAMES` — single source of truth for plugin names + groups |
 | `plugins/builtin/commands.py` | 166 | Wraps all command + callback handlers with group-scoped patterns |
-| `plugins/builtin/spam.py` | 93 | Wraps all 5 anti-spam handlers with `guard_plugin` |
+| `plugins/builtin/spam.py` | 93 | Wraps all 5 anti-spam handlers + guest_bot_block with `guard_plugin` |
 | `plugins/builtin/captcha.py` | 43 | Wraps captcha handler + applies guard_plugin gating |
 
 ## Architecture Patterns
@@ -146,7 +149,7 @@ PythonID/
 # Registration order comes from MANIFEST_ORDER (plugins/definitions.py), not main.py directly
 group=-1  # topic_guard: Runs FIRST
 group=0   # commands (including warn_command), callbacks, captcha, dm (18 plugins, order-independent)
-group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
+group=1   # inline_keyboard_spam + guest_bot_block: Catches inline keyboard URL spam / Guest Mode messages
 group=2   # contact_spam: Blocks contact card sharing
 group=3   # new_user_spam: Probation enforcement (links/forwards)
 group=4   # duplicate_spam + bio_bait_spam: Repeated messages / bio-bait detection
@@ -174,6 +177,22 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 - `bio_bait_monitor_only` (per-group) skips delete/restrict and only logs + optionally alerts `bio_bait_alert_chat_id` — use this to tune detection before enforcing
 - Admins and trusted users are exempt (`is_user_admin_or_trusted`)
 
+### Guest Bot Moderation
+- `handlers/guest_bot.py` blocks Telegram **Guest Mode** messages — messages posted by a bot on behalf of a user/channel via the `@` mention feature that Telegram routes through `message.guest_bot_caller_user` / `message.guest_bot_caller_chat` (PTB v22.8+)
+- A custom `GuestBotFilter` (`filters.MessageFilter`) matches only messages where either guest-bot caller field is set, so the handler is dispatched before the broad `GROUPS & ~COMMAND` filters at the same group
+- Registered as `guest_bot_block` at `handler_group=1` via `spam_mod.register_guest_bot_block` in `plugins/builtin/spam.py`, gated by `guard_plugin("guest_bot_block")`
+- Non-whitelisted guest bot messages are always deleted; the invoking **human caller** then receives progressive enforcement using the group's existing `warning_threshold`:
+  - 1st violation → warning in the warning topic (`GUEST_BOT_WARNING`)
+  - 2nd to (N-1) → silent increment
+  - Nth violation → restrict + notification (`GUEST_BOT_RESTRICTION`)
+- Admin/trusted callers have their guest message deleted but are **not** warned or restricted
+- Chat/channel-only callers (no `guest_bot_caller_user`) are delete-only — there is no human to warn
+- Already guest-bot-restricted callers do not start a fresh warning cycle (`is_user_restricted_by_bot` check)
+- Guest strikes use a **separate DB warning kind** (`warning_kind="guest_bot"`) so they do not mix with profile-compliance (`"profile"`) warnings — `UserWarning.warning_kind` column, auto-migrated via `ALTER TABLE`
+- Guest restrictions are **not** routed through the profile-compliance self-service DM unrestriction flow
+- Whitelist: bot usernames compared case-insensitively, optional `@` prefix; configured via `GUEST_BOT_WHITELIST` env (comma-separated) or `guest_bot_whitelist` per-group JSON list
+- Disable per group: `"plugins": {"guest_bot_block": false}` in `groups.json`
+
 ### Topic Guard Design
 - Handles both `message` and `edited_message` updates (combined filter)
 - Raises `ApplicationHandlerStop` after handling ANY warning-topic message (allows or deletes)
@@ -195,7 +214,7 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 - Handler + JobQueue registration (`PluginManager.register_all()`) and effective-plugin-map computation happen later, in `main()` after `post_init` is wired up but before `run_polling` — not inside `post_init` itself
 
 ### Multi-Group Support
-- `GroupConfig` — Pydantic model with 21 per-group settings: warning thresholds, captcha, probation, contact/duplicate/bio-bait spam tuning, `rules_link`, optional `moderation_topic_id`, and a `plugins: dict[str, bool] | None` override
+- `GroupConfig` — Pydantic model with 22 per-group settings: warning thresholds, captcha, probation, contact/duplicate/bio-bait spam tuning, `rules_link`, optional `moderation_topic_id`, `guest_bot_whitelist`, and a `plugins: dict[str, bool] | None` override
 - `GroupRegistry` — O(1) lookup by group_id, manages all monitored groups
 - `groups.json` — Per-group config file; falls back to `.env` for single-group mode (missing fields default from `GroupConfig.model_fields`)
 - `get_group_config_for_update()` — Helper to resolve config for incoming Telegram updates
@@ -213,7 +232,8 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - SQLite with **WAL mode + `synchronous=NORMAL`** for write concurrency under a single-process bot
 - `session.exec(select(Model).where(...)).first()` syntax
 - Atomic updates for violation counts via raw `UPDATE ... SET x = x + 1` (prevents read-modify-write races)
-- No Alembic — use `SQLModel.metadata.create_all` + `_migrate_trusted_users` (`ALTER TABLE`) for column adds
+- No Alembic — use `SQLModel.metadata.create_all` + `_migrate_trusted_users` (`ALTER TABLE`) for column adds; `_migrate_warning_kind` adds the `warning_kind` column to `user_warnings` for the guest-bot feature
+- `UserWarning.warning_kind` discriminates warning sources: `"profile"` (profile-compliance monitor) vs `"guest_bot"` (Guest Mode moderation). All `DatabaseService` warning methods accept a `warning_kind` parameter so guest strikes never mix with profile strikes
 - Registers a datetime SQLite adapter to isoformat strings (avoids the Python 3.12+ default-adapter deprecation)
 - New tables: `TrustedUser` (5th table) for the /trust admin bypass feature — `group_id` defaults to `0` (global scope); per-group trust is modeled in the schema but not currently exercised anywhere
 
@@ -310,6 +330,7 @@ if user.id not in admin_ids:
 - **Trust feature**: `TrustedUser` table caches user_full_name + admin_full_name at trust time so `/trusted` lists admin info without Telegram API calls. Backfill script at `scripts/backfill_trusted_names.py` for pre-existing rows
 - **Local review artifacts**: `reviews/` directory contains output from parallel reviewer subagents. Gitignored; not part of the source tree
 - **Captcha DB ordering**: The captcha callback handler calls Telegram `unrestrict_user` BEFORE DB writes (remove_pending_captcha, start_new_user_probation). If unrestrict fails, the pending captcha stays in DB and the user can retry. DB finalization is idempotent — `remove_pending_captcha` returning False means a concurrent callback already finalized
+- **Guest bot blocking**: Telegram Guest Mode lets any user `@mention` a bot and have the result posted in a chat. The `guest_bot_block` plugin (group=1) deletes non-whitelisted guest bot messages and progressively restricts the human caller (1st=warning, Nth=restrict). Admins/trusted users and channel-only callers are delete-only. Bot whitelist is case-insensitive with optional `@`. Guest strikes are tracked separately via `warning_kind="guest_bot"` and are not eligible for the DM self-service unrestriction flow
 
 ## Policy
 

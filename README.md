@@ -26,6 +26,7 @@ A comprehensive Telegram bot for managing group members with profile verificatio
 - **Duplicate message detection**: Flags repeated near-identical messages within a configurable window
 - **Bio-bait detection**: Catches obfuscated "check my bio" bait phrases and suspicious promo links in a sender's Telegram profile bio (monitor-only mode available)
 - **Anti-spam enforcement**: Tracks violations and restricts spammers after threshold
+- **Guest bot blocking**: Blocks Telegram Guest Mode messages — when a user `@mentions` a bot and the result is posted in the chat, non-whitelisted guest bot messages are deleted and the invoking user is progressively warned/restricted (1st violation: warning, Nth violation: restrict). Admins and trusted users are exempt from enforcement; channel-only callers are delete-only. Allowed bots are configured by username (case-insensitive, optional `@`)
 - **Trusted users**: Admin-managed trusted list to bypass anti-spam + duplicate-spam checks
 
 ### Admin Tools
@@ -210,8 +211,8 @@ uv run mypy src/bot/ tests/
 ### Test Coverage
 
 The project maintains comprehensive test coverage:
-- **Coverage**: 98%+ (~2,500 statements, <2% unreachable)
-- **Tests**: 977+ total (includes 19 Hypothesis property tests)
+- **Coverage**: 97%+ (~2,900 statements, <3% unreachable)
+- **Tests**: 1,048 total (includes 19 Hypothesis property tests)
 - **Pass Rate**: 100%
 - **Property tests**: `tests/test_properties.py` exercises pure functions (format helpers, URL whitelist, name formatters) with random inputs and shrinks failing cases to minimal examples
 - **Mypy**: Pragmatic config in `pyproject.toml`. Disables error codes that are noisy from PTB / SQLModel / Pydantic v2; catches real type bugs in new code
@@ -251,6 +252,7 @@ PythonID/
 │   ├── test_dm_handler.py
 │   ├── test_duplicate_spam.py
 │   ├── test_group_config.py
+│   ├── test_guest_bot.py
 │   ├── test_main_plugins_bootstrap.py
 │   ├── test_message_handler.py
 │   ├── test_photo_verification.py
@@ -295,7 +297,8 @@ PythonID/
         │   ├── verify.py        # /verify and /unverify command handlers
         │   ├── warn.py          # Per-group admin /warn command
         │   ├── duplicate_spam.py # Duplicate message detection
-        │   └── bio_bait.py      # Bio-bait spam (bait phrases + suspicious profile bio links)
+        │   ├── bio_bait.py      # Bio-bait spam (bait phrases + suspicious profile bio links)
+        │   └── guest_bot.py     # Guest Mode moderation (delete + progressive restriction)
         ├── database/
         │   ├── models.py        # SQLModel schemas (5 tables)
         │   └── service.py       # Database operations
@@ -585,6 +588,7 @@ The bot is organized into clear modules for maintainability:
   - `anti_spam.py`: Inline keyboard spam (group=1) + contact card spam (group=2) + new user probation enforcement (group=3)
   - `duplicate_spam.py`: Repeated message detection (group=4)
   - `bio_bait.py`: Obfuscated bait-phrase + suspicious profile-bio link detection (group=4, monitor-only mode available)
+  - `guest_bot.py`: Blocks Telegram Guest Mode messages — deletes non-whitelisted guest bot posts and progressively restricts the human caller (group=1, `guest_bot_block` plugin)
   - `verify.py`: /verify and /unverify command handlers
   - `check.py`: /check command + forwarded message handling
   - `trust.py`: /trust, /untrust, /trusted admin commands (TrustedUser table caches names at trust time so /trusted renders without API calls)
@@ -665,6 +669,26 @@ All messages are formatted with proper Indonesian language patterns and include 
 - Uses `ApplicationHandlerStop` to prevent downstream handlers from processing warning-topic traffic
 - **Fail-closed**: On API errors, messages in the warning topic are deleted (erring on the side of protection)
 
+### Guest Bot Moderation
+Telegram's **Guest Mode** lets any user `@mention` a bot in a chat and have the bot's response posted on their behalf — the message appears as if sent by the bot, but Telegram records the invoking user in `guest_bot_caller_user` (or `guest_bot_caller_chat` for channel callers). The `guest_bot_block` plugin (handler group 1) intercepts these messages:
+
+1. **Non-whitelisted guest bot messages are deleted** — regardless of who the caller is
+2. **Human callers** receive progressive enforcement using the group's `WARNING_THRESHOLD`:
+   - 1st violation → warning in the warning topic
+   - 2nd to (N-1) → silent (no spam)
+   - Nth violation → user restricted + notification sent
+3. **Admins and trusted users** — message deleted only, no warning or restriction
+4. **Channel-only callers** (no human user) — delete-only, nothing to enforce against
+5. **Already-restricted callers** — no new warning cycle started
+
+Guest bot strikes are tracked separately from profile-compliance warnings (via the `warning_kind` DB column), so they do not affect or get affected by profile monitoring. Guest restrictions are **not** eligible for the DM self-service unrestriction flow.
+
+**Whitelisting allowed bots**: Bot usernames are compared case-insensitively, and the `@` prefix is optional. Configure via:
+- `.env` (single-group): `GUEST_BOT_WHITELIST=@somebot,anotherbot`
+- `groups.json` (per-group): `"guest_bot_whitelist": ["somebot", "anotherbot"]`
+
+**Disabling per group**: Add `"guest_bot_block": false` to the group's `"plugins"` object in `groups.json`.
+
 ### DM Unrestriction Flow
 When a restricted user DMs the bot (or sends `/start`):
 1. Bot checks if user is in the group
@@ -696,6 +720,7 @@ When a restricted user DMs the bot (or sends `/start`):
 | `BIO_BAIT_ENABLED` | Enable bio-bait phrase/link detection | `true` |
 | `BIO_BAIT_MONITOR_ONLY` | Log/alert only, skip delete + restrict | `false` |
 | `BIO_BAIT_ALERT_CHAT_ID` | Chat ID to receive monitor-only detection alerts | None |
+| `GUEST_BOT_WHITELIST` | Comma-separated list of allowed guest bot usernames (case-insensitive, optional `@`) | Empty (all guest bots blocked) |
 | `DATABASE_PATH` | SQLite database path | `data/bot.db` |
 | `RULES_LINK` | Link to group rules message | `https://t.me/pythonID/290029/321799` |
 | `LOGFIRE_ENABLED` | Enable Logfire logging integration | `true` |
