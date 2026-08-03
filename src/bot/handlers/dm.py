@@ -81,7 +81,7 @@ async def _unrestrict_in_groups(
 
     for gc, user_status in restricted_groups:
         if user_status != ChatMemberStatus.RESTRICTED:
-            db.mark_user_unrestricted(user.id, gc.group_id)
+            db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
             logger.info(
                 f"User {user.id} ({user.full_name}) already unrestricted in group {gc.group_id} - clearing record"
             )
@@ -90,7 +90,7 @@ async def _unrestrict_in_groups(
         logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
         try:
             await unrestrict_user(context.bot, gc.group_id, user.id)
-            db.mark_user_unrestricted(user.id, gc.group_id)
+            db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
             success_count += 1
 
             user_mention = get_user_mention(user)

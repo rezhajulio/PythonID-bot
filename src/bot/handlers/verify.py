@@ -72,14 +72,17 @@ async def verify_user_in_group(
     )
 
     deleted_count = db.delete_user_warnings(target_user_id, group_id)
+    deleted_count += db.delete_user_warnings(
+        target_user_id, group_id, warning_kind="guest_bot"
+    )
 
-    was_restricted = db.is_user_restricted_by_bot(target_user_id, group_id)
+    was_restricted = db.is_user_restricted_by_bot_any_kind(target_user_id, group_id)
     did_unrestrict = False
 
     if was_restricted:
         try:
             await unrestrict_user(bot, group_id, target_user_id)
-            db.mark_user_unrestricted(target_user_id, group_id)
+            db.mark_all_bot_restrictions_unrestricted(target_user_id, group_id)
             did_unrestrict = True
             logger.info(
                 f"Unrestricted user {target_user_id} in group {group_id} during verification"
@@ -156,14 +159,14 @@ async def unrestrict_user_in_group(
     Returns:
         Success or error message string.
     """
-    if not db.is_user_restricted_by_bot(target_user_id, group_id):
+    if not db.is_user_restricted_by_bot_any_kind(target_user_id, group_id):
         return UNRESTRICT_NOT_NEEDED_MESSAGE.format(
             user_id=target_user_id, group_id=group_id
         )
 
     try:
         await unrestrict_user(bot, group_id, target_user_id)
-        db.mark_user_unrestricted(target_user_id, group_id)
+        db.mark_all_bot_restrictions_unrestricted(target_user_id, group_id)
         logger.info(
             f"Admin unrestricting user {target_user_id} in group {group_id}"
         )

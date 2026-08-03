@@ -189,7 +189,8 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 - Chat/channel-only callers (no `guest_bot_caller_user`) are delete-only — there is no human to warn
 - Already guest-bot-restricted callers do not start a fresh warning cycle (`is_user_restricted_by_bot` check)
 - Guest strikes use a **separate DB warning kind** (`warning_kind="guest_bot"`) so they do not mix with profile-compliance (`"profile"`) warnings — `UserWarning.warning_kind` column, auto-migrated via `ALTER TABLE`
-- Guest restrictions are **not** routed through the profile-compliance self-service DM unrestriction flow
+- Guest restrictions are **not** routed through the profile-compliance self-service DM unrestriction flow — a user restricted only for guest_bot violations gets "no bot restriction" from the DM flow and must contact an admin. However, if a user has **both** profile and guest_bot restrictions, the DM flow will unrestrict and clear **all** bot restriction flags (since Telegram has a single physical restriction state)
+- Admin "Buka pembatasan bot" (unrestrict) and /verify use `is_user_restricted_by_bot_any_kind` + `mark_all_bot_restrictions_unrestricted` — they detect and clear **any** bot-applied restriction regardless of `warning_kind`
 - Whitelist: bot usernames compared case-insensitively, optional `@` prefix; configured via `GUEST_BOT_WHITELIST` env (comma-separated) or `guest_bot_whitelist` per-group JSON list
 - Disable per group: `"plugins": {"guest_bot_block": false}` in `groups.json`
 

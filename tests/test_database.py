@@ -457,3 +457,174 @@ class TestTrustedUsers:
 
         users = db_service.get_trusted_users()
         assert [u.user_id for u in users] == [3002, 3001]
+
+
+class TestWarningKindIsolation:
+    """Tests for warning_kind discriminator isolation between profile and guest_bot."""
+
+    def test_profile_and_guest_records_coexist(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+
+        profile = db_service.get_active_user_warning(123, -100, warning_kind="profile")
+        guest = db_service.get_active_user_warning(123, -100, warning_kind="guest_bot")
+        assert profile is not None
+        assert guest is not None
+        assert profile.id != guest.id
+        assert profile.warning_kind == "profile"
+        assert guest.warning_kind == "guest_bot"
+
+    def test_increment_profile_does_not_affect_guest(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+
+        db_service.increment_message_count(123, -100, warning_kind="profile")
+        db_service.increment_message_count(123, -100, warning_kind="profile")
+
+        profile = db_service.get_active_user_warning(123, -100, warning_kind="profile")
+        guest = db_service.get_active_user_warning(123, -100, warning_kind="guest_bot")
+        assert profile.message_count == 3
+        assert guest.message_count == 1
+
+    def test_restrict_profile_does_not_affect_guest(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+
+        db_service.mark_user_restricted(123, -100, warning_kind="profile")
+
+        assert db_service.is_user_restricted_by_bot(123, -100, warning_kind="profile") is True
+        assert db_service.is_user_restricted_by_bot(123, -100, warning_kind="guest_bot") is False
+
+    def test_delete_profile_does_not_delete_guest(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+
+        deleted = db_service.delete_user_warnings(123, -100, warning_kind="profile")
+        assert deleted == 1
+
+        assert db_service.get_active_user_warning(123, -100, warning_kind="profile") is None
+        assert db_service.get_active_user_warning(123, -100, warning_kind="guest_bot") is not None
+
+    def test_scheduler_query_excludes_guest_rows(self, db_service):
+        from datetime import UTC, datetime, timedelta
+
+        from sqlmodel import Session, select
+
+        old_time = datetime.now(UTC) - timedelta(minutes=1500)
+
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(456, -100, warning_kind="guest_bot")
+
+        with Session(db_service._engine) as session:
+            for uid in (123, 456):
+                stmt = select(UserWarning).where(
+                    UserWarning.user_id == uid, UserWarning.group_id == -100
+                )
+                rec = session.exec(stmt).first()
+                rec.first_warned_at = old_time
+                session.add(rec)
+            session.commit()
+
+        result = db_service.get_warnings_past_time_threshold_for_group(
+            group_id=-100, threshold=timedelta(minutes=1440)
+        )
+        assert len(result) == 1
+        assert result[0].user_id == 123
+        assert result[0].warning_kind == "profile"
+
+
+class TestCrossKindRestrictionMethods:
+    """Tests for is_user_restricted_by_bot_any_kind and mark_all_bot_restrictions_unrestricted."""
+
+    def test_any_kind_false_when_no_record(self, db_service):
+        assert db_service.is_user_restricted_by_bot_any_kind(999, -100) is False
+
+    def test_any_kind_true_for_profile_only(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.mark_user_restricted(123, -100, warning_kind="profile")
+        assert db_service.is_user_restricted_by_bot_any_kind(123, -100) is True
+
+    def test_any_kind_true_for_guest_only(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+        db_service.mark_user_restricted(123, -100, warning_kind="guest_bot")
+        assert db_service.is_user_restricted_by_bot_any_kind(123, -100) is True
+
+    def test_any_kind_true_for_both(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.mark_user_restricted(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+        db_service.mark_user_restricted(123, -100, warning_kind="guest_bot")
+        assert db_service.is_user_restricted_by_bot_any_kind(123, -100) is True
+
+    def test_mark_all_clears_both_kinds(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.mark_user_restricted(123, -100, warning_kind="profile")
+        db_service.get_or_create_user_warning(123, -100, warning_kind="guest_bot")
+        db_service.mark_user_restricted(123, -100, warning_kind="guest_bot")
+
+        db_service.mark_all_bot_restrictions_unrestricted(123, -100)
+
+        assert db_service.is_user_restricted_by_bot(123, -100, warning_kind="profile") is False
+        assert db_service.is_user_restricted_by_bot(123, -100, warning_kind="guest_bot") is False
+        assert db_service.is_user_restricted_by_bot_any_kind(123, -100) is False
+
+    def test_mark_all_noop_when_no_restriction(self, db_service):
+        db_service.get_or_create_user_warning(123, -100, warning_kind="profile")
+        db_service.mark_all_bot_restrictions_unrestricted(123, -100)
+        assert db_service.is_user_restricted_by_bot_any_kind(123, -100) is False
+
+
+class TestWarningKindMigration:
+    """Tests for _migrate_user_warnings adding warning_kind column."""
+
+    def test_migration_from_old_db_without_warning_kind(self):
+        """Old DB without warning_kind column gets migrated with 'profile' default."""
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "old.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE user_warnings ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER, "
+                "group_id INTEGER, "
+                "message_count INTEGER, "
+                "first_warned_at TEXT, "
+                "last_message_at TEXT, "
+                "is_restricted BOOLEAN, "
+                "restricted_by_bot BOOLEAN)"
+            )
+            conn.execute(
+                "INSERT INTO user_warnings (user_id, group_id, message_count, "
+                "first_warned_at, last_message_at, is_restricted, restricted_by_bot) "
+                "VALUES (123, -100, 3, '2024-01-01', '2024-01-01', 1, 1)"
+            )
+            conn.commit()
+            conn.close()
+
+            init_database(db_path)
+            db = get_database()
+
+            assert db.is_user_restricted_by_bot(123, -100) is True
+            assert db.is_user_restricted_by_bot(123, -100, warning_kind="guest_bot") is False
+
+            record = db.get_active_user_warning(123, -100)
+            assert record is None
+
+            reset_database()
+
+    def test_migration_is_idempotent(self):
+        """Running DatabaseService init twice on the same DB is safe."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "test.db")
+            init_database(db_path)
+            db = get_database()
+            db.get_or_create_user_warning(123, -100)
+            reset_database()
+
+            init_database(db_path)
+            db = get_database()
+            assert db.is_user_restricted_by_bot(123, -100) is False
+            assert db.get_active_user_warning(123, -100) is not None
+            reset_database()

@@ -91,9 +91,13 @@ class DatabaseService:
             }
             if "warning_kind" not in columns:
                 conn.exec_driver_sql(
-                    "ALTER TABLE user_warnings ADD COLUMN warning_kind TEXT DEFAULT 'profile'"
+                    "ALTER TABLE user_warnings ADD COLUMN warning_kind TEXT NOT NULL DEFAULT 'profile'"
                 )
                 logger.info("Migrated user_warnings: added warning_kind column")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_user_warnings_kind "
+                "ON user_warnings (user_id, group_id, warning_kind, is_restricted)"
+            )
             conn.commit()
 
     def get_or_create_user_warning(
@@ -263,6 +267,66 @@ class DatabaseService:
             )
             record = session.exec(statement).first()
             return record is not None
+
+    def is_user_restricted_by_bot_any_kind(
+        self, user_id: int, group_id: int
+    ) -> bool:
+        """
+        Check if user was restricted by this bot for any warning kind.
+
+        Unlike ``is_user_restricted_by_bot``, this checks across all
+        warning kinds (profile, guest_bot, etc.). Used by admin
+        unrestrict actions that should lift any bot-applied restriction.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+
+        Returns:
+            bool: True if user was restricted by this bot for any kind.
+        """
+        with Session(self._engine) as session:
+            statement = select(UserWarning).where(
+                UserWarning.user_id == user_id,
+                UserWarning.group_id == group_id,
+                UserWarning.is_restricted,
+                UserWarning.restricted_by_bot,
+            )
+            record = session.exec(statement).first()
+            return record is not None
+
+    def mark_all_bot_restrictions_unrestricted(
+        self, user_id: int, group_id: int
+    ) -> None:
+        """
+        Clear bot restriction flags for all warning kinds.
+
+        Unlike ``mark_user_unrestricted``, this clears ``restricted_by_bot``
+        across all warning kinds. Used after a Telegram unrestrict call
+        that physically lifts the single restriction regardless of which
+        kind triggered it.
+
+        Args:
+            user_id: Telegram user ID.
+            group_id: Telegram group ID.
+        """
+        with Session(self._engine) as session:
+            statement = select(UserWarning).where(
+                UserWarning.user_id == user_id,
+                UserWarning.group_id == group_id,
+                UserWarning.is_restricted,
+                UserWarning.restricted_by_bot,
+            )
+            records = session.exec(statement).all()
+            for record in records:
+                record.restricted_by_bot = False
+                session.add(record)
+            if records:
+                session.commit()
+                logger.info(
+                    f"Cleared {len(records)} bot restriction flag(s): "
+                    f"user_id={user_id}, group_id={group_id}"
+                )
 
     def mark_user_unrestricted(
         self, user_id: int, group_id: int, warning_kind: str = "profile"

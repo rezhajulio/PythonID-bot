@@ -212,7 +212,7 @@ uv run mypy src/bot/ tests/
 
 The project maintains comprehensive test coverage:
 - **Coverage**: 97%+ (~2,900 statements, <3% unreachable)
-- **Tests**: 1,048 total (includes 19 Hypothesis property tests)
+- **Tests**: 1,064 total (includes 19 Hypothesis property tests)
 - **Pass Rate**: 100%
 - **Property tests**: `tests/test_properties.py` exercises pure functions (format helpers, URL whitelist, name formatters) with random inputs and shrinks failing cases to minimal examples
 - **Mypy**: Pragmatic config in `pyproject.toml`. Disables error codes that are noisy from PTB / SQLModel / Pydantic v2; catches real type bugs in new code
@@ -681,7 +681,7 @@ Telegram's **Guest Mode** lets any user `@mention` a bot in a chat and have the 
 4. **Channel-only callers** (no human user) — delete-only, nothing to enforce against
 5. **Already-restricted callers** — no new warning cycle started
 
-Guest bot strikes are tracked separately from profile-compliance warnings (via the `warning_kind` DB column), so they do not affect or get affected by profile monitoring. Guest restrictions are **not** eligible for the DM self-service unrestriction flow.
+Guest bot strikes are tracked separately from profile-compliance warnings (via the `warning_kind` DB column), so they do not affect or get affected by profile monitoring. Guest restrictions are **not** eligible for the DM self-service unrestriction flow — a user restricted only for guest bot violations will see "no bot restriction" in the DM flow and must contact an admin. However, if a user has **both** profile and guest bot restrictions, the DM flow will lift the restriction and clear all bot restriction flags (Telegram has a single physical restriction state). The admin "Buka pembatasan bot" action and /verify command detect and clear **any** bot-applied restriction regardless of warning kind.
 
 **Whitelisting allowed bots**: Bot usernames are compared case-insensitively, and the `@` prefix is optional. Configure via:
 - `.env` (single-group): `GUEST_BOT_WHITELIST=@somebot,anotherbot`
