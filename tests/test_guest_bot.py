@@ -148,6 +148,25 @@ class TestHandleGuestBotMessage:
             123, mock_group_config.group_id, warning_kind="guest_bot"
         )
 
+    async def test_threshold_one_restricts_without_warning(self, mock_update, mock_context, mock_group_config):
+        """When warning_threshold==1, first violation restricts without sending a separate warning."""
+        mock_group_config.warning_threshold = 1
+        db = MagicMock()
+        db.is_user_restricted_by_bot.return_value = False
+        db.get_or_create_user_warning.return_value.message_count = 1
+        with (
+            patch("bot.handlers.guest_bot.get_group_config_for_update", return_value=mock_group_config),
+            patch("bot.handlers.guest_bot.is_user_admin_or_trusted", return_value=False),
+            patch("bot.handlers.guest_bot.get_database", return_value=db),
+            pytest.raises(ApplicationHandlerStop),
+        ):
+            await handle_guest_bot_message(mock_update, mock_context)
+        mock_context.bot.restrict_chat_member.assert_awaited_once()
+        db.mark_user_restricted.assert_called_once_with(
+            123, mock_group_config.group_id, warning_kind="guest_bot"
+        )
+        db.increment_message_count.assert_not_called()
+
     async def test_chat_caller_is_deleted_only(self, mock_update, mock_context, mock_group_config):
         mock_update.message.guest_bot_caller_user = None
         mock_update.message.guest_bot_caller_chat = Chat(id=-1009, type="channel", title="Channel")
@@ -161,7 +180,9 @@ class TestHandleGuestBotMessage:
         get_db.assert_not_called()
 
     async def test_delete_failure_continues(self, mock_update, mock_context, mock_group_config):
-        mock_update.message.delete.side_effect = RuntimeError("delete failed")
+        from telegram.error import BadRequest
+
+        mock_update.message.delete.side_effect = BadRequest("delete failed")
         db = MagicMock()
         db.is_user_restricted_by_bot.return_value = False
         db.get_or_create_user_warning.return_value.message_count = 2

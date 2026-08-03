@@ -333,6 +333,77 @@ class TestHandleDM:
         call_args = mock_update.message.reply_text.call_args
         assert "tidak memiliki pembatasan dari bot" in call_args.args[0]
 
+    async def test_guest_bot_restriction_not_unrestricted_via_dm(
+        self, mock_update, mock_context, mock_registry, temp_db
+    ):
+        """User restricted only for guest_bot violations is NOT eligible for DM unrestriction."""
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.get_or_create_user_warning(12345, -1001234567890, warning_kind="guest_bot")
+        db.mark_user_restricted(12345, -1001234567890, warning_kind="guest_bot")
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        with (
+            patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
+            patch(
+                "bot.handlers.dm.get_user_status",
+                new_callable=AsyncMock,
+                return_value="restricted",
+            ),
+            patch(
+                "bot.handlers.dm.check_user_profile",
+                return_value=complete_result,
+            ),
+        ):
+            await handle_dm(mock_update, mock_context)
+
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        call_args = mock_update.message.reply_text.call_args
+        assert "tidak memiliki pembatasan dari bot" in call_args.args[0]
+
+    async def test_both_profile_and_guest_restriction_unrestricted_via_dm(
+        self, mock_update, mock_context, mock_registry, temp_db
+    ):
+        """User with both profile + guest_bot restriction: DM unrestricts and clears both flags."""
+        from bot.database.service import get_database
+
+        db = get_database()
+        db.get_or_create_user_warning(12345, -1001234567890, warning_kind="profile")
+        db.mark_user_restricted(12345, -1001234567890, warning_kind="profile")
+        db.get_or_create_user_warning(12345, -1001234567890, warning_kind="guest_bot")
+        db.mark_user_restricted(12345, -1001234567890, warning_kind="guest_bot")
+
+        complete_result = ProfileCheckResult(
+            has_profile_photo=True, has_username=True
+        )
+
+        with (
+            patch("bot.handlers.dm.get_group_registry", return_value=mock_registry),
+            patch(
+                "bot.handlers.dm.get_user_status",
+                new_callable=AsyncMock,
+                return_value="restricted",
+            ),
+            patch(
+                "bot.handlers.dm.check_user_profile",
+                return_value=complete_result,
+            ),
+            patch(
+                "bot.handlers.dm.unrestrict_user",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await handle_dm(mock_update, mock_context)
+
+        reply_args = mock_update.message.reply_text.call_args
+        assert "✅" in reply_args.args[0]
+        assert db.is_user_restricted_by_bot(12345, -1001234567890, warning_kind="profile") is False
+        assert db.is_user_restricted_by_bot(12345, -1001234567890, warning_kind="guest_bot") is False
+
     async def test_redirects_user_with_pending_captcha_to_group(
         self, mock_update, mock_context, mock_registry, temp_db
     ):

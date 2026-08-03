@@ -3,6 +3,7 @@
 import logging
 
 from telegram import Message, Update, User
+from telegram.error import TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes, filters
 
 from bot.constants import (
@@ -56,7 +57,7 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
     caller = message.guest_bot_caller_user or message.guest_bot_caller_chat
     try:
         await message.delete()
-    except Exception:
+    except TelegramError:
         logger.error("Failed to delete guest bot message", exc_info=True)
 
     if caller is None or not isinstance(caller, User):
@@ -71,7 +72,31 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
     record = db.get_or_create_user_warning(caller.id, group_config.group_id, warning_kind="guest_bot")
     user_mention = get_user_mention(caller)
 
-    if record.message_count == 1:
+    if record.message_count >= group_config.warning_threshold:
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=group_config.group_id,
+                user_id=caller.id,
+                permissions=RESTRICTED_PERMISSIONS,
+            )
+        except TelegramError:
+            logger.error("Failed to restrict guest bot caller %s", caller.id, exc_info=True)
+        else:
+            db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
+            try:
+                await context.bot.send_message(
+                    chat_id=group_config.group_id,
+                    message_thread_id=group_config.warning_topic_id,
+                    text=GUEST_BOT_RESTRICTION.format(
+                        user_mention=user_mention,
+                        message_count=record.message_count,
+                        rules_link=group_config.rules_link,
+                    ),
+                    parse_mode="Markdown",
+                )
+            except TelegramError:
+                logger.error("Failed to send guest bot restriction notice for user %s", caller.id, exc_info=True)
+    elif record.message_count == 1:
         try:
             await context.bot.send_message(
                 chat_id=group_config.group_id,
@@ -83,29 +108,9 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
                 ),
                 parse_mode="Markdown",
             )
-        except Exception:
+        except TelegramError:
             logger.error("Failed to send guest bot warning for user %s", caller.id, exc_info=True)
-
-    if record.message_count >= group_config.warning_threshold:
-        try:
-            await context.bot.restrict_chat_member(
-                chat_id=group_config.group_id,
-                user_id=caller.id,
-                permissions=RESTRICTED_PERMISSIONS,
-            )
-            db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
-            await context.bot.send_message(
-                chat_id=group_config.group_id,
-                message_thread_id=group_config.warning_topic_id,
-                text=GUEST_BOT_RESTRICTION.format(
-                    user_mention=user_mention,
-                    message_count=record.message_count,
-                    rules_link=group_config.rules_link,
-                ),
-                parse_mode="Markdown",
-            )
-        except Exception:
-            logger.error("Failed to restrict guest bot caller %s", caller.id, exc_info=True)
+        db.increment_message_count(caller.id, group_config.group_id, warning_kind="guest_bot")
     else:
         db.increment_message_count(caller.id, group_config.group_id, warning_kind="guest_bot")
 
