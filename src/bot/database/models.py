@@ -8,7 +8,7 @@ enforcement system.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -38,6 +38,15 @@ class UserWarning(SQLModel, table=True):
     """
 
     __tablename__ = "user_warnings"
+    __table_args__ = (
+        Index(
+            "ix_user_warnings_kind",
+            "user_id",
+            "group_id",
+            "warning_kind",
+            "is_restricted",
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(index=True)
@@ -47,7 +56,7 @@ class UserWarning(SQLModel, table=True):
     last_message_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_restricted: bool = Field(default=False)
     restricted_by_bot: bool = Field(default=False)
-    warning_kind: str = Field(default="profile", index=True)
+    warning_kind: str = Field(default="profile")
 
 
 class PhotoVerificationWhitelist(SQLModel, table=True):
