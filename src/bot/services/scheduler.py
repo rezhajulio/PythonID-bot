@@ -21,6 +21,7 @@ from bot.constants import (
 from bot.database.service import get_database
 from bot.group_config import get_group_registry
 from bot.services.bot_info import BotInfoCache
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import (
     get_user_mention,
     get_user_status,
@@ -110,18 +111,19 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                     )
 
                 logger.info(f"Applying restriction to user_id={warning.user_id}")
-                ok = await restrict_chat_member_with_retry(
-                    bot,
-                    chat_id=group_config.group_id,
-                    user_id=warning.user_id,
-                    permissions=RESTRICTED_PERMISSIONS,
-                )
-                if not ok:
-                    logger.error(
-                        f"Gave up restricting user {warning.user_id} after RetryAfter"
+                async with restriction_lock(group_config.group_id, warning.user_id):
+                    ok = await restrict_chat_member_with_retry(
+                        bot,
+                        chat_id=group_config.group_id,
+                        user_id=warning.user_id,
+                        permissions=RESTRICTED_PERMISSIONS,
                     )
-                    continue
-                db.mark_user_restricted(warning.user_id, warning.group_id)
+                    if not ok:
+                        logger.error(
+                            f"Gave up restricting user {warning.user_id} after RetryAfter"
+                        )
+                        continue
+                    db.mark_user_restricted(warning.user_id, warning.group_id)
 
                 threshold_display = format_threshold_display(
                     group_config.warning_time_threshold_minutes

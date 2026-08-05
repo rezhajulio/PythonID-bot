@@ -13,6 +13,7 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
 
 logger = logging.getLogger(__name__)
@@ -74,15 +75,16 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
 
     if record.message_count >= group_config.warning_threshold:
         try:
-            await context.bot.restrict_chat_member(
-                chat_id=group_config.group_id,
-                user_id=caller.id,
-                permissions=RESTRICTED_PERMISSIONS,
-            )
+            async with restriction_lock(group_config.group_id, caller.id):
+                await context.bot.restrict_chat_member(
+                    chat_id=group_config.group_id,
+                    user_id=caller.id,
+                    permissions=RESTRICTED_PERMISSIONS,
+                )
+                db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
         except TelegramError:
             logger.error("Failed to restrict guest bot caller %s", caller.id, exc_info=True)
         else:
-            db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
             try:
                 await context.bot.send_message(
                     chat_id=group_config.group_id,

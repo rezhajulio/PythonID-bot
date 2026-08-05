@@ -135,7 +135,7 @@ PythonID/
 
 ### Modular Plugin System
 - Built-in plugins live in `src/bot/plugins/builtin/`, one per handler domain (captcha, spam, topic_guard, profile_monitor, commands, dm, jobs)
-- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 27 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
+- `plugins/definitions.py` holds `MANIFEST_ORDER` — a static, hand-maintained tuple of 28 plugin names (topic_guard first, job plugins last) that is the single source of truth for registration order and for the group number each plugin runs in
 - `PluginManager.register_all()` (called from `main.py:main`, not `post_init`) walks `MANIFEST_ORDER` against a static `_REGISTRY` dict (name → registrar function) and stores results in `application.bot_data["plugin_handlers"]`
 - The plugin wrapper pattern: `bot.plugins.builtin.X` imports from `bot.handlers.X`, clones the handler list, and applies `guard_plugin("X")` for per-group runtime gating
 - To add a new plugin: add a `register_*(application) -> list[BaseHandler]` function in `builtin/`, add its name + group to `_PLUGIN_DEFINITIONS` in `definitions.py`, wire it into `_REGISTRY` in `manager.py`
@@ -233,7 +233,7 @@ Time threshold → Auto-restrict via scheduler (parallel path)
 - SQLite with **WAL mode + `synchronous=NORMAL`** for write concurrency under a single-process bot
 - `session.exec(select(Model).where(...)).first()` syntax
 - Atomic updates for violation counts via raw `UPDATE ... SET x = x + 1` (prevents read-modify-write races)
-- No Alembic — use `SQLModel.metadata.create_all` + `_migrate_trusted_users` (`ALTER TABLE`) for column adds; `_migrate_warning_kind` adds the `warning_kind` column to `user_warnings` for the guest-bot feature
+- No Alembic — use `SQLModel.metadata.create_all` + `_migrate_trusted_users` (`ALTER TABLE`) for column adds; `_migrate_user_warnings` adds the `warning_kind` column to `user_warnings` for the guest-bot feature
 - `UserWarning.warning_kind` discriminates warning sources: `"profile"` (profile-compliance monitor) vs `"guest_bot"` (Guest Mode moderation). All `DatabaseService` warning methods accept a `warning_kind` parameter so guest strikes never mix with profile strikes
 - Registers a datetime SQLite adapter to isoformat strings (avoids the Python 3.12+ default-adapter deprecation)
 - New tables: `TrustedUser` (5th table) for the /trust admin bypass feature — `group_id` defaults to `0` (global scope); per-group trust is modeled in the schema but not currently exercised anywhere
@@ -315,7 +315,7 @@ if user.id not in admin_ids:
 
 ## Notes
 
-- Registration order for all 27 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
+- Registration order for all 28 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
 - `duplicate_spam` and `bio_bait_spam` both run at `group=4`; `auto_restrict_job` / `refresh_admin_ids_job` run as JobQueue jobs tagged `group=6` (not a PTB handler group)
 - Topic guard runs at `group=-1` to intercept unauthorized messages BEFORE other handlers
 - Topic guard handles both messages and edited messages, raises `ApplicationHandlerStop` to block downstream handlers

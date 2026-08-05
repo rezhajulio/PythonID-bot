@@ -33,6 +33,7 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_registry
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import (
     get_user_mention,
     get_user_status,
@@ -89,8 +90,9 @@ async def _unrestrict_in_groups(
 
         logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
         try:
-            await unrestrict_user(context.bot, gc.group_id, user.id)
-            db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
+            async with restriction_lock(gc.group_id, user.id):
+                await unrestrict_user(context.bot, gc.group_id, user.id)
+                db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
             success_count += 1
 
             user_mention = get_user_mention(user)

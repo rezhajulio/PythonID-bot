@@ -13,6 +13,7 @@ from bot.handlers.verify import (
     handle_verify_callback,
     handle_verify_command,
     unrestrict_user_in_group,
+    verify_user_in_group,
 )
 
 GROUP_ID = -1001234567890
@@ -840,6 +841,132 @@ class TestUnrestrictUserInGroup:
 
         assert "Gagal membuka pembatasan" in message
         assert db.is_user_restricted_by_bot(target_user_id, GROUP_ID)
+
+
+class TestVerifyUserInGroup:
+    """Tests for verify_user_in_group restriction lifecycle.
+
+    These tests verify the critical fix: restriction status is checked
+    BEFORE warning records are deleted, so the Telegram unrestrict call
+    actually fires when a restricted user is verified.
+    """
+
+    async def test_profile_restricted_user_is_unrestricted(self, temp_db, mock_context):
+        """Profile-restricted user: /verify calls unrestrict_user and clears flags."""
+        target_user_id = 555001
+        db = get_database()
+        gc = GroupConfig(group_id=GROUP_ID, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+
+        db.get_or_create_user_warning(target_user_id, GROUP_ID)
+        db.mark_user_restricted(target_user_id, GROUP_ID)
+        assert db.is_user_restricted_by_bot(target_user_id, GROUP_ID)
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, target_user_id, 12345, GROUP_ID
+        )
+
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        assert "Pembatasan bot dicabut" in message
+        assert not db.is_user_restricted_by_bot(target_user_id, GROUP_ID)
+        assert db.get_active_user_warning(target_user_id, GROUP_ID) is None
+
+    async def test_guest_bot_restricted_user_is_unrestricted(self, temp_db, mock_context):
+        """Guest-bot-restricted user: /verify calls unrestrict_user and clears flags."""
+        target_user_id = 555002
+        db = get_database()
+        gc = GroupConfig(group_id=GROUP_ID, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+
+        db.get_or_create_user_warning(target_user_id, GROUP_ID, warning_kind="guest_bot")
+        db.mark_user_restricted(target_user_id, GROUP_ID, warning_kind="guest_bot")
+        assert db.is_user_restricted_by_bot(target_user_id, GROUP_ID, warning_kind="guest_bot")
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, target_user_id, 12345, GROUP_ID
+        )
+
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        assert "Pembatasan bot dicabut" in message
+        assert not db.is_user_restricted_by_bot(target_user_id, GROUP_ID, warning_kind="guest_bot")
+        assert db.get_active_user_warning(target_user_id, GROUP_ID, warning_kind="guest_bot") is None
+
+    async def test_mixed_restriction_both_kinds_cleared(self, temp_db, mock_context):
+        """User with both profile + guest_bot restrictions: /verify unrestricts once, clears both."""
+        target_user_id = 555003
+        db = get_database()
+        gc = GroupConfig(group_id=GROUP_ID, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+
+        db.get_or_create_user_warning(target_user_id, GROUP_ID)
+        db.mark_user_restricted(target_user_id, GROUP_ID)
+        db.get_or_create_user_warning(target_user_id, GROUP_ID, warning_kind="guest_bot")
+        db.mark_user_restricted(target_user_id, GROUP_ID, warning_kind="guest_bot")
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, target_user_id, 12345, GROUP_ID
+        )
+
+        mock_context.bot.restrict_chat_member.assert_called_once()
+        assert "Pembatasan bot dicabut" in message
+        assert not db.is_user_restricted_by_bot(target_user_id, GROUP_ID)
+        assert not db.is_user_restricted_by_bot(target_user_id, GROUP_ID, warning_kind="guest_bot")
+        assert not db.is_user_restricted_by_bot_any_kind(target_user_id, GROUP_ID)
+
+    async def test_unrestricted_user_no_unrestrict_call(self, temp_db, mock_context):
+        """User with warnings but no restriction: /verify does not call unrestrict."""
+        target_user_id = 555004
+        db = get_database()
+        gc = GroupConfig(group_id=GROUP_ID, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+
+        db.get_or_create_user_warning(target_user_id, GROUP_ID)
+        db.increment_message_count(target_user_id, GROUP_ID)
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, target_user_id, 12345, GROUP_ID
+        )
+
+        mock_context.bot.restrict_chat_member.assert_not_called()
+        assert "Pembatasan bot dicabut" not in message
+        assert "diverifikasi" in message
+
+    async def test_telegram_unrestrict_failure_preserves_restriction(self, temp_db, mock_context):
+        """If Telegram unrestrict fails, restriction records are preserved for retry."""
+        from telegram.error import BadRequest
+
+        target_user_id = 555005
+        db = get_database()
+        gc = GroupConfig(group_id=GROUP_ID, warning_topic_id=12345)
+        registry = GroupRegistry()
+        registry.register(gc)
+
+        db.get_or_create_user_warning(target_user_id, GROUP_ID)
+        db.mark_user_restricted(target_user_id, GROUP_ID)
+
+        mock_context.bot.restrict_chat_member.side_effect = BadRequest("User not found")
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, target_user_id, 12345, GROUP_ID
+        )
+
+        assert "Gagal membuka pembatasan" in message
+        assert db.is_user_restricted_by_bot(target_user_id, GROUP_ID)
+
+    async def test_group_not_found(self, temp_db, mock_context):
+        """Returns error when group is not in registry."""
+        db = get_database()
+        registry = GroupRegistry()
+
+        message = await verify_user_in_group(
+            mock_context.bot, db, registry, 555006, 12345, -999999
+        )
+
+        assert "tidak ditemukan" in message
 
 
 class TestHandleUnrestrictCallback:
