@@ -24,6 +24,7 @@ from bot.constants import (
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
 from bot.services.bot_info import BotInfoCache
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import get_user_mention
 from bot.services.user_checker import check_user_profile
 
@@ -156,19 +157,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Threshold reached: restrict user
     if record.message_count >= group_config.warning_threshold:
         try:
-            # Apply restriction (mute user)
-            logger.info(
-                f"Restricting user: user_id={user.id}, user={user.full_name}, message_count={record.message_count}"
-            )
-            await context.bot.restrict_chat_member(
-                chat_id=group_config.group_id,
-                user_id=user.id,
-                permissions=RESTRICTED_PERMISSIONS,
-            )
-            logger.info(
-                f"Restriction applied: user_id={user.id}, user={user.full_name}, group_id={group_config.group_id}"
-            )
-            db.mark_user_restricted(user.id, group_config.group_id)
+            async with restriction_lock(group_config.group_id, user.id):
+                fresh = db.get_active_user_warning(user.id, group_config.group_id)
+                if fresh is None or fresh.is_restricted:
+                    logger.info(
+                        f"Skipping profile restriction for user {user.id} - "
+                        f"record no longer active (group_id={group_config.group_id})"
+                    )
+                    return
+                await context.bot.restrict_chat_member(
+                    chat_id=group_config.group_id,
+                    user_id=user.id,
+                    permissions=RESTRICTED_PERMISSIONS,
+                )
+                logger.info(
+                    f"Restriction applied: user_id={user.id}, user={user.full_name}, group_id={group_config.group_id}"
+                )
+                db.mark_user_restricted(user.id, group_config.group_id)
 
             # Get bot username for DM link (cached to avoid repeated API calls)
             bot_username = await BotInfoCache.get_username(context.bot)

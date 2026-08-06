@@ -363,11 +363,19 @@ flowchart TD
 
     %% ===================== Group Message Pipeline (real PTB group order) =====================
     UpdateType -->|Group Message| G_TopicGuard{group=-1 topic_guard:<br/>In Warning Topic?}
-    G_TopicGuard -->|No, or lookup error| G_InlineGate
+    G_TopicGuard -->|No, or lookup error| G_GuestGate
     G_TopicGuard -->|Yes, incl. API error<br/>fail-closed| G_TopicIsBotAdmin{Sender is<br/>Bot or Admin?}
     G_TopicIsBotAdmin -->|Yes| StopTopic1([ApplicationHandlerStop<br/>message allowed])
     G_TopicIsBotAdmin -->|No| G_TopicDelete[Delete Message]
     G_TopicDelete --> StopTopic2([ApplicationHandlerStop])
+
+    G_GuestGate{group=1 guest_bot_block:<br/>Guest Mode message?}
+    G_GuestGate -->|No| G_InlineGate
+    G_GuestGate -->|Yes, not whitelisted| G_GuestDelete[Delete Message]
+    G_GuestDelete --> G_GuestCaller{Human caller?<br/>Admin/Trusted?}
+    G_GuestCaller -->|Admin/Trusted or Channel-only| StopGuest([ApplicationHandlerStop])
+    G_GuestCaller -->|Human, not exempt| G_GuestEnforce[Progressive Warning/Restriction]
+    G_GuestEnforce --> StopGuest
 
     G_InlineGate{group=1 inline_keyboard_spam:<br/>Bot or Admin/Trusted?}
     G_InlineGate -->|Yes| G_ContactGate

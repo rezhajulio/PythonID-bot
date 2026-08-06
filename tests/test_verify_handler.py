@@ -153,6 +153,7 @@ class TestHandleVerifyCommand:
         assert db.is_user_photo_whitelisted(target_user_id)
 
     async def test_verify_already_whitelisted_user(self, mock_update, mock_context, temp_db, monkeypatch):
+        """Already-whitelisted user: verify is idempotent, proceeds with full verification."""
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=12345)
         registry = GroupRegistry()
         registry.register(gc)
@@ -170,7 +171,7 @@ class TestHandleVerifyCommand:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "sudah ada di whitelist" in call_args.args[0]
+        assert "diverifikasi" in call_args.args[0]
 
     async def test_verify_multiple_users(self, mock_update, mock_context, temp_db, monkeypatch):
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=12345)
@@ -643,6 +644,7 @@ class TestHandleVerifyCallback:
         assert db.is_user_photo_whitelisted(999888)
 
     async def test_verify_callback_already_whitelisted(self, temp_db, mock_context, monkeypatch):
+        """Already-whitelisted user: verify callback is idempotent, proceeds with full verification."""
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=12345)
         registry = GroupRegistry()
         registry.register(gc)
@@ -666,7 +668,7 @@ class TestHandleVerifyCallback:
         query.answer.assert_called_once()
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "sudah ada di whitelist" in call_args.args[0]
+        assert "diverifikasi" in call_args.args[0]
 
     async def test_verify_callback_generic_exception(self, temp_db, mock_context):
         update = MagicMock()

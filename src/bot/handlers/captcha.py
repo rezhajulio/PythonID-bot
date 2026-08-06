@@ -31,6 +31,7 @@ from bot.constants import (
 )
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import get_user_mention, unrestrict_user
 from bot.services.user_checker import check_user_profile
 
@@ -323,7 +324,8 @@ async def captcha_callback_handler(
     # the button stays active, and the user can retry by pressing again.
     # The timeout job is still armed as a safety net.
     try:
-        await unrestrict_user(context.bot, group_config.group_id, target_user_id)
+        async with restriction_lock(group_config.group_id, target_user_id):
+            await unrestrict_user(context.bot, group_config.group_id, target_user_id)
         logger.info(f"Unrestricted verified user {target_user_id}")
     except Exception as e:
         logger.error(f"Failed to unrestrict user {target_user_id}: {e}")

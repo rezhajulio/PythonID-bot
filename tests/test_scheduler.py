@@ -50,6 +50,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
+        mock_db.get_active_user_warning.return_value = mock_warning
         mock_db.mark_user_restricted = MagicMock()
 
         # Mock bot
@@ -150,6 +151,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = mock_warnings
+        mock_db.get_active_user_warning.return_value = mock_warnings[0]
         mock_db.mark_user_restricted = MagicMock()
 
         mock_bot = AsyncMock()
@@ -197,6 +199,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
+        mock_db.get_active_user_warning.return_value = mock_warning
 
         mock_bot = AsyncMock()
         mock_bot.restrict_chat_member = AsyncMock(side_effect=Exception("API error"))
@@ -276,6 +279,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
+        mock_db.get_active_user_warning.return_value = mock_warning
         mock_db.delete_user_warnings = MagicMock()
 
         mock_bot = AsyncMock()
@@ -381,6 +385,7 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = [mock_warning]
+        mock_db.get_active_user_warning.return_value = mock_warning
         mock_db.mark_user_restricted = MagicMock()
 
         mock_bot = AsyncMock()
