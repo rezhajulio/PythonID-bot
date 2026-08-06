@@ -81,19 +81,31 @@ async def _unrestrict_in_groups(
     success_count = 0
 
     for gc, user_status in restricted_groups:
-        if user_status != ChatMemberStatus.RESTRICTED:
-            db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
-            logger.info(
-                f"User {user.id} ({user.full_name}) already unrestricted in group {gc.group_id} - clearing record"
-            )
-            continue
-
-        logger.info(f"Unrestricting user_id={user.id} ({user.full_name}) in group_id={gc.group_id}")
+        logger.info(f"Processing unrestrict for user_id={user.id} in group_id={gc.group_id}")
         try:
             async with restriction_lock(gc.group_id, user.id):
+                if not db.is_user_restricted_by_bot(user.id, gc.group_id):
+                    logger.info(
+                        f"User {user.id} ({user.full_name}) no longer bot-restricted "
+                        f"in group {gc.group_id} - skipping"
+                    )
+                    continue
+
+                if user_status != ChatMemberStatus.RESTRICTED:
+                    db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
+                    logger.info(
+                        f"User {user.id} ({user.full_name}) already unrestricted "
+                        f"in group {gc.group_id} - clearing record"
+                    )
+                    continue
+
+                logger.info(
+                    f"Unrestricting user_id={user.id} ({user.full_name}) "
+                    f"in group_id={gc.group_id}"
+                )
                 await unrestrict_user(context.bot, gc.group_id, user.id)
                 db.mark_all_bot_restrictions_unrestricted(user.id, gc.group_id)
-            success_count += 1
+                success_count += 1
 
             user_mention = get_user_mention(user)
             notification_message = DM_UNRESTRICTION_NOTIFICATION.format(

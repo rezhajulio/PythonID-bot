@@ -14,7 +14,7 @@ broadcast to all groups — each action is scoped to one group.
 import logging
 
 from telegram import Bot, Update
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 from telegram.ext import ContextTypes
 
 from bot.constants import (
@@ -67,39 +67,49 @@ async def verify_user_in_group(
     if group_config is None:
         return f"❌ Grup {group_id} tidak ditemukan."
 
-    db.add_photo_verification_whitelist(
-        user_id=target_user_id,
-        verified_by_admin_id=admin_user_id,
-    )
+    try:
+        db.add_photo_verification_whitelist(
+            user_id=target_user_id,
+            verified_by_admin_id=admin_user_id,
+        )
+    except ValueError:
+        pass
 
-    was_restricted = db.is_user_restricted_by_bot_any_kind(target_user_id, group_id)
     did_unrestrict = False
     unrestrict_failed = False
+    deleted_count = 0
 
-    if was_restricted:
-        try:
-            async with restriction_lock(group_id, target_user_id):
+    async with restriction_lock(group_id, target_user_id):
+        was_restricted = db.is_user_restricted_by_bot_any_kind(target_user_id, group_id)
+
+        if was_restricted:
+            try:
                 await unrestrict_user(bot, group_id, target_user_id)
                 db.mark_all_bot_restrictions_unrestricted(target_user_id, group_id)
-            did_unrestrict = True
-            logger.info(
-                f"Unrestricted user {target_user_id} in group {group_id} during verification"
+                did_unrestrict = True
+                logger.info(
+                    f"Unrestricted user {target_user_id} in group {group_id} during verification"
+                )
+            except (BadRequest, Forbidden, NetworkError, TimedOut, RuntimeError) as e:
+                logger.info(
+                    f"Could not unrestrict user {target_user_id} in group {group_id}: {e}"
+                )
+                unrestrict_failed = True
+            else:
+                deleted_count = db.delete_user_warnings(target_user_id, group_id)
+                deleted_count += db.delete_user_warnings(
+                    target_user_id, group_id, warning_kind="guest_bot"
+                )
+        else:
+            deleted_count = db.delete_user_warnings(target_user_id, group_id)
+            deleted_count += db.delete_user_warnings(
+                target_user_id, group_id, warning_kind="guest_bot"
             )
-        except (BadRequest, RuntimeError) as e:
-            logger.info(
-                f"Could not unrestrict user {target_user_id} in group {group_id}: {e}"
-            )
-            unrestrict_failed = True
 
     if unrestrict_failed:
         return UNRESTRICT_FAILED_MESSAGE.format(
             user_id=target_user_id, group_id=group_id
         )
-
-    deleted_count = db.delete_user_warnings(target_user_id, group_id)
-    deleted_count += db.delete_user_warnings(
-        target_user_id, group_id, warning_kind="guest_bot"
-    )
 
     if deleted_count > 0 or did_unrestrict:
         try:
@@ -168,13 +178,12 @@ async def unrestrict_user_in_group(
     Returns:
         Success or error message string.
     """
-    if not db.is_user_restricted_by_bot_any_kind(target_user_id, group_id):
-        return UNRESTRICT_NOT_NEEDED_MESSAGE.format(
-            user_id=target_user_id, group_id=group_id
-        )
-
     try:
         async with restriction_lock(group_id, target_user_id):
+            if not db.is_user_restricted_by_bot_any_kind(target_user_id, group_id):
+                return UNRESTRICT_NOT_NEEDED_MESSAGE.format(
+                    user_id=target_user_id, group_id=group_id
+                )
             await unrestrict_user(bot, group_id, target_user_id)
             db.mark_all_bot_restrictions_unrestricted(target_user_id, group_id)
         logger.info(

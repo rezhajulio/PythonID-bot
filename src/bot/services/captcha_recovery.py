@@ -17,6 +17,7 @@ from bot.database.service import get_database
 from bot.group_config import get_group_registry
 from bot.handlers.captcha import captcha_timeout_callback, get_captcha_job_name
 from bot.services.bot_info import BotInfoCache
+from bot.services.restriction_lock import restriction_lock
 from bot.services.telegram_utils import get_user_mention_by_id
 
 logger = logging.getLogger(__name__)
@@ -54,9 +55,10 @@ async def handle_captcha_expiration(
 
     # Create UserWarning to track this bot-applied restriction
     # Allows DM handler to unrestrict user later when profile is complete
-    warning = db.get_or_create_user_warning(user_id, group_id)
-    if not warning.is_restricted:
-        db.mark_user_restricted(user_id, group_id)
+    async with restriction_lock(group_id, user_id):
+        warning = db.get_or_create_user_warning(user_id, group_id)
+        if not warning.is_restricted:
+            db.mark_user_restricted(user_id, group_id)
 
     bot_username = await BotInfoCache.get_username(bot)
     dm_link = f"[hubungi robot](https://t.me/{bot_username}?start=verify_{group_id})"

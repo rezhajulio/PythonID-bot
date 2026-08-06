@@ -112,6 +112,13 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
 
                 logger.info(f"Applying restriction to user_id={warning.user_id}")
                 async with restriction_lock(group_config.group_id, warning.user_id):
+                    fresh = db.get_active_user_warning(warning.user_id, warning.group_id)
+                    if fresh is None or fresh.is_restricted:
+                        logger.info(
+                            f"Skipping auto-restriction for user {warning.user_id} - "
+                            f"record no longer active (group_id={group_config.group_id})"
+                        )
+                        continue
                     ok = await restrict_chat_member_with_retry(
                         bot,
                         chat_id=group_config.group_id,

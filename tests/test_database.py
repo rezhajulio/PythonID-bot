@@ -628,3 +628,64 @@ class TestWarningKindMigration:
             assert db.is_user_restricted_by_bot(123, -100) is False
             assert db.get_active_user_warning(123, -100) is not None
             reset_database()
+
+    def test_fresh_db_has_composite_index(self):
+        """Fresh database creates the composite warning_kind index via __table_args__."""
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "fresh.db")
+            init_database(db_path)
+            reset_database()
+
+            conn = sqlite3.connect(db_path)
+            indexes = conn.execute(
+                "PRAGMA index_list(user_warnings)"
+            ).fetchall()
+            index_names = {row[1] for row in indexes}
+            assert "ix_user_warnings_kind" in index_names
+
+            info = conn.execute(
+                "PRAGMA index_info(ix_user_warnings_kind)"
+            ).fetchall()
+            columns = [row[2] for row in info]
+            assert columns == ["user_id", "group_id", "warning_kind", "is_restricted"]
+            conn.close()
+
+    def test_migrated_db_has_composite_index(self):
+        """Migrated database gets the composite index via CREATE INDEX IF NOT EXISTS."""
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "old.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE user_warnings ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER, "
+                "group_id INTEGER, "
+                "message_count INTEGER, "
+                "first_warned_at TEXT, "
+                "last_message_at TEXT, "
+                "is_restricted BOOLEAN, "
+                "restricted_by_bot BOOLEAN)"
+            )
+            conn.commit()
+            conn.close()
+
+            init_database(db_path)
+            reset_database()
+
+            conn = sqlite3.connect(db_path)
+            indexes = conn.execute(
+                "PRAGMA index_list(user_warnings)"
+            ).fetchall()
+            index_names = {row[1] for row in indexes}
+            assert "ix_user_warnings_kind" in index_names
+
+            info = conn.execute(
+                "PRAGMA index_info(ix_user_warnings_kind)"
+            ).fetchall()
+            columns = [row[2] for row in info]
+            assert columns == ["user_id", "group_id", "warning_kind", "is_restricted"]
+            conn.close()
