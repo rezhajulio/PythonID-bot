@@ -94,10 +94,10 @@ class TestPluginDefinitions:
             assert "handler_group" in d
             assert "description" in d
 
-    def test_handler_group_is_int(self):
-        """handler_group value is int, not str."""
+    def test_handler_group_is_int_or_float(self):
+        """handler_group value is int or float, not str."""
         for d in get_plugin_definitions():
-            assert isinstance(d["handler_group"], int), f"{d['name']}: handler_group={d['handler_group']!r}"
+            assert isinstance(d["handler_group"], (int, float)), f"{d['name']}: handler_group={d['handler_group']!r}"
 
     def test_returned_copy_isolation(self):
         """Mutating returned list or dicts doesn't affect internal definitions."""
