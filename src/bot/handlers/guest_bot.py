@@ -39,8 +39,7 @@ def is_guest_bot_whitelisted(message: Message, whitelist: list[str]) -> bool:
     username = message.from_user.username if message.from_user else None
     if not username:
         return False
-    normalized_whitelist = {entry.strip().removeprefix("@").lower() for entry in whitelist}
-    return username.lower() in normalized_whitelist
+    return username.lower() in whitelist
 
 
 async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,7 +60,7 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
     except TelegramError:
         logger.error("Failed to delete guest bot message", exc_info=True)
 
-    if caller is None or not isinstance(caller, User):
+    if not isinstance(caller, User):
         raise ApplicationHandlerStop
     if is_user_admin_or_trusted(context, group_config.group_id, caller.id):
         raise ApplicationHandlerStop
@@ -75,23 +74,31 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
 
     if record.message_count >= group_config.warning_threshold:
         should_stop = False
+        final_count = record.message_count
         try:
             async with restriction_lock(group_config.group_id, caller.id):
                 if db.is_user_restricted_by_bot(caller.id, group_config.group_id, warning_kind="guest_bot"):
                     should_stop = True
                 else:
                     fresh = db.get_or_create_user_warning(caller.id, group_config.group_id, warning_kind="guest_bot")
-                    if fresh.message_count < group_config.warning_threshold:
+                    if fresh.message_count != group_config.warning_threshold:
                         should_stop = True
                     else:
-                        await context.bot.restrict_chat_member(
-                            chat_id=group_config.group_id,
-                            user_id=caller.id,
-                            permissions=RESTRICTED_PERMISSIONS,
-                        )
-                        db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
+                        try:
+                            await context.bot.restrict_chat_member(
+                                chat_id=group_config.group_id,
+                                user_id=caller.id,
+                                permissions=RESTRICTED_PERMISSIONS,
+                            )
+                            db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
+                            final_count = fresh.message_count
+                        except TelegramError as e:
+                            logger.error("Failed to restrict guest bot caller %s: %s", caller.id, e, exc_info=True)
+                            should_stop = True
+                            db.increment_message_count(caller.id, group_config.group_id, warning_kind="guest_bot")
         except TelegramError:
-            logger.error("Failed to restrict guest bot caller %s", caller.id, exc_info=True)
+            logger.error("Failed to restrict guest bot caller %s (lock level)", caller.id, exc_info=True)
+            should_stop = True
         else:
             if should_stop:
                 raise ApplicationHandlerStop
@@ -101,7 +108,7 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
                     message_thread_id=group_config.warning_topic_id,
                     text=GUEST_BOT_RESTRICTION.format(
                         user_mention=user_mention,
-                        message_count=record.message_count,
+                        message_count=final_count,
                         rules_link=group_config.rules_link,
                     ),
                     parse_mode="Markdown",

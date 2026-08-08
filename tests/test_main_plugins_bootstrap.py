@@ -450,7 +450,7 @@ class TestIndividualRegistrars:
         assert isinstance(call_args[0], MessageHandler)
 
     def test_guest_bot_block_registrar_adds_handler(self):
-        """register_guest_bot_block adds a guest-only handler to group=1."""
+        """register_guest_bot_block adds a guest-only handler to group=0."""
         from telegram.ext import MessageHandler
 
         from bot.handlers.guest_bot import GuestBotFilter
@@ -464,6 +464,6 @@ class TestIndividualRegistrars:
         assert app.add_handler.call_count == 1
         call_args, call_kwargs = app.add_handler.call_args
         assert len(call_args) == 1
-        assert call_kwargs["group"] == 1
+        assert call_kwargs["group"] == 0
         assert isinstance(call_args[0], MessageHandler)
         assert isinstance(call_args[0].filters, GuestBotFilter)

@@ -50,17 +50,17 @@ def register_inline_keyboard_spam(application: Application) -> list[BaseHandler]
     return _register_spam(application, handler, 1, "inline_keyboard_spam_handler")
 
 def register_guest_bot_block(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register guest bot block handler (group=1).
+    """Register guest bot block handler (group=0).
 
     Callback wrapped with ``guard_plugin(\"guest_bot_block\")``. Runs at
-    group=1 alongside ``inline_keyboard_spam`` to intercept Telegram
-    Guest Mode messages before downstream spam handlers.
+    group=0 (same group as commands and captcha) to intercept Telegram
+    Guest Mode messages before other spam checks at higher groups.
     """
     handler: BaseHandler = MessageHandler(
         GuestBotFilter(),
         guard_plugin("guest_bot_block")(handle_guest_bot_message),
     )
-    return _register_spam(application, handler, 1, "guest_bot_block_handler")
+    return _register_spam(application, handler, 0, "guest_bot_block_handler")
 
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register bio bait spam handler (group=4).
