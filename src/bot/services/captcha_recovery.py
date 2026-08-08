@@ -46,16 +46,20 @@ async def handle_captcha_expiration(
         user_full_name: The user's full name.
     """
     db = get_database()
-    pending = db.get_pending_captcha(user_id, group_id)
-    if not pending:
-        logger.info(f"No pending captcha for user {user_id}, already verified")
-        return
 
-    db.remove_pending_captcha(user_id, group_id)
-
-    # Create UserWarning to track this bot-applied restriction
-    # Allows DM handler to unrestrict user later when profile is complete
     async with restriction_lock(group_id, user_id):
+        pending = db.get_pending_captcha(user_id, group_id)
+        if not pending:
+            logger.info(f"No pending captcha for user {user_id}, already verified")
+            return
+
+        removed = db.remove_pending_captcha(user_id, group_id)
+        if not removed:
+            logger.info(f"Captcha for user {user_id} already finalized, ignoring timeout")
+            return
+
+        # Create UserWarning to track this bot-applied restriction
+        # Allows DM handler to unrestrict user later when profile is complete
         warning = db.get_or_create_user_warning(user_id, group_id)
         if not warning.is_restricted:
             db.mark_user_restricted(user_id, group_id)

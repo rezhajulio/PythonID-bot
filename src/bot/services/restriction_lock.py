@@ -9,24 +9,36 @@ diverge.
 
 This module provides :func:`restriction_lock`, an async context manager
 that serialises the Telegram API call + DB state transition for a given
-``(group_id, user_id)`` pair. Locks are created on demand and stored in
-a module-level dict; they persist for the process lifetime, which is
-fine for a single-process bot.
+``(group_id, user_id)`` pair. ``asyncio.Lock`` binds to the event loop of
+its first *contended* acquire, so locks are scoped per running loop via a
+:class:`weakref.WeakKeyDictionary` — this keeps a single-process bot's
+locks alive for its one lifetime loop, while letting each test's fresh
+event loop (see ``asyncio_default_fixture_loop_scope`` in pyproject.toml)
+start with an empty lock table instead of reusing a lock bound to an
+already-closed loop.
 """
 
 import asyncio
 import contextlib
+import weakref
 from collections.abc import AsyncIterator
 
-_locks: dict[tuple[int, int], asyncio.Lock] = {}
+_locks_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple[int, int], asyncio.Lock]]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _get_lock(group_id: int, user_id: int) -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    per_loop = _locks_by_loop.get(loop)
+    if per_loop is None:
+        per_loop = {}
+        _locks_by_loop[loop] = per_loop
     key = (group_id, user_id)
-    lock = _locks.get(key)
+    lock = per_loop.get(key)
     if lock is None:
         lock = asyncio.Lock()
-        _locks[key] = lock
+        per_loop[key] = lock
     return lock
 
 

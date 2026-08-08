@@ -151,7 +151,9 @@ class TestAutoRestrictExpiredWarnings:
 
         mock_db = MagicMock()
         mock_db.get_warnings_past_time_threshold_for_group.return_value = mock_warnings
-        mock_db.get_active_user_warning.return_value = mock_warnings[0]
+        mock_db.get_active_user_warning.side_effect = lambda user_id, group_id, warning_kind="profile": next(
+            (w for w in mock_warnings if w.user_id == user_id), None
+        )
         mock_db.mark_user_restricted = MagicMock()
 
         mock_bot = AsyncMock()

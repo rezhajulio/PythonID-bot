@@ -159,7 +159,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             async with restriction_lock(group_config.group_id, user.id):
                 fresh = db.get_active_user_warning(user.id, group_config.group_id)
-                if fresh is None or fresh.is_restricted:
+                if (
+                    fresh is None
+                    or fresh.id != record.id
+                    or fresh.message_count < group_config.warning_threshold
+                ):
                     logger.info(
                         f"Skipping profile restriction for user {user.id} - "
                         f"record no longer active (group_id={group_config.group_id})"
@@ -182,13 +186,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             # Send restriction notice with DM link for appeal
             restriction_message = RESTRICTION_MESSAGE_AFTER_MESSAGES.format(
                 user_mention=user_mention,
-                message_count=record.message_count,
+                message_count=fresh.message_count,
                 missing_text=missing_text,
                 rules_link=group_config.rules_link,
                 dm_link=dm_link,
             )
             logger.info(
-                f"Sending restriction notice: user_id={user.id}, user={user.full_name}, message_count={record.message_count}"
+                f"Sending restriction notice: user_id={user.id}, user={user.full_name}, message_count={fresh.message_count}"
             )
             await context.bot.send_message(
                 chat_id=group_config.group_id,
@@ -197,7 +201,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode="Markdown",
             )
             logger.info(
-                f"Restricted user {user.id} ({user.full_name}) after {record.message_count} messages (group_id={group_config.group_id})"
+                f"Restricted user {user.id} ({user.full_name}) after {fresh.message_count} messages (group_id={group_config.group_id})"
             )
         except Exception:
             logger.error(
