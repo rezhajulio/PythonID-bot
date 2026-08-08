@@ -81,7 +81,7 @@ PythonID/
 │   │   └── admin_cache.py       # Admin ID cache + refresh
 │   └── database/
 │       ├── models.py     # SQLModel schemas (5 tables: UserWarning, PhotoVerificationWhitelist, PendingCaptchaValidation, NewUserProbation, TrustedUser)
-│       └── service.py    # DatabaseService singleton (645 lines)
+│       └── service.py    # DatabaseService singleton (958 lines)
 ├── tests/                # pytest-asyncio + Hypothesis (30+ files)
 │   ├── test_properties.py # Property-based tests for pure functions
 │   └── test_warn.py      # /warn command tests (23 tests)
@@ -102,33 +102,33 @@ PythonID/
 | Add Telegram whitelist | `constants.py` → `WHITELISTED_TELEGRAM_PATHS` | Lowercase, exact path match |
 | Multi-group config | `group_config.py` | GroupConfig model, GroupRegistry, groups.json loading |
 | Warn a member | `handlers/warn.py` + `plugins/builtin/commands.py` | Admin `/warn` by reply or user ID; registered as `warn_command` |
-| Block guest bots | `handlers/guest_bot.py` + `plugins/builtin/spam.py` | `guest_bot_block` plugin (group=1); whitelist via `GUEST_BOT_WHITELIST` env or `guest_bot_whitelist` per-group JSON |
+| Block guest bots | `handlers/guest_bot.py` + `plugins/builtin/spam.py` | `guest_bot_block` plugin (group=0); whitelist via `GUEST_BOT_WHITELIST` env or `guest_bot_whitelist` per-group JSON |
 
 ## Code Map (Key Files)
 
 | File | Lines | Role |
 |------|-------|------|
-| `database/service.py` | 850 | **Complexity hotspot** - handles warnings, captcha, probation state |
+| `database/service.py` | 958 | **Complexity hotspot** - handles warnings, captcha, probation state |
 | `constants.py` | 724 | Templates + massive whitelists (Indonesian tech community) |
 | `handlers/anti_spam.py` | 494 | Anti-spam: contact cards, inline keyboards, probation enforcement |
 | `handlers/bio_bait.py` | 441 | Bio-bait spam: obfuscated bait phrases + suspicious profile bio links |
-| `handlers/guest_bot.py` | 118 | Guest Mode moderation: delete non-whitelisted guest bot messages + progressive restriction of the human caller |
+| `handlers/guest_bot.py` | 133 | Guest Mode moderation: delete non-whitelisted guest bot messages + progressive restriction of the human caller |
 | `handlers/check.py` | 437 | Admin /check: group selector + group-scoped action buttons |
 | `handlers/captcha.py` | 427 | New member join → restrict → verify (with profile check) → unrestrict lifecycle |
-| `handlers/verify.py` | 400 | Photo exemption + bot-owned unrestriction (group-scoped) |
+| `handlers/verify.py` | 422 | Photo exemption + bot-owned unrestriction (group-scoped) |
 | `handlers/trust.py` | 368 | /trust, /untrust, /trusted admin commands (no auto-unrestrict) |
-| `handlers/dm.py` | 250 | DM unrestriction flow with deep-link group recovery |
-| `handlers/message.py` | 208 | Profile compliance monitoring + stale warning clearing |
+| `handlers/dm.py` | 264 | DM unrestriction flow with deep-link group recovery |
+| `handlers/message.py` | 217 | Profile compliance monitoring + stale warning clearing |
 | `handlers/status.py` | 181 | Group-scoped /status (admin's groups only, Indonesian labels) |
 | `handlers/warn.py` | 170 | Admin-issued generic warning by reply or user ID; optional moderation-topic routing |
-| `services/scheduler.py` | 151 | Auto-restriction with pre-restriction profile recheck |
+| `services/scheduler.py` | 160 | Auto-restriction with pre-restriction profile recheck |
 | `group_config.py` | 255 | Multi-group config, registry, JSON loading, .env fallback |
 | `main.py` | 191 | Entry point, logging, post_init, PluginManager bootstrap |
 | `plugins/manager.py` | 188 | PluginManager — static registry + deterministic registration order |
 | `plugins/config.py` | 156 | `guard_plugin` runtime gate + toggle resolution |
 | `plugins/definitions.py` | 72 | `MANIFEST_ORDER` / `PLUGIN_NAMES` — single source of truth for plugin names + groups |
 | `plugins/builtin/commands.py` | 166 | Wraps all command + callback handlers with group-scoped patterns |
-| `plugins/builtin/spam.py` | 93 | Wraps all 5 anti-spam handlers + guest_bot_block with `guard_plugin` |
+| `plugins/builtin/spam.py` | 114 | Wraps all 5 anti-spam handlers + guest_bot_block with `guard_plugin` |
 | `plugins/builtin/captcha.py` | 43 | Wraps captcha handler + applies guard_plugin gating |
 
 ## Architecture Patterns
@@ -148,8 +148,8 @@ PythonID/
 ```python
 # Registration order comes from MANIFEST_ORDER (plugins/definitions.py), not main.py directly
 group=-1  # topic_guard: Runs FIRST
-group=0   # commands (including warn_command), callbacks, captcha, dm (18 plugins, order-independent)
-group=1   # inline_keyboard_spam + guest_bot_block: Catches inline keyboard URL spam / Guest Mode messages
+group=0   # commands (including warn_command), callbacks, captcha, dm, guest_bot_block (19 plugins; only guest_bot_block is order-sensitive, via ApplicationHandlerStop)
+group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
 group=2   # contact_spam: Blocks contact card sharing
 group=3   # new_user_spam: Probation enforcement (links/forwards)
 group=4   # duplicate_spam + bio_bait_spam: Repeated messages / bio-bait detection
@@ -179,12 +179,13 @@ group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admi
 
 ### Guest Bot Moderation
 - `handlers/guest_bot.py` blocks Telegram **Guest Mode** messages — messages posted by a bot on behalf of a user/channel via the `@` mention feature that Telegram routes through `message.guest_bot_caller_user` / `message.guest_bot_caller_chat` (PTB v22.8+)
-- A custom `GuestBotFilter` (`filters.MessageFilter`) matches only messages where either guest-bot caller field is set, so the handler is dispatched before the broad `GROUPS & ~COMMAND` filters at the same group
-- Registered as `guest_bot_block` at `handler_group=1` via `spam_mod.register_guest_bot_block` in `plugins/builtin/spam.py`, gated by `guard_plugin("guest_bot_block")`
+- A custom `GuestBotFilter` (`filters.MessageFilter`) matches only messages where either guest-bot caller field is set, so the handler only fires on actual Guest Mode updates and raises `ApplicationHandlerStop` to stop the spam handlers at groups 1-5 from also processing the message
+- Registered as `guest_bot_block` at `handler_group=0` (alongside commands/callbacks/captcha/dm) via `spam_mod.register_guest_bot_block` in `plugins/builtin/spam.py`, gated by `guard_plugin("guest_bot_block")`
 - Non-whitelisted guest bot messages are always deleted; the invoking **human caller** then receives progressive enforcement using the group's existing `warning_threshold`:
   - 1st violation → warning in the warning topic (`GUEST_BOT_WARNING`)
   - 2nd to (N-1) → silent increment
   - Nth violation → restrict + notification (`GUEST_BOT_RESTRICTION`)
+  - If `restrict_chat_member` fails (e.g. bot lacks ban rights), the strike count is NOT incremented past the threshold — the next guest message from the same caller retries the restriction instead of drifting into a permanent delete-only state
 - Admin/trusted callers have their guest message deleted but are **not** warned or restricted
 - Chat/channel-only callers (no `guest_bot_caller_user`) are delete-only — there is no human to warn
 - Already guest-bot-restricted callers do not start a fresh warning cycle (`is_user_restricted_by_bot` check)
@@ -331,7 +332,7 @@ if user.id not in admin_ids:
 - **Trust feature**: `TrustedUser` table caches user_full_name + admin_full_name at trust time so `/trusted` lists admin info without Telegram API calls. Backfill script at `scripts/backfill_trusted_names.py` for pre-existing rows
 - **Local review artifacts**: `reviews/` directory contains output from parallel reviewer subagents. Gitignored; not part of the source tree
 - **Captcha DB ordering**: The captcha callback handler calls Telegram `unrestrict_user` BEFORE DB writes (remove_pending_captcha, start_new_user_probation). If unrestrict fails, the pending captcha stays in DB and the user can retry. DB finalization is idempotent — `remove_pending_captcha` returning False means a concurrent callback already finalized
-- **Guest bot blocking**: Telegram Guest Mode lets any user `@mention` a bot and have the result posted in a chat. The `guest_bot_block` plugin (group=1) deletes non-whitelisted guest bot messages and progressively restricts the human caller (1st=warning, Nth=restrict). Admins/trusted users and channel-only callers are delete-only. Bot whitelist is case-insensitive with optional `@`. Guest strikes are tracked separately via `warning_kind="guest_bot"` and are not eligible for the DM self-service unrestriction flow
+- **Guest bot blocking**: Telegram Guest Mode lets any user `@mention` a bot and have the result posted in a chat. The `guest_bot_block` plugin (group=0) deletes non-whitelisted guest bot messages and progressively restricts the human caller (1st=warning, Nth=restrict). Admins/trusted users and channel-only callers are delete-only. Bot whitelist is case-insensitive with optional `@`. A failed restriction does not increment the strike count past the threshold, so the caller's next guest message retries the restriction. Guest strikes are tracked separately via `warning_kind="guest_bot"` and are not eligible for the DM self-service unrestriction flow
 
 ## Policy
 

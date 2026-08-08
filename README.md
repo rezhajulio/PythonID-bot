@@ -212,7 +212,7 @@ uv run mypy src/bot/ tests/
 
 The project maintains comprehensive test coverage:
 - **Coverage**: 97%+ (~2,900 statements, <3% unreachable)
-- **Tests**: 1,064 total (includes 19 Hypothesis property tests)
+- **Tests**: 1,075 total (includes 19 Hypothesis property tests)
 - **Pass Rate**: 100%
 - **Property tests**: `tests/test_properties.py` exercises pure functions (format helpers, URL whitelist, name formatters) with random inputs and shrinks failing cases to minimal examples
 - **Mypy**: Pragmatic config in `pyproject.toml`. Disables error codes that are noisy from PTB / SQLModel / Pydantic v2; catches real type bugs in new code
@@ -369,8 +369,9 @@ flowchart TD
     G_TopicIsBotAdmin -->|No| G_TopicDelete[Delete Message]
     G_TopicDelete --> StopTopic2([ApplicationHandlerStop])
 
-    G_GuestGate{group=1 guest_bot_block:<br/>Guest Mode message?}
+    G_GuestGate{group=0 guest_bot_block:<br/>Guest Mode message?}
     G_GuestGate -->|No| G_InlineGate
+    G_GuestGate -->|Yes, whitelisted| G_InlineGate
     G_GuestGate -->|Yes, not whitelisted| G_GuestDelete[Delete Message]
     G_GuestDelete --> G_GuestCaller{Human caller?<br/>Admin/Trusted?}
     G_GuestCaller -->|Admin/Trusted or Channel-only| StopGuest([ApplicationHandlerStop])

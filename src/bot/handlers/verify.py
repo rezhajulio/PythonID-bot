@@ -14,7 +14,7 @@ broadcast to all groups — each action is scoped to one group.
 import logging
 
 from telegram import Bot, Update
-from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from bot.constants import (
@@ -90,7 +90,7 @@ async def verify_user_in_group(
                 logger.info(
                     f"Unrestricted user {target_user_id} in group {group_id} during verification"
                 )
-            except (BadRequest, Forbidden, NetworkError, TimedOut, RuntimeError) as e:
+            except (TelegramError, RuntimeError) as e:
                 logger.info(
                     f"Could not unrestrict user {target_user_id} in group {group_id}: {e}"
                 )

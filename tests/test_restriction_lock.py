@@ -2,7 +2,7 @@
 
 import asyncio
 
-from bot.services.restriction_lock import restriction_lock, _locks
+from bot.services.restriction_lock import _locks_by_loop, restriction_lock
 
 
 class TestRestrictionLock:
@@ -43,8 +43,9 @@ class TestRestrictionLock:
         assert abs(a_idx - b_idx) <= 1
 
     async def test_lock_is_reused(self):
-        """Same key returns the same lock object."""
+        """Same key returns the same lock object, scoped to the running loop."""
         key = (-300, 99)
         async with restriction_lock(*key):
             pass
-        assert key in _locks
+        loop = asyncio.get_running_loop()
+        assert key in _locks_by_loop[loop]
