@@ -73,7 +73,10 @@ async def verify_user_in_group(
             verified_by_admin_id=admin_user_id,
         )
     except ValueError:
-        pass
+        logger.warning(
+            f"User {target_user_id} is already in the photo verification whitelist.",
+            exc_info=True,
+        )
 
     did_unrestrict = False
     unrestrict_failed = False
