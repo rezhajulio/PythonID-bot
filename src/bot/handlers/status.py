@@ -84,9 +84,7 @@ async def _check_status_prereqs(
     return True
 
 
-async def handle_status(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /status command in bot DM — show scoped operational state."""
     if not await _check_status_prereqs(update, context):
         return
@@ -122,23 +120,27 @@ async def handle_status(
         gid = gc.group_id
         enforcement = "Restriksi" if gc.restrict_failed_users else "Peringatan"
         captcha = "CAPTCHA" if gc.captcha_enabled else ""
-        group_line = f"  • `{escape_markdown(str(gid), version=1)}` — _{enforcement}_"
+        group_parts = [
+            f"  • `{escape_markdown(str(gid), version=1)}` — _{enforcement}_"
+        ]
         if captcha:
-            group_line += f" _{captcha}_"
+            group_parts.append(f" _{captcha}_")
 
         # Per-group counts
         probation_count = sum(1 for p in all_probations if p.group_id == gid)
         pending_count = sum(1 for p in all_pending if p.group_id == gid)
-        group_line += f"\n    Probation: {probation_count}, Captcha: {pending_count}"
+        group_parts.append(
+            f"\n    Probation: {probation_count}, Captcha: {pending_count}"
+        )
 
         toggles = effective_map.get(gid, {})
         disabled = [k for k, v in toggles.items() if not v]
         if disabled:
             disabled_str = ", ".join(sorted(disabled))
-            group_line += (
+            group_parts.append(
                 f"\n    Plugin nonaktif: {escape_markdown(disabled_str, version=1)}"
             )
-        lines.append(group_line)
+        lines.append("".join(group_parts))
 
     if shown_groups == 0:
         lines.append("  (Tidak ada grup yang dipantau)")
