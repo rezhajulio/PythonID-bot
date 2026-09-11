@@ -6,10 +6,9 @@ Currently tracks user warnings and restrictions for the progressive
 enforcement system.
 """
 
-from pydantic import BaseModel
-
 from datetime import UTC, datetime
 
+from pydantic import BaseModel
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
@@ -85,6 +84,21 @@ class PhotoVerificationWhitelist(SQLModel, table=True):
     verified_by_admin_id: int
     verified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     notes: str | None = Field(default=None)
+
+
+class TrustedUserData(BaseModel):
+    """
+    Data transfer object for adding a trusted user.
+    """
+
+    user_id: int
+    trusted_by_admin_id: int
+    group_id: int = 0
+    notes: str | None = None
+    user_full_name: str = ""
+    username: str | None = None
+    admin_full_name: str = ""
+    admin_username: str | None = None
 
 
 class TrustedUser(SQLModel, table=True):
