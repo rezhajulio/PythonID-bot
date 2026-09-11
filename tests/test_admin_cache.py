@@ -11,15 +11,30 @@ import pytest
 from bot.group_config import GroupConfig, GroupRegistry
 from bot.services.telegram_utils import TelegramAdminFetchError
 
+
+@pytest.fixture(autouse=True)
+def mock_disk_cache():
+    with (
+        patch("bot.services.admin_cache._save_admin_cache") as mock_save,
+        patch(
+            "bot.services.admin_cache._load_admin_cache", return_value={}
+        ) as mock_load,
+    ):
+        yield mock_save, mock_load
+
+
 @pytest.fixture
 def mock_registry():
     """Create GroupRegistry with a test group."""
     registry = GroupRegistry()
-    registry.register(GroupConfig(
-        group_id=-1001234567890,
-        warning_topic_id=42,
-    ))
+    registry.register(
+        GroupConfig(
+            group_id=-1001234567890,
+            warning_topic_id=42,
+        )
+    )
     return registry
+
 
 class TestRefreshAdminIds:
     """refresh_admin_ids: fetch admin IDs for all groups, cache in bot_data."""
@@ -27,6 +42,7 @@ class TestRefreshAdminIds:
     async def test_refresh_admin_ids_importable_from_admin_cache(self):
         """refresh_admin_ids is importable from bot.services.admin_cache."""
         from bot.services.admin_cache import refresh_admin_ids
+
         assert callable(refresh_admin_ids)
 
     async def test_refresh_admin_ids_fetches_and_caches(self, mock_registry):
@@ -43,7 +59,9 @@ class TestRefreshAdminIds:
         context.bot = bot
         context.bot_data = {}
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=mock_registry):
+        with patch(
+            "bot.services.admin_cache.get_group_registry", return_value=mock_registry
+        ):
             with patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
                 mock_fetch.return_value = [111, 222]
                 await refresh_admin_ids(context)
@@ -67,12 +85,16 @@ class TestRefreshAdminIds:
         context.bot = bot
         context.bot_data = {"group_admin_ids": {}, "admin_ids": []}
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=registry):
+        with patch(
+            "bot.services.admin_cache.get_group_registry", return_value=registry
+        ):
             with patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+
                 def side_effect(bot, gid):
                     if gid == -100111:
                         return [111]
                     return [222]
+
                 mock_fetch.side_effect = side_effect
                 await refresh_admin_ids(context)
 
@@ -93,7 +115,9 @@ class TestRefreshAdminIds:
             "admin_ids": [999],
         }
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=mock_registry):
+        with patch(
+            "bot.services.admin_cache.get_group_registry", return_value=mock_registry
+        ):
             with patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
                 mock_fetch.side_effect = TelegramAdminFetchError("API error")
                 await refresh_admin_ids(context)
@@ -104,6 +128,7 @@ class TestRefreshAdminIds:
     async def test_refresh_admin_ids_not_importable_from_main(self):
         """refresh_admin_ids is NOT defined in main.py anymore."""
         import bot.main as main_mod
+
         assert not hasattr(main_mod, "refresh_admin_ids")
 
     async def test_jobs_imports_from_admin_cache(self):
@@ -113,6 +138,7 @@ class TestRefreshAdminIds:
 
         # Verify the import source directly (no reload needed)
         assert jobs_mod.refresh_admin_ids is admin_cache_mod.refresh_admin_ids
+
 
 class TestPreloadAdminIds:
     """preload_admin_ids: startup cache with fallback to existing data."""
@@ -133,11 +159,13 @@ class TestPreloadAdminIds:
             "admin_ids": [111, 333],
         }
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
-             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch,
+        ):
             mock_fetch.side_effect = [
-                [555, 666],   # -1001 success
-                [777],        # -1002 success
+                [555, 666],  # -1001 success
+                [777],  # -1002 success
             ]
             await preload_admin_ids(mock_context)
 
@@ -161,11 +189,13 @@ class TestPreloadAdminIds:
             "admin_ids": [111, 222, 333],
         }
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
-             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch,
+        ):
             # First group succeeds, second fails
             mock_fetch.side_effect = [
-                [444, 555],                     # -1001 success
+                [444, 555],  # -1001 success
                 TelegramAdminFetchError("API error"),  # -1002 failure
             ]
             await preload_admin_ids(mock_context)
@@ -189,8 +219,10 @@ class TestPreloadAdminIds:
         mock_context.bot = mock_bot
         mock_context.bot_data = {}
 
-        with patch("bot.services.admin_cache.get_group_registry", return_value=registry), \
-             patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch:
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch,
+        ):
             mock_fetch.side_effect = TelegramAdminFetchError("API error")
             await preload_admin_ids(mock_context)
 

@@ -10,18 +10,58 @@ from __future__ import annotations
 
 import logging
 import time
+import json
+import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bot.group_config import get_group_registry
-from bot.services.telegram_utils import TelegramAdminFetchError, fetch_group_admin_ids
+from bot.services.telegram_utils import fetch_group_admin_ids
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+CACHE_FILE_PATH = Path("data/admin_cache.json")
 
-async def _sync_admin_ids(context: ContextTypes.DEFAULT_TYPE, *, seed_existing: bool) -> None:
+
+def _load_admin_cache() -> dict[int, list[int]]:
+    if not CACHE_FILE_PATH.exists():
+        return {}
+    try:
+        with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {int(k): v for k, v in data.items()}
+    except Exception as e:
+        logger.error(f"Failed to load admin cache from disk: {e}")
+        return {}
+
+
+def _save_admin_cache(cache: dict[int, list[int]]) -> None:
+    try:
+        CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = CACHE_FILE_PATH.with_suffix(".tmp")
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        temp_path.replace(CACHE_FILE_PATH)
+    except Exception as e:
+        logger.error(f"Failed to save admin cache to disk: {e}")
+
+
+async def _fetch_single(
+    bot, group_id: int
+) -> tuple[int, list[int] | None, Exception | None]:
+    try:
+        ids = await fetch_group_admin_ids(bot, group_id)
+        return group_id, ids, None
+    except Exception as e:
+        return group_id, None, e
+
+
+async def _sync_admin_ids(
+    context: ContextTypes.DEFAULT_TYPE, *, seed_existing: bool
+) -> None:
     """
     Sync admin IDs for all monitored groups with fallback to cached data.
 
@@ -32,22 +72,31 @@ async def _sync_admin_ids(context: ContextTypes.DEFAULT_TYPE, *, seed_existing: 
     """
     registry = get_group_registry()
     old_cache: dict[int, list[int]] = context.bot_data.get("group_admin_ids", {})
+
+    if seed_existing and not old_cache:
+        old_cache = _load_admin_cache()
+
     group_admin_ids: dict[int, list[int]] = dict(old_cache) if seed_existing else {}
     all_admin_ids: set[int] = set()
 
-    for gc in registry.all_groups():
-        try:
-            ids = await fetch_group_admin_ids(context.bot, gc.group_id)
-            group_admin_ids[gc.group_id] = ids
-            all_admin_ids.update(ids)
-        except TelegramAdminFetchError as e:
-            logger.error(f"Failed to fetch admin IDs for group {gc.group_id}: {e}")
-            existing = old_cache.get(gc.group_id, [])
-            group_admin_ids[gc.group_id] = existing
-            all_admin_ids.update(existing)
+    tasks = [_fetch_single(context.bot, gc.group_id) for gc in registry.all_groups()]
+
+    if tasks:
+        results = await asyncio.gather(*tasks)
+        for group_id, ids, error in results:
+            if error is None and ids is not None:
+                group_admin_ids[group_id] = ids
+                all_admin_ids.update(ids)
+            else:
+                logger.error(f"Failed to fetch admin IDs for group {group_id}: {error}")
+                existing = old_cache.get(group_id, [])
+                group_admin_ids[group_id] = existing
+                all_admin_ids.update(existing)
 
     context.bot_data["group_admin_ids"] = group_admin_ids
     context.bot_data["admin_ids"] = list(all_admin_ids)
+
+    _save_admin_cache(group_admin_ids)
 
 
 async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -60,7 +109,9 @@ async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _sync_admin_ids(context, seed_existing=False)
     group_admin_ids = context.bot_data.get("group_admin_ids", {})
     all_admin_ids = context.bot_data.get("admin_ids", [])
-    logger.info(f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)")
+    logger.info(
+        f"Refreshed admin IDs: {len(all_admin_ids)} unique admin(s) across {len(group_admin_ids)} group(s)"
+    )
     context.bot_data["last_admin_refresh"] = time.time()
 
 
