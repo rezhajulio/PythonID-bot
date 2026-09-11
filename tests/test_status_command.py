@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from bot.database.models import CaptchaData
 from bot.database.service import get_database, init_database, reset_database
 from bot.group_config import GroupConfig, GroupRegistry
 from bot.handlers.status import handle_status
@@ -148,14 +149,18 @@ class TestHandleStatus:
         """Per-group pending captcha counts appear in status reply."""
         db = get_database()
         db.add_pending_captcha(
-            user_id=111, group_id=-1001,
-            chat_id=-1001, message_id=1,
-            user_full_name="User1",
+            CaptchaData(
+                user_id=111, group_id=-1001,
+                chat_id=-1001, message_id=1,
+                user_full_name="User1",
+            )
         )
         db.add_pending_captcha(
-            user_id=222, group_id=-1002,
-            chat_id=-1002, message_id=2,
-            user_full_name="User2",
+            CaptchaData(
+                user_id=222, group_id=-1002,
+                chat_id=-1002, message_id=2,
+                user_full_name="User2",
+            )
         )
 
         with (

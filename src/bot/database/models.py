@@ -6,6 +6,8 @@ Currently tracks user warnings and restrictions for the progressive
 enforcement system.
 """
 
+from pydantic import BaseModel
+
 from datetime import UTC, datetime
 
 from sqlalchemy import Index, UniqueConstraint
@@ -177,3 +179,13 @@ class NewUserProbation(SQLModel, table=True):
     violation_count: int = Field(default=0)
     first_violation_at: datetime | None = Field(default=None)
     last_violation_at: datetime | None = Field(default=None)
+
+class CaptchaData(BaseModel):
+    """
+    Data transfer object for adding a pending captcha validation.
+    """
+    user_id: int
+    group_id: int
+    chat_id: int
+    message_id: int
+    user_full_name: str

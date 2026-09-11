@@ -407,15 +407,18 @@ class TestHandleDM:
     async def test_redirects_user_with_pending_captcha_to_group(
         self, mock_update, mock_context, mock_registry, temp_db
     ):
+        from bot.database.models import CaptchaData
         from bot.database.service import get_database
 
         db = get_database()
         db.add_pending_captcha(
-            user_id=12345,
-            group_id=-1001234567890,
-            chat_id=-1001234567890,
-            message_id=999,
-            user_full_name="Test User",
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         with (
@@ -443,15 +446,18 @@ class TestHandleDM:
     async def test_pending_captcha_check_takes_priority_over_profile_check(
         self, mock_update, mock_context, mock_registry, temp_db
     ):
+        from bot.database.models import CaptchaData
         from bot.database.service import get_database
 
         db = get_database()
         db.add_pending_captcha(
-            user_id=12345,
-            group_id=-1001234567890,
-            chat_id=-1001234567890,
-            message_id=999,
-            user_full_name="Test User",
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         with (

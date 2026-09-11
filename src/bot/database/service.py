@@ -15,6 +15,7 @@ from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from bot.database.models import (
     NewUserProbation,
+    CaptchaData,
     PendingCaptchaValidation,
     PhotoVerificationWhitelist,
     TrustedUser,
@@ -678,37 +679,29 @@ class DatabaseService:
 
     def add_pending_captcha(
         self,
-        user_id: int,
-        group_id: int,
-        chat_id: int,
-        message_id: int,
-        user_full_name: str,
+        data: CaptchaData,
     ) -> PendingCaptchaValidation:
         """
         Add a pending captcha validation record for a new user.
 
         Args:
-            user_id: Telegram user ID.
-            group_id: Telegram group ID.
-            chat_id: Chat ID where the challenge message was sent.
-            message_id: Message ID of the captcha challenge message.
-            user_full_name: Full name of the user for constructing mentions.
+            data: Data transfer object containing captcha info.
 
         Returns:
             PendingCaptchaValidation: Created pending validation record.
         """
         with Session(self._engine) as session:
             record = PendingCaptchaValidation(
-                user_id=user_id,
-                group_id=group_id,
-                chat_id=chat_id,
-                message_id=message_id,
-                user_full_name=user_full_name,
+                user_id=data.user_id,
+                group_id=data.group_id,
+                chat_id=data.chat_id,
+                message_id=data.message_id,
+                user_full_name=data.user_full_name,
             )
             session.add(record)
             session.commit()
             session.refresh(record)
-            logger.info(f"Added pending captcha: user_id={user_id}, group_id={group_id}")
+            logger.info(f"Added pending captcha: user_id={data.user_id}, group_id={data.group_id}")
             return record
 
     def get_pending_captcha(

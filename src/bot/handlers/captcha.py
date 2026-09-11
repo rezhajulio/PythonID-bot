@@ -30,6 +30,7 @@ from bot.constants import (
     MISSING_ITEMS_SEPARATOR,
     RESTRICTED_PERMISSIONS,
 )
+from bot.database.models import CaptchaData
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.restriction_lock import restriction_lock
@@ -107,11 +108,13 @@ async def _initiate_captcha_challenge(
     db = get_database()
     try:
         db.add_pending_captcha(
-            user_id=user_id,
-            group_id=group_config.group_id,
-            chat_id=sent_message.chat_id,
-            message_id=sent_message.message_id,
-            user_full_name=user.full_name,
+            CaptchaData(
+                user_id=user_id,
+                group_id=group_config.group_id,
+                chat_id=sent_message.chat_id,
+                message_id=sent_message.message_id,
+                user_full_name=user.full_name,
+            )
         )
     except IntegrityError:
         logger.info(f"Captcha already exists for user {user_id} (race condition handled)")

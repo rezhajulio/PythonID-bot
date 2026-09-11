@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlmodel import Session, text
 
+from bot.database.models import CaptchaData
 from bot.database.service import get_database, init_database, reset_database
 from bot.group_config import GroupConfig, GroupRegistry
 from bot.services.captcha_recovery import (
@@ -62,7 +63,15 @@ class TestHandleCaptchaExpiration:
     ):
         caplog.set_level(logging.INFO)
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+        db.add_pending_captcha(
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
+        )
 
         with patch("bot.services.captcha_recovery.BotInfoCache.get_username") as mock_username:
             mock_username.return_value = "testbot"
@@ -108,7 +117,15 @@ class TestHandleCaptchaExpiration:
     ):
         caplog.set_level(logging.ERROR)
         db = get_database()
-        db.add_pending_captcha(12345, -1001234567890, -1001234567890, 999, "Test User")
+        db.add_pending_captcha(
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
+        )
 
         mock_bot.edit_message_text.side_effect = Exception("Edit failed")
 
@@ -148,7 +165,13 @@ class TestRecoverPendingCaptchas:
         # Create a record that expired 100 seconds ago
         old_time = datetime.now(UTC) - timedelta(seconds=400)
         record = db.add_pending_captcha(
-            12345, -1001234567890, -1001234567890, 999, "Test User"
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         # Manually update created_at to simulate old record
@@ -187,7 +210,13 @@ class TestRecoverPendingCaptchas:
         # Create a record with 150 seconds remaining (150 seconds ago)
         recent_time = datetime.now(UTC) - timedelta(seconds=150)
         record = db.add_pending_captcha(
-            12345, -1001234567890, -1001234567890, 999, "Test User"
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         # Manually update created_at
@@ -226,7 +255,13 @@ class TestRecoverPendingCaptchas:
 
         # Create a record
         record = db.add_pending_captcha(
-            12345, -1001234567890, -1001234567890, 999, "Test User"
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         with (
@@ -256,13 +291,25 @@ class TestRecoverPendingCaptchas:
         # Create expired record
         old_time = datetime.now(UTC) - timedelta(seconds=400)
         record1 = db.add_pending_captcha(
-            12345, -1001234567890, -1001234567890, 999, "User One"
+            CaptchaData(
+                user_id=12345,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=999,
+                user_full_name="User One",
+            )
         )
 
         # Create pending record
         recent_time = datetime.now(UTC) - timedelta(seconds=150)
         record2 = db.add_pending_captcha(
-            67890, -1001234567890, -1001234567890, 888, "User Two"
+            CaptchaData(
+                user_id=67890,
+                group_id=-1001234567890,
+                chat_id=-1001234567890,
+                message_id=888,
+                user_full_name="User Two",
+            )
         )
 
         # Manually update created_at for both
@@ -304,7 +351,13 @@ class TestRecoverPendingCaptchas:
         unknown_group_id = -1009999999999
         old_time = datetime.now(UTC) - timedelta(seconds=400)
         record = db.add_pending_captcha(
-            12345, unknown_group_id, unknown_group_id, 999, "Test User"
+            CaptchaData(
+                user_id=12345,
+                group_id=unknown_group_id,
+                chat_id=unknown_group_id,
+                message_id=999,
+                user_full_name="Test User",
+            )
         )
 
         with Session(db._engine) as session:
