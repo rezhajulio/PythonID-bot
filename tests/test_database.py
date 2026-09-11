@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bot.database.models import UserWarning
+from bot.database.models import UserWarning, TrustedUserData
 from bot.database.service import (
     DatabaseService,
     get_database,
@@ -335,18 +335,18 @@ class TestGetWarningsPastTimeThresholdForGroup:
 
 class TestTrustedUsers:
     def test_add_trusted_user_and_check_true(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+        db_service.add_trusted_user(TrustedUserData(user_id=123, trusted_by_admin_id=999))
 
         assert db_service.is_user_trusted(user_id=123) is True
 
     def test_add_trusted_user_duplicate_raises(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+        db_service.add_trusted_user(TrustedUserData(user_id=123, trusted_by_admin_id=999))
 
         with pytest.raises(ValueError):
-            db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+            db_service.add_trusted_user(TrustedUserData(user_id=123, trusted_by_admin_id=999))
 
     def test_remove_trusted_user(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=123, trusted_by_admin_id=999)
+        db_service.add_trusted_user(TrustedUserData(user_id=123, trusted_by_admin_id=999))
 
         db_service.remove_trusted_user(user_id=123)
 
@@ -357,8 +357,8 @@ class TestTrustedUsers:
             db_service.remove_trusted_user(user_id=123)
 
     def test_get_trusted_user_ids(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=1001, trusted_by_admin_id=999)
-        db_service.add_trusted_user(user_id=1002, trusted_by_admin_id=999)
+        db_service.add_trusted_user(TrustedUserData(user_id=1001, trusted_by_admin_id=999))
+        db_service.add_trusted_user(TrustedUserData(user_id=1002, trusted_by_admin_id=999))
 
         trusted_ids = db_service.get_trusted_user_ids()
 
@@ -366,14 +366,24 @@ class TestTrustedUsers:
 
     def test_get_trusted_users_returns_metadata(self, db_service: DatabaseService):
         db_service.add_trusted_user(
-            user_id=2001, trusted_by_admin_id=9001,
-            user_full_name="Alice", username="alice",
-            admin_full_name="Admin Alpha", admin_username="admin_alpha",
+            TrustedUserData(
+                user_id=2001,
+                trusted_by_admin_id=9001,
+                user_full_name="Alice",
+                username="alice",
+                admin_full_name="Admin Alpha",
+                admin_username="admin_alpha",
+            )
         )
         db_service.add_trusted_user(
-            user_id=2002, trusted_by_admin_id=9002,
-            user_full_name="Bob", username=None,
-            admin_full_name="Admin Beta", admin_username=None,
+            TrustedUserData(
+                user_id=2002,
+                trusted_by_admin_id=9002,
+                user_full_name="Bob",
+                username=None,
+                admin_full_name="Admin Beta",
+                admin_username=None,
+            )
         )
 
         trusted_users = db_service.get_trusted_users()
@@ -394,9 +404,14 @@ class TestTrustedUsers:
     def test_update_trusted_user_names(self, db_service: DatabaseService):
         """Backfill path: update_trusted_user_names writes all 4 cached fields."""
         db_service.add_trusted_user(
-            user_id=2003, trusted_by_admin_id=9003,
-            user_full_name="", username=None,
-            admin_full_name="", admin_username=None,
+            TrustedUserData(
+                user_id=2003,
+                trusted_by_admin_id=9003,
+                user_full_name="",
+                username=None,
+                admin_full_name="",
+                admin_username=None,
+            )
         )
 
         db_service.update_trusted_user_names(
@@ -427,9 +442,14 @@ class TestTrustedUsers:
     ):
         """Every call overwrites all 4 fields with caller-supplied values (default empty/None)."""
         db_service.add_trusted_user(
-            user_id=2004, trusted_by_admin_id=9004,
-            user_full_name="Real Name", username="real_user",
-            admin_full_name="Real Admin", admin_username="real_admin",
+            TrustedUserData(
+                user_id=2004,
+                trusted_by_admin_id=9004,
+                user_full_name="Real Name",
+                username="real_user",
+                admin_full_name="Real Admin",
+                admin_username="real_admin",
+            )
         )
 
         # Caller only intends to touch user_full_name; other fields fall to defaults.
@@ -448,8 +468,8 @@ class TestTrustedUsers:
         assert record.admin_username is None
 
     def test_trusted_user_reads(self, db_service: DatabaseService):
-        db_service.add_trusted_user(user_id=3001, trusted_by_admin_id=9001)
-        db_service.add_trusted_user(user_id=3002, trusted_by_admin_id=9002)
+        db_service.add_trusted_user(TrustedUserData(user_id=3001, trusted_by_admin_id=9001))
+        db_service.add_trusted_user(TrustedUserData(user_id=3002, trusted_by_admin_id=9002))
 
         assert db_service.is_user_trusted(user_id=3001) is True
 

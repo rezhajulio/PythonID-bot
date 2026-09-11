@@ -31,6 +31,7 @@ from bot.constants import (
     TRUST_USER_ID_REQUIRED_MESSAGE,
     TRUST_USER_NOT_FOUND_MESSAGE,
 )
+from bot.database.models import TrustedUserData
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupRegistry, get_group_registry
 from bot.services.telegram_utils import (
@@ -106,12 +107,14 @@ async def trust_user(
         int: Number of groups where probation was cleared.
     """
     db.add_trusted_user(
-        user_id=target_user_id,
-        trusted_by_admin_id=admin_user_id,
-        user_full_name=target_user_full_name,
-        username=target_username,
-        admin_full_name=admin_full_name,
-        admin_username=admin_username,
+        TrustedUserData(
+            user_id=target_user_id,
+            trusted_by_admin_id=admin_user_id,
+            user_full_name=target_user_full_name,
+            username=target_username,
+            admin_full_name=admin_full_name,
+            admin_username=admin_username,
+        )
     )
 
     cleared_probation = 0

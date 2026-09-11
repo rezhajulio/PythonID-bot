@@ -19,6 +19,7 @@ from bot.database.models import (
     PendingCaptchaValidation,
     PhotoVerificationWhitelist,
     TrustedUser,
+    TrustedUserData,
     UserWarning,
 )
 
@@ -498,29 +499,12 @@ class DatabaseService:
             session.commit()
             logger.info(f"Removed from photo whitelist: user_id={user_id}")
 
-    def add_trusted_user(
-        self,
-        user_id: int,
-        trusted_by_admin_id: int,
-        group_id: int = 0,
-        notes: str | None = None,
-        user_full_name: str = "",
-        username: str | None = None,
-        admin_full_name: str = "",
-        admin_username: str | None = None,
-    ) -> TrustedUser:
+    def add_trusted_user(self, data: TrustedUserData) -> TrustedUser:
         """
         Add a user to trusted list.
 
         Args:
-            user_id: Telegram user ID.
-            trusted_by_admin_id: Telegram user ID of admin granting trust.
-            group_id: Trust scope ID (0 means global).
-            notes: Optional admin notes.
-            user_full_name: Display name of the trusted user.
-            username: Username of the trusted user.
-            admin_full_name: Display name of the admin.
-            admin_username: Username of the admin.
+            data: Trusted user details, including the trust scope.
 
         Returns:
             TrustedUser: Created trusted record.
@@ -530,29 +514,32 @@ class DatabaseService:
         """
         with Session(self._engine) as session:
             statement = select(TrustedUser).where(
-                TrustedUser.user_id == user_id,
-                TrustedUser.group_id == group_id,
+                TrustedUser.user_id == data.user_id,
+                TrustedUser.group_id == data.group_id,
             )
             existing = session.exec(statement).first()
 
             if existing:
-                raise ValueError(f"User {user_id} is already trusted for scope {group_id}")
+                raise ValueError(
+                    f"User {data.user_id} is already trusted for scope {data.group_id}"
+                )
 
             record = TrustedUser(
-                user_id=user_id,
-                group_id=group_id,
-                trusted_by_admin_id=trusted_by_admin_id,
-                notes=notes,
-                user_full_name=user_full_name,
-                username=username,
-                admin_full_name=admin_full_name,
-                admin_username=admin_username,
+                user_id=data.user_id,
+                group_id=data.group_id,
+                trusted_by_admin_id=data.trusted_by_admin_id,
+                notes=data.notes,
+                user_full_name=data.user_full_name,
+                username=data.username,
+                admin_full_name=data.admin_full_name,
+                admin_username=data.admin_username,
             )
             session.add(record)
             session.commit()
             session.refresh(record)
             logger.info(
-                f"Added trusted user: user_id={user_id}, admin_id={trusted_by_admin_id}, scope={group_id}"
+                f"Added trusted user: user_id={data.user_id}, "
+                f"admin_id={data.trusted_by_admin_id}, scope={data.group_id}"
             )
             return record
 

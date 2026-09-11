@@ -11,6 +11,7 @@ from bot.constants import (
     TRUST_USER_ID_INVALID_MESSAGE,
     TRUST_USER_ID_REQUIRED_MESSAGE,
 )
+from bot.database.models import TrustedUserData
 from bot.database.service import get_database, init_database, reset_database
 from bot.group_config import GroupConfig, GroupRegistry
 from bot.handlers.trust import (
@@ -176,7 +177,7 @@ class TestTrustCommands:
         mock_context.args = ["1111"]
 
         db = get_database()
-        db.add_trusted_user(user_id=1111, trusted_by_admin_id=12345)
+        db.add_trusted_user(TrustedUserData(user_id=1111, trusted_by_admin_id=12345))
 
         await handle_trust_command(mock_update, mock_context)
 
@@ -256,7 +257,7 @@ class TestTrustCommands:
         mock_context.args = ["2222"]
 
         db = get_database()
-        db.add_trusted_user(user_id=2222, trusted_by_admin_id=12345)
+        db.add_trusted_user(TrustedUserData(user_id=2222, trusted_by_admin_id=12345))
         mock_context.bot_data["trusted_user_ids"] = {2222}
 
         await handle_untrust_command(mock_update, mock_context)
@@ -316,14 +317,24 @@ class TestTrustCommands:
     async def test_trusted_list_command(self, mock_update, mock_context):
         db = get_database()
         db.add_trusted_user(
-            user_id=8001, trusted_by_admin_id=12345,
-            user_full_name="Alice Trusted", username="alice_t",
-            admin_full_name="Admin One", admin_username="admin_one",
+            TrustedUserData(
+                user_id=8001,
+                trusted_by_admin_id=12345,
+                user_full_name="Alice Trusted",
+                username="alice_t",
+                admin_full_name="Admin One",
+                admin_username="admin_one",
+            )
         )
         db.add_trusted_user(
-            user_id=8002, trusted_by_admin_id=54321,
-            user_full_name="Bob Trusted", username=None,
-            admin_full_name="Admin Two", admin_username="admin_two",
+            TrustedUserData(
+                user_id=8002,
+                trusted_by_admin_id=54321,
+                user_full_name="Bob Trusted",
+                username=None,
+                admin_full_name="Admin Two",
+                admin_username="admin_two",
+            )
         )
 
         await handle_trusted_list_command(mock_update, mock_context)
@@ -346,7 +357,7 @@ class TestTrustCommands:
         self, mock_update, mock_context
     ):
         db = get_database()
-        db.add_trusted_user(user_id=8001, trusted_by_admin_id=12345)
+        db.add_trusted_user(TrustedUserData(user_id=8001, trusted_by_admin_id=12345))
 
         await handle_trusted_list_command(mock_update, mock_context)
 
@@ -364,9 +375,14 @@ class TestTrustCommands:
 
         db = get_database()
         db.add_trusted_user(
-            user_id=8003, trusted_by_admin_id=12345,
-            user_full_name="Carol Trusted", username=None,
-            admin_full_name="Admin Star", admin_username="admin*_`star",
+            TrustedUserData(
+                user_id=8003,
+                trusted_by_admin_id=12345,
+                user_full_name="Carol Trusted",
+                username=None,
+                admin_full_name="Admin Star",
+                admin_username="admin*_`star",
+            )
         )
 
         await handle_trusted_list_command(mock_update, mock_context)
@@ -454,7 +470,7 @@ class TestTrustCallbacks:
         assert "callback" in mock_callback_update.callback_query.edit_message_text.call_args.args[0].lower()
 
     async def test_untrust_callback_success(self, mock_callback_update, mock_context):
-        get_database().add_trusted_user(user_id=7002, trusted_by_admin_id=12345)
+        get_database().add_trusted_user(TrustedUserData(user_id=7002, trusted_by_admin_id=12345))
         mock_context.bot_data["trusted_user_ids"] = {7002}
         mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
         mock_callback_update.callback_query.data = "untrust:-1001:7002"
@@ -473,7 +489,7 @@ class TestTrustCallbacks:
     ):
         """Trust callback for already-trusted user yields TRUST_ALREADY_EXISTS message."""
         monkeypatch.setattr("bot.handlers.trust.get_group_registry", lambda: mock_registry)
-        get_database().add_trusted_user(user_id=7003, trusted_by_admin_id=12345)
+        get_database().add_trusted_user(TrustedUserData(user_id=7003, trusted_by_admin_id=12345))
         mock_context.bot_data["group_admin_ids"] = {-1001: [12345]}
         mock_callback_update.callback_query.data = "trust:-1001:7003"
 
