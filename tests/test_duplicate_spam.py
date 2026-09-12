@@ -10,13 +10,13 @@ from telegram.ext import ApplicationHandlerStop
 
 from bot.group_config import GroupConfig
 from bot.handlers.duplicate_spam import (
+    RECENT_MESSAGES_KEY,
     RecentMessage,
     _get_recent_messages,
     _prune_old_messages,
     handle_duplicate_spam,
     is_similar,
     normalize_text,
-    RECENT_MESSAGES_KEY,
 )
 
 DEFAULT_SIMILARITY = 0.95
@@ -525,4 +525,3 @@ class TestRecentMessagesCacheEviction:
         # Old entries gone
         for i in range(half):
             assert (-(1000 + i), i) not in outer, f"Old entry ({i}) survived eviction"
-

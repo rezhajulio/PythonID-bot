@@ -177,7 +177,7 @@ class TestMainUsesPluginManager:
                             mock_app = MagicMock()
                             mock_app.bot_data = {}
                             mock_app_cls.builder.return_value.token.return_value.post_init.return_value.build.return_value = mock_app
-    
+
                             class FakeSettings:
                                 logfire_environment = "test"
                                 database_path = ":memory:"
@@ -207,11 +207,11 @@ class TestMainUsesPluginManager:
                                 logfire_enabled = False
                                 logfire_token = None
                                 logfire_service_name = "pythonid-bot"
-    
+
                             with patch("bot.main.get_settings", return_value=FakeSettings()):
                                 from bot.main import main
                                 main()
-    
+
                                 mock_pm.register_all.assert_called_once()
                     mock_init_reg.assert_called_once()
 

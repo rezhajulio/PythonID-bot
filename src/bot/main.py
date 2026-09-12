@@ -19,6 +19,7 @@ from bot.group_config import get_group_registry, init_group_registry
 from bot.plugins.manager import PluginManager
 from bot.services.admin_cache import preload_admin_ids
 
+
 def configure_logging() -> None:
     """
     Configure logging with Logfire integration.

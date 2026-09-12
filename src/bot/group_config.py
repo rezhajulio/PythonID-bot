@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import timedelta
 from pathlib import Path
+from typing import Self
 
 from pydantic import BaseModel, field_validator
 from telegram import Update
@@ -128,11 +129,12 @@ class GroupRegistry:
     def __init__(self) -> None:
         self._groups: dict[int, GroupConfig] = {}
 
-    def register(self, config: GroupConfig) -> None:
+    def register(self, config: GroupConfig) -> Self:
         if config.group_id in self._groups:
             raise ValueError(f"Duplicate group_id: {config.group_id}")
         self._groups[config.group_id] = config
         logger.info(f"Registered group {config.group_id} (warning_topic={config.warning_topic_id})")
+        return self
 
     def get(self, group_id: int) -> GroupConfig | None:
         return self._groups.get(group_id)

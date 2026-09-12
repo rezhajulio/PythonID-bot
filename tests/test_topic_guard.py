@@ -151,9 +151,8 @@ class TestGuardWarningTopic:
         with patch(
             "bot.handlers.topic_guard.get_group_config_for_update",
             side_effect=Exception("config lookup failed"),
-        ):
-            with pytest.raises(Exception, match="config lookup failed"):
-                await guard_warning_topic(mock_update, mock_context)
+        ), pytest.raises(Exception, match="config lookup failed"):
+            await guard_warning_topic(mock_update, mock_context)
 
         mock_update.message.delete.assert_not_called()
 

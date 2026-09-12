@@ -19,6 +19,7 @@ from bot.group_config import (
     reset_group_registry,
 )
 
+
 class TestGroupConfig:
     def test_minimal_config(self):
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=42)

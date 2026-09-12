@@ -10,12 +10,12 @@ To run just these tests: ``uv run pytest tests/test_properties.py -v``
 
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from bot.constants import format_hours_display, format_threshold_display
 from bot.handlers.trust import _format_person, _format_person_with_username
 from bot.services.telegram_utils import is_url_whitelisted
-
 
 # Strategies -----------------------------------------------------------------
 

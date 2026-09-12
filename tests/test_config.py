@@ -3,7 +3,7 @@
 import pytest
 from pydantic_settings.exceptions import SettingsError
 
-from bot.config import Settings, get_settings, get_env_file
+from bot.config import Settings, get_env_file, get_settings
 
 
 class TestGetEnvFile:

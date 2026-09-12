@@ -13,6 +13,7 @@ from scripts.query_logs import (
     query_logfire,
 )
 
+
 class TestGetConfig:
     """get_config reads from environment variables."""
 
@@ -26,7 +27,7 @@ class TestGetConfig:
     def test_custom_url(self):
         """Custom URL overrides default."""
         with patch.dict("os.environ", {"LOGFIRE_READ_TOKEN": "tok", "LOGFIRE_API_URL": "http://custom"}):
-            url, token = get_config()
+            url, _token = get_config()
             assert url == "http://custom"
 
     def test_missing_token_exits(self):

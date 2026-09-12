@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-
 from bot.services.user_checker import ProfileCheckResult, check_user_profile
 
 
@@ -40,9 +39,10 @@ class TestProfileCheckResult:
 
 class TestCheckUserProfile:
     async def test_user_with_photo_and_username(self):
-        from bot.database.service import init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -67,9 +67,10 @@ class TestCheckUserProfile:
             reset_database()
 
     async def test_user_without_photo(self):
-        from bot.database.service import init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -92,9 +93,10 @@ class TestCheckUserProfile:
             reset_database()
 
     async def test_user_without_username(self):
-        from bot.database.service import init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -117,9 +119,10 @@ class TestCheckUserProfile:
             reset_database()
 
     async def test_user_without_both(self):
-        from bot.database.service import init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -143,9 +146,10 @@ class TestCheckUserProfile:
             reset_database()
 
     async def test_whitelisted_user_skips_api_check(self):
-        from bot.database.service import get_database, init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import get_database, init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -172,9 +176,10 @@ class TestCheckUserProfile:
 class TestCheckUserProfileErrorHandling:
     async def test_get_profile_photos_exception_logged_and_raised(self):
         """Test when bot.get_user_profile_photos() raises an exception (lines 88-90)."""
-        from bot.database.service import init_database, reset_database
         import tempfile
         from pathlib import Path
+
+        from bot.database.service import init_database, reset_database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"

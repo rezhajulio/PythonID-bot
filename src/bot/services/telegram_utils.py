@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 class TelegramAdminFetchError(Exception):
     """Raised when fetching admin IDs from a Telegram group fails."""
-    pass
 
 def get_user_mention(user: User | Chat) -> str:
     """

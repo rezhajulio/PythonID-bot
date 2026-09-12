@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from bot.plugins.definitions import PLUGIN_NAMES
 
@@ -133,8 +134,8 @@ def guard_plugin(
     ) -> Callable[..., Coroutine[Any, Any, None]]:
         @functools.wraps(callback)
         async def wrapper(
-            update: "Update",
-            context: "ContextTypes.DEFAULT_TYPE",
+            update: Update,
+            context: ContextTypes.DEFAULT_TYPE,
             *args: Any,
             **kwargs: Any,
         ) -> None:

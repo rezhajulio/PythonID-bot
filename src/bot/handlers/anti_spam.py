@@ -25,7 +25,11 @@ from bot.constants import (
 )
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted, is_url_whitelisted
+from bot.services.telegram_utils import (
+    get_user_mention,
+    is_url_whitelisted,
+    is_user_admin_or_trusted,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -355,9 +359,7 @@ def _should_skip_new_user_spam_check(update, context, group_config) -> bool:
     user = update.message.from_user
     if user.is_bot:
         return True
-    if is_user_admin_or_trusted(context, group_config.group_id, user.id):
-        return True
-    return False
+    return bool(is_user_admin_or_trusted(context, group_config.group_id, user.id))
 
 
 async def handle_new_user_spam(
