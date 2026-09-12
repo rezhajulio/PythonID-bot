@@ -187,6 +187,27 @@ UNVERIFY_SUCCESS_MESSAGE = (
     "✅ User dengan ID {target_user_id} telah dihapus dari whitelist verifikasi foto."
 )
 
+VERIFY_ALREADY_WHITELISTED_MESSAGE = (
+    "ℹ️ User dengan ID {user_id} sudah ada di whitelist."
+)
+
+UNVERIFY_NOT_WHITELISTED_MESSAGE = (
+    "ℹ️ User dengan ID {target_user_id} tidak ada di whitelist."
+)
+
+VERIFY_COMMAND_ERROR_MESSAGE = (
+    "❌ Terjadi kesalahan saat memverifikasi user. Silakan coba lagi."
+)
+
+VERIFY_WHITELISTED_MULTI_GROUP_MESSAGE = (
+    "✅ User dengan ID {user_id} ditambahkan ke whitelist foto profil.\n"
+    "Gunakan /check untuk mengelola per grup."
+)
+
+UNVERIFY_COMMAND_ERROR_MESSAGE = (
+    "❌ Terjadi kesalahan saat menghapus verifikasi user. Silakan coba lagi."
+)
+
 UNRESTRICT_SUCCESS_MESSAGE = (
     "✅ Pembatasan bot untuk user `{user_id}` telah dicabut di grup {group_id}."
 )

@@ -255,6 +255,28 @@ class TestHandleVerifyCommand:
         mock_context.bot.restrict_chat_member.assert_not_called()
         mock_context.bot.send_message.assert_not_called()
 
+    async def test_multi_group_duplicate_reports_already_whitelisted(
+        self, mock_update, mock_context, temp_db
+    ):
+        """Duplicate in the multi-group path reports it without the generic error."""
+        target_user_id = 44444444
+        db = get_database()
+        db.add_photo_verification_whitelist(
+            user_id=target_user_id, verified_by_admin_id=12345
+        )
+        mock_context.args = [str(target_user_id)]
+        mock_context.bot_data["group_admin_ids"] = {
+            GROUP_ID: [12345],
+            -1009876543210: [12345],
+        }
+
+        await handle_verify_command(mock_update, mock_context)
+
+        assert mock_update.message.reply_text.call_count == 1
+        text = mock_update.message.reply_text.call_args.args[0]
+        assert "sudah ada di whitelist" in text
+        assert "kesalahan" not in text
+
     async def test_verify_command_does_not_misreport_errors_as_duplicate(
         self, mock_update, mock_context, temp_db, monkeypatch
     ):
@@ -525,6 +547,21 @@ class TestHandleUnverifyCommand:
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
         assert "tidak ada di whitelist" in call_args.args[0]
+
+    async def test_unverify_unexpected_error_reports_generic_failure(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """An unexpected failure is logged and answered, not left to escape."""
+        mock_context.args = ["555666"]
+        monkeypatch.setattr(
+            "bot.handlers.verify.unverify_user",
+            AsyncMock(side_effect=RuntimeError("db exploded")),
+        )
+
+        await handle_unverify_command(mock_update, mock_context)
+
+        assert mock_update.message.reply_text.call_count == 1
+        assert "kesalahan" in mock_update.message.reply_text.call_args.args[0]
 
     async def test_unverify_multiple_users(self, mock_update, mock_context, temp_db):
         db = get_database()

@@ -21,9 +21,14 @@ from bot.constants import (
     UNRESTRICT_FAILED_MESSAGE,
     UNRESTRICT_NOT_NEEDED_MESSAGE,
     UNRESTRICT_SUCCESS_MESSAGE,
+    UNVERIFY_COMMAND_ERROR_MESSAGE,
+    UNVERIFY_NOT_WHITELISTED_MESSAGE,
     UNVERIFY_SUCCESS_MESSAGE,
+    VERIFY_ALREADY_WHITELISTED_MESSAGE,
+    VERIFY_COMMAND_ERROR_MESSAGE,
     VERIFY_SUCCESS_MESSAGE,
     VERIFY_SUCCESS_WITH_UNRESTRICT_MESSAGE,
+    VERIFY_WHITELISTED_MULTI_GROUP_MESSAGE,
     VERIFICATION_CLEARANCE_MESSAGE,
 )
 from bot.database.service import DatabaseService, get_database
@@ -239,7 +244,9 @@ async def handle_verify_command(
             message = await verify_user_in_group(
                 context.bot, db, registry, target_user_id, admin_user_id, admin_group_ids[0]
             )
+            verified = True
         else:
+            verified = False
             try:
                 db.add_photo_verification_whitelist(
                     user_id=target_user_id,
@@ -250,25 +257,26 @@ async def handle_verify_command(
                     f"User {target_user_id} is already in the photo verification whitelist.",
                     exc_info=True,
                 )
-                await update.message.reply_text(
-                    f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist."
+                message = VERIFY_ALREADY_WHITELISTED_MESSAGE.format(
+                    user_id=target_user_id
                 )
-                return
-            message = (
-                f"✅ User dengan ID {target_user_id} ditambahkan ke whitelist foto profil.\n"
-                f"Gunakan /check untuk mengelola per grup."
-            )
+            else:
+                message = VERIFY_WHITELISTED_MULTI_GROUP_MESSAGE.format(
+                    user_id=target_user_id
+                )
+                verified = True
 
-        await update.message.reply_text(message)
-        logger.info(
-            f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
-            f"whitelisted user {target_user_id} for photo verification"
-        )
+        if verified:
+            logger.info(
+                f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
+                f"whitelisted user {target_user_id} for photo verification"
+            )
     except Exception as e:
         logger.error(f"Error during /verify command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Terjadi kesalahan saat memverifikasi user. Silakan coba lagi."
-        )
+        await update.message.reply_text(VERIFY_COMMAND_ERROR_MESSAGE)
+        return
+
+    await update.message.reply_text(message)
 
 
 async def handle_unverify_command(
@@ -292,20 +300,21 @@ async def handle_unverify_command(
 
     try:
         message = await unverify_user(db, target_user_id)
-        await update.message.reply_text(message)
     except ValueError:
         logger.warning(
             f"User {target_user_id} is not in the photo verification whitelist.",
             exc_info=True,
         )
         await update.message.reply_text(
-            f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist."
+            UNVERIFY_NOT_WHITELISTED_MESSAGE.format(target_user_id=target_user_id)
         )
+        return
     except Exception as e:
         logger.error(f"Error during /unverify command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Terjadi kesalahan saat menghapus verifikasi user. Silakan coba lagi."
-        )
+        await update.message.reply_text(UNVERIFY_COMMAND_ERROR_MESSAGE)
+        return
+
+    await update.message.reply_text(message)
 
 
 async def handle_verify_callback(
