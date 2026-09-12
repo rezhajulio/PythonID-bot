@@ -57,31 +57,18 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Check if Python files changed
-      id: python-files
-      run: |
-        if git diff --quiet HEAD~1 HEAD -- '**/*.py' src/ tests/ 2>/dev/null || [ $? -eq 128 ]; then
-          echo "changed=true" >> $GITHUB_OUTPUT
-        else
-          echo "changed=true" >> $GITHUB_OUTPUT
-        fi
-
     - name: Set up Python ${{ matrix.python-version }}
-      if: steps.python-files.outputs.changed == 'true'
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         allow-prereleases: true
 
     - name: Install uv
-      if: steps.python-files.outputs.changed == 'true'
       run: pip install --upgrade pip uv
 
     - name: Install dependencies
-      if: steps.python-files.outputs.changed == 'true'
       run: uv sync --dev
 
     - name: Test with pytest
-      if: steps.python-files.outputs.changed == 'true'
       run: |
         uv run pytest

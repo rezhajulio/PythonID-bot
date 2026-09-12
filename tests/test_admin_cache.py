@@ -4,6 +4,8 @@ Verifies that refresh_admin_ids and preload_admin_ids are importable
 from the new location and behave correctly.
 """
 
+import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,7 +15,15 @@ from bot.services.telegram_utils import TelegramAdminFetchError
 
 
 @pytest.fixture(autouse=True)
-def mock_disk_cache():
+def mock_disk_cache(request):
+    """Stub disk I/O for tests that are not about the disk layer itself.
+
+    TestDiskCache exercises the real functions against a tmp_path and so
+    opts out.
+    """
+    if request.cls is not None and request.cls.__name__ == "TestDiskCache":
+        yield None, None
+        return
     with (
         patch("bot.services.admin_cache._save_admin_cache") as mock_save,
         patch(
@@ -228,3 +238,127 @@ class TestPreloadAdminIds:
 
         assert mock_context.bot_data["group_admin_ids"][-1001] == []
         assert mock_context.bot_data["admin_ids"] == []
+
+
+class TestDiskCache:
+    """The on-disk cache: round-trip, malformed input, and save guarding."""
+
+    def test_round_trips_int_keys_and_values(self, tmp_path):
+        """Keys survive the JSON stringify/parse cycle as ints."""
+        from bot.services import admin_cache
+
+        target = tmp_path / "admin_cache.json"
+        with patch.object(admin_cache, "CACHE_FILE_PATH", target):
+            admin_cache._save_admin_cache({-1001: [11, 22], -1002: []})
+            assert admin_cache._load_admin_cache() == {-1001: [11, 22], -1002: []}
+        # Temp file is renamed onto the target, not left behind.
+        assert not (tmp_path / "admin_cache.tmp").exists()
+
+    def test_skips_malformed_entries_without_dropping_good_ones(self, tmp_path):
+        """One bad entry must not discard the rest of the cache."""
+        from bot.services import admin_cache
+
+        target = tmp_path / "admin_cache.json"
+        target.write_text(
+            '{"-1001": [111], "-1002": "not-a-list", "-bad": [1], "-1003": ["222", 333]}'
+        )
+        with patch.object(admin_cache, "CACHE_FILE_PATH", target):
+            loaded = admin_cache._load_admin_cache()
+        # String IDs are coerced; unusable entries are dropped, good ones kept.
+        assert loaded == {-1001: [111], -1003: [222, 333]}
+
+    def test_corrupt_file_returns_empty(self, tmp_path):
+        from bot.services import admin_cache
+
+        target = tmp_path / "admin_cache.json"
+        target.write_text("{not json")
+        with patch.object(admin_cache, "CACHE_FILE_PATH", target):
+            assert admin_cache._load_admin_cache() == {}
+
+    async def test_refresh_failure_does_not_overwrite_good_disk_cache(self, tmp_path):
+        """A refresh where every fetch fails must not clobber the saved roster."""
+        from bot.services import admin_cache
+        from bot.services.admin_cache import refresh_admin_ids
+
+        target = tmp_path / "admin_cache.json"
+        target.write_text('{"-1001": [999]}')
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {}
+
+        with (
+            patch.object(admin_cache, "CACHE_FILE_PATH", target),
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch,
+        ):
+            mock_fetch.side_effect = TelegramAdminFetchError("API error")
+            await refresh_admin_ids(mock_context)
+
+        assert json.loads(target.read_text()) == {"-1001": [999]}
+
+    async def test_preload_seeds_from_disk_when_bot_data_empty(self, tmp_path):
+        """The disk cache is the fallback when bot_data has nothing yet."""
+        from bot.services import admin_cache
+        from bot.services.admin_cache import preload_admin_ids
+
+        target = tmp_path / "admin_cache.json"
+        target.write_text('{"-1001": [777]}')
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {}
+
+        with (
+            patch.object(admin_cache, "CACHE_FILE_PATH", target),
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids") as mock_fetch,
+        ):
+            mock_fetch.side_effect = TelegramAdminFetchError("API error")
+            await preload_admin_ids(mock_context)
+
+        # Seeded from disk, and the seeded admin stays visible to admin_ids.
+        assert mock_context.bot_data["group_admin_ids"][-1001] == [777]
+        assert mock_context.bot_data["admin_ids"] == [777]
+
+
+class TestConcurrentFetch:
+    """Fetching is concurrent; a sequential loop must fail these tests."""
+
+    async def test_groups_are_fetched_concurrently(self):
+        from bot.services.admin_cache import refresh_admin_ids
+
+        registry = GroupRegistry()
+        for gid in (-1001, -1002, -1003):
+            registry.register(GroupConfig(group_id=gid, warning_topic_id=1))
+
+        started: list[int] = []
+        release = asyncio.Event()
+
+        async def slow_fetch(bot, group_id):
+            started.append(group_id)
+            if len(started) == 3:
+                release.set()
+            # Every fetch must be in flight before any can complete.
+            await asyncio.wait_for(release.wait(), timeout=1)
+            return [group_id]
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {}
+
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch("bot.services.admin_cache.fetch_group_admin_ids", side_effect=slow_fetch),
+            patch("bot.services.admin_cache._save_admin_cache"),
+        ):
+            await refresh_admin_ids(mock_context)
+
+        assert len(started) == 3
+        assert set(mock_context.bot_data["group_admin_ids"]) == {-1001, -1002, -1003}

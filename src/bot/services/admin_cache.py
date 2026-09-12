@@ -8,15 +8,17 @@ between ``main.py`` and ``jobs.py``.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
-import json
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from telegram.error import NetworkError, TimedOut
+
 from bot.group_config import get_group_registry
-from bot.services.telegram_utils import fetch_group_admin_ids
+from bot.services.telegram_utils import TelegramAdminFetchError, fetch_group_admin_ids
 
 if TYPE_CHECKING:
     from telegram.ext import ContextTypes
@@ -25,17 +27,39 @@ logger = logging.getLogger(__name__)
 
 CACHE_FILE_PATH = Path("data/admin_cache.json")
 
+FETCH_ERRORS = (TelegramAdminFetchError, NetworkError, TimedOut)
+
 
 def _load_admin_cache() -> dict[int, list[int]]:
+    """Load the persisted admin cache, skipping entries that are malformed.
+
+    A single bad entry is dropped rather than discarding the whole file, so a
+    partially corrupt cache still yields the rosters that are readable.
+    """
     if not CACHE_FILE_PATH.exists():
         return {}
     try:
         with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return {int(k): v for k, v in data.items()}
-    except Exception as e:
-        logger.error(f"Failed to load admin cache from disk: {e}")
+    except (OSError, ValueError) as e:
+        logger.error(f"Failed to load admin cache from disk: {e}", exc_info=True)
         return {}
+
+    if not isinstance(data, dict):
+        logger.error(
+            f"Ignoring admin cache with unexpected top-level type: {type(data).__name__}"
+        )
+        return {}
+
+    cache: dict[int, list[int]] = {}
+    for key, value in data.items():
+        try:
+            if not isinstance(value, list):
+                raise TypeError(f"expected list, got {type(value).__name__}")
+            cache[int(key)] = [int(uid) for uid in value]
+        except (TypeError, ValueError) as e:
+            logger.error(f"Skipping malformed admin cache entry {key!r}: {e}")
+    return cache
 
 
 def _save_admin_cache(cache: dict[int, list[int]]) -> None:
@@ -45,8 +69,8 @@ def _save_admin_cache(cache: dict[int, list[int]]) -> None:
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(cache, f)
         temp_path.replace(CACHE_FILE_PATH)
-    except Exception as e:
-        logger.error(f"Failed to save admin cache to disk: {e}")
+    except OSError as e:
+        logger.error(f"Failed to save admin cache to disk: {e}", exc_info=True)
 
 
 async def _fetch_single(
@@ -55,7 +79,7 @@ async def _fetch_single(
     try:
         ids = await fetch_group_admin_ids(bot, group_id)
         return group_id, ids, None
-    except Exception as e:
+    except FETCH_ERRORS as e:
         return group_id, None, e
 
 
@@ -71,13 +95,17 @@ async def _sync_admin_ids(
                       if False, start with an empty dict.
     """
     registry = get_group_registry()
-    old_cache: dict[int, list[int]] = context.bot_data.get("group_admin_ids", {})
+    old_cache: dict[int, list[int]] = dict(
+        context.bot_data.get("group_admin_ids", {})
+    )
 
-    if seed_existing and not old_cache:
-        old_cache = _load_admin_cache()
+    # Disk is the fallback for groups that are missing from bot_data, which
+    # happens on a cold start and after a cycle where every fetch failed.
+    if not old_cache:
+        old_cache = await asyncio.to_thread(_load_admin_cache)
 
     group_admin_ids: dict[int, list[int]] = dict(old_cache) if seed_existing else {}
-    all_admin_ids: set[int] = set()
+    fetched_any = False
 
     tasks = [_fetch_single(context.bot, gc.group_id) for gc in registry.all_groups()]
 
@@ -86,17 +114,27 @@ async def _sync_admin_ids(
         for group_id, ids, error in results:
             if error is None and ids is not None:
                 group_admin_ids[group_id] = ids
-                all_admin_ids.update(ids)
+                fetched_any = True
             else:
-                logger.error(f"Failed to fetch admin IDs for group {group_id}: {error}")
-                existing = old_cache.get(group_id, [])
-                group_admin_ids[group_id] = existing
-                all_admin_ids.update(existing)
+                logger.error(
+                    f"Failed to fetch admin IDs for group {group_id}: {error}",
+                    exc_info=error,
+                )
+                group_admin_ids[group_id] = old_cache.get(group_id, [])
+
+    # Derived from the final map so groups seeded from cache stay visible to
+    # admin_ids consumers, which previously saw only freshly fetched groups.
+    all_admin_ids = {
+        admin_id for ids in group_admin_ids.values() for admin_id in ids
+    }
 
     context.bot_data["group_admin_ids"] = group_admin_ids
     context.bot_data["admin_ids"] = list(all_admin_ids)
 
-    _save_admin_cache(group_admin_ids)
+    # Never persist a result built without a single successful fetch: doing so
+    # would overwrite a good roster on disk with fallback or empty data.
+    if fetched_any:
+        await asyncio.to_thread(_save_admin_cache, group_admin_ids)
 
 
 async def refresh_admin_ids(context: ContextTypes.DEFAULT_TYPE) -> None:

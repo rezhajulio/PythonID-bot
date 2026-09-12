@@ -255,6 +255,22 @@ class TestHandleVerifyCommand:
         mock_context.bot.restrict_chat_member.assert_not_called()
         mock_context.bot.send_message.assert_not_called()
 
+    async def test_verify_command_does_not_misreport_errors_as_duplicate(
+        self, mock_update, mock_context, temp_db, monkeypatch
+    ):
+        """A non-duplicate failure must not be reported as already-whitelisted."""
+        monkeypatch.setattr(
+            "bot.services.telegram_utils.get_admin_groups",
+            MagicMock(side_effect=RuntimeError("group lookup exploded")),
+        )
+        mock_context.args = ["123456"]
+
+        await handle_verify_command(mock_update, mock_context)
+
+        text = mock_update.message.reply_text.call_args.args[0]
+        assert "sudah ada di whitelist" not in text
+        assert "kesalahan" in text
+
     async def test_verify_deletes_warnings(self, mock_update, mock_context, temp_db, monkeypatch):
         """Test that verify command deletes all warning records."""
         gc = GroupConfig(group_id=-1001234567890, warning_topic_id=12345)

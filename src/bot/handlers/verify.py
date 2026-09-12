@@ -240,10 +240,20 @@ async def handle_verify_command(
                 context.bot, db, registry, target_user_id, admin_user_id, admin_group_ids[0]
             )
         else:
-            db.add_photo_verification_whitelist(
-                user_id=target_user_id,
-                verified_by_admin_id=admin_user_id,
-            )
+            try:
+                db.add_photo_verification_whitelist(
+                    user_id=target_user_id,
+                    verified_by_admin_id=admin_user_id,
+                )
+            except ValueError:
+                logger.warning(
+                    f"User {target_user_id} is already in the photo verification whitelist.",
+                    exc_info=True,
+                )
+                await update.message.reply_text(
+                    f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist."
+                )
+                return
             message = (
                 f"✅ User dengan ID {target_user_id} ditambahkan ke whitelist foto profil.\n"
                 f"Gunakan /check untuk mengelola per grup."
@@ -254,9 +264,10 @@ async def handle_verify_command(
             f"Admin {admin_user_id} ({update.message.from_user.full_name}) "
             f"whitelisted user {target_user_id} for photo verification"
         )
-    except ValueError:
+    except Exception as e:
+        logger.error(f"Error during /verify command: {e}", exc_info=True)
         await update.message.reply_text(
-            f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist."
+            "❌ Terjadi kesalahan saat memverifikasi user. Silakan coba lagi."
         )
 
 
@@ -283,8 +294,17 @@ async def handle_unverify_command(
         message = await unverify_user(db, target_user_id)
         await update.message.reply_text(message)
     except ValueError:
+        logger.warning(
+            f"User {target_user_id} is not in the photo verification whitelist.",
+            exc_info=True,
+        )
         await update.message.reply_text(
             f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist."
+        )
+    except Exception as e:
+        logger.error(f"Error during /unverify command: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Terjadi kesalahan saat menghapus verifikasi user. Silakan coba lagi."
         )
 
 
