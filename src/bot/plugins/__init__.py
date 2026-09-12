@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from bot.plugins.config import guard_plugin, is_plugin_enabled_for_group, resolve_plugin_toggles
+from bot.plugins.config import (
+    guard_plugin,
+    is_plugin_enabled_for_group,
+    resolve_plugin_toggles,
+)
 from bot.plugins.definitions import PluginManifest, get_plugin_definitions
 
 if TYPE_CHECKING:

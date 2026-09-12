@@ -2,12 +2,18 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from bot.group_config import GroupConfig, GroupRegistry
 import pytest
 
-from bot.plugins.config import guard_plugin, is_plugin_enabled_for_group, resolve_plugin_toggles
-from bot.plugins.definitions import MANIFEST_ORDER, PLUGIN_NAMES as KNOWN_PLUGINS, get_plugin_definitions
+from bot.group_config import GroupConfig, GroupRegistry
+from bot.plugins.config import (
+    guard_plugin,
+    is_plugin_enabled_for_group,
+    resolve_plugin_toggles,
+)
+from bot.plugins.definitions import MANIFEST_ORDER, get_plugin_definitions
+from bot.plugins.definitions import PLUGIN_NAMES as KNOWN_PLUGINS
 from bot.plugins.manager import PluginManager, compute_effective_plugin_map
+
 
 class TestResolvePluginToggles:
     """Resolver: defaults True, group override wins."""
@@ -230,7 +236,7 @@ class TestBuiltinModules:
 
     def test_builtin_init_module_exists(self):
         """builtin/__init__.py is importable."""
-        import bot.plugins.builtin  # noqa: F811
+        import bot.plugins.builtin
         assert hasattr(bot.plugins.builtin, "__file__")
 
 class TestComputeEffectivePluginMap:

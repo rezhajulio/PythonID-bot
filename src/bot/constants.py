@@ -32,12 +32,12 @@ MISSING_ITEMS_SEPARATOR = " dan "
 def format_threshold_display(threshold_minutes: int) -> str:
     """
     Format time threshold in minutes to human-readable Indonesian text.
-    
+
     Converts minutes to "X jam" for values >= 60, or "Y menit" for smaller values.
-    
+
     Args:
         threshold_minutes: Time threshold in minutes.
-        
+
     Returns:
         Formatted string like "3 jam" or "30 menit".
     """
@@ -50,12 +50,12 @@ def format_threshold_display(threshold_minutes: int) -> str:
 def format_hours_display(hours: int) -> str:
     """
     Format hours to human-readable Indonesian text.
-    
+
     Converts hours to "X hari" for values >= 24, or "Y jam" for smaller values.
-    
+
     Args:
         hours: Time in hours.
-        
+
     Returns:
         Formatted string like "7 hari" or "12 jam".
     """
@@ -446,20 +446,20 @@ WHITELISTED_URL_DOMAINS = frozenset([
     "cloud.google.com",
     "docs.microsoft.com",
     "learn.microsoft.com",
-    
+
     # Code Hosting & Collaboration
     "github.com",
     "gitlab.com",
     "bitbucket.org",
     "gist.github.com",
     "raw.githubusercontent.com",
-    
+
     # Package Repositories
     "pypi.org",
     "anaconda.org",
     "conda.io",
     "hub.docker.com",
-    
+
     # Community & Learning
     "stackoverflow.com",
     "stackexchange.com",
@@ -471,7 +471,7 @@ WHITELISTED_URL_DOMAINS = frozenset([
     "pythonweekly.com",
     "kaggle.com",
     "colab.research.google.com",
-    
+
     # Data Science & ML Resources
     "arxiv.org",
     "paperswithcode.com",
@@ -481,14 +481,14 @@ WHITELISTED_URL_DOMAINS = frozenset([
     "gradio.app",
     "jupyter.org",
     "nbviewer.jupyter.org",
-    
+
     # API Documentation
     "developers.google.com",
     "developer.twitter.com",
     "developer.github.com",
     "api.telegram.org",
     "core.telegram.org",
-    
+
     # Indonesian Tech Communities
     "dicoding.com",
 ])
@@ -497,7 +497,7 @@ WHITELISTED_URL_DOMAINS = frozenset([
 # Only these specific t.me paths are allowed (exact match on first path segment)
 # e.g., "PythonID" allows "t.me/PythonID", "t.me/PythonID/123", but not "t.me/PythonIDSpam"
 # Values should be lowercased for case-insensitive matching
-WHITELISTED_TELEGRAM_PATHS = frozenset([    
+WHITELISTED_TELEGRAM_PATHS = frozenset([
     # Cloud & Platforms
     "juaragcp",
     "awsdatausergroupid",
@@ -505,7 +505,7 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "azureindo",
     "gcpuserid",
     "gcp_id",
-    
+
     # AI & Data Science
     "artificialintelligence_indonesia",
     "businessintelligenceid",
@@ -518,14 +518,14 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "scrapeid",
     "tableauprofessionals",
     "tensorflowid",
-    
+
     # Databases
     "sqlserverid",
     "mongodb_id",
     "mongo_db",
     "mysqlid",
     "postgresql_id",
-    
+
     # General Programming & Developer Groups
     "bandungdevcom",
     "belajarcoding",
@@ -575,7 +575,7 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "teknologi_umum_v2",
     "idwordpress",
     "smk_dev",
-    
+
     # DevOps & Infrastructure
     "ansibleid",
     "cloudcomputingindonesia",
@@ -584,34 +584,34 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "kubernetesindonesia",
     "okdindonesia",
     "devopsjogja",
-    
+
     # Firebase
     "firebaseindonesia",
-    
+
     # FreeBSD
     "setanmerahid",
-    
+
     # Game Development
     "gamerang",
     "gdevelopid",
     "godot_indonesia",
     "lombokgamedev",
-    
+
     # IoT
     "kelasrobotgrup",
     "arduinoindonesiancommunity",
     "edukasielektronika",
     "raspberrypi_id",
-    
+
     # iOS
     "ikaskus",
     "initialestore",
     "libimobiledevice",
-    
+
     # Jokes
     "linux_memes",
     "programmerjokes",
-    
+
     # Linux
     "archlinuxid",
     "artixlinux_id",
@@ -642,14 +642,14 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "rhel_id",
     "ubuntu_indo",
     "voidlinux_id",
-    
+
     # macOS
     "macosid",
-    
+
     # Office Productivity
     "excelid",
     "belajarlibreofficeindonesia",
-    
+
     # Open Source & Security
     "osint_indonesia",
     "doscomedia",
@@ -660,7 +660,7 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "reversingid",
     "cybersecurity_id",
     "hacktheboxindo",
-    
+
     # Programming Languages (Specific)
     "dotnetusergroup",
     "dotnetcore_id",
@@ -741,11 +741,11 @@ WHITELISTED_TELEGRAM_PATHS = frozenset([
     "gis_id",
     "leafletid",
     "qgisindonesia",
-    
+
     # QA
     "sqa_id",
     "qamalang",
-    
+
     # Text Editors
     "emacsid",
     "vimid",

@@ -22,7 +22,8 @@ Usage inside ``main.py``::
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from bot.plugins.builtin import captcha as captcha_mod
 from bot.plugins.builtin import commands

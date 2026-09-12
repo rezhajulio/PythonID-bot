@@ -5,10 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import Chat, Message, MessageEntity, User
-
-from bot.group_config import GroupConfig
 from telegram.ext import ApplicationHandlerStop
 
+from bot.group_config import GroupConfig
 from bot.handlers.anti_spam import (
     extract_urls,
     handle_contact_spam,

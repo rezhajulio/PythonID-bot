@@ -21,6 +21,7 @@ from bot.handlers.bio_bait import (
     send_monitor_alert_to_owner,
 )
 
+
 class TestNormalizeBioBaitText:
     """Tests for the normalize_bio_bait_text function."""
 

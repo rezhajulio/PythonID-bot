@@ -422,4 +422,3 @@ def test_has_non_whitelisted_link_no_urls():
     message.text = "No URLs here"
     message.caption = None
     assert not has_non_whitelisted_link(message)
-

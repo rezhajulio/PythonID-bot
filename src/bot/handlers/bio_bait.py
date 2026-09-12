@@ -25,7 +25,8 @@ import unicodedata
 from time import monotonic
 
 from telegram import Update
-from telegram.ext import ApplicationHandlerStop, ContextTypes, filters as _filters
+from telegram.ext import ApplicationHandlerStop, ContextTypes
+from telegram.ext import filters as _filters
 
 from bot.constants import (
     BIO_BAIT_MONITOR_ALERT,
@@ -39,8 +40,8 @@ from bot.constants import (
 from bot.group_config import get_group_config_for_update
 from bot.services.telegram_utils import (
     get_user_mention,
-    is_user_admin_or_trusted,
     is_url_whitelisted,
+    is_user_admin_or_trusted,
     restrict_chat_member_with_retry,
     send_message_with_retry,
 )
@@ -224,10 +225,7 @@ def has_suspicious_bio_links(bio: str) -> bool:
     )
     if mention_count >= 2:
         return True
-    if mention_count == 1 and _BIO_PROMO_HINTS_RE.search(lowered):
-        return True
-
-    return False
+    return bool(mention_count == 1 and _BIO_PROMO_HINTS_RE.search(lowered))
 
 def _get_user_bio_cache(
     context: ContextTypes.DEFAULT_TYPE,

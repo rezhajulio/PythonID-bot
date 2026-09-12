@@ -26,8 +26,8 @@ from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
 
 from bot.constants import (
-    WARN_COMMAND_NOT_FOUND,
     WARN_COMMAND_NO_REASON,
+    WARN_COMMAND_NOT_FOUND,
     WARN_COMMAND_NOT_MEMBER,
     WARN_COMMAND_USAGE,
     WARN_COMMAND_WITH_REASON,
@@ -56,9 +56,7 @@ def _is_real_reply(message: object) -> bool:
         return False
     if getattr(reply, "forum_topic_created", None) is not None:
         return False
-    if getattr(reply, "from_user", None) is None:
-        return False
-    return True
+    return getattr(reply, "from_user", None) is not None
 
 
 async def handle_warn_command(

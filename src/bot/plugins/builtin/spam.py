@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING
 
 from telegram.ext import MessageHandler, filters
 
-from bot.handlers.anti_spam import handle_contact_spam, handle_inline_keyboard_spam, handle_new_user_spam
+from bot.handlers.anti_spam import (
+    handle_contact_spam,
+    handle_inline_keyboard_spam,
+    handle_new_user_spam,
+)
 from bot.handlers.bio_bait import BIO_BAIT_FILTER, handle_bio_bait_spam
 from bot.handlers.duplicate_spam import handle_duplicate_spam
 from bot.handlers.guest_bot import GuestBotFilter, handle_guest_bot_message

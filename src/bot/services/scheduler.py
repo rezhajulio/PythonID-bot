@@ -12,7 +12,6 @@ import time
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ContextTypes
 
-
 from bot.constants import (
     RESTRICTED_PERMISSIONS,
     RESTRICTION_MESSAGE_AFTER_TIME,
