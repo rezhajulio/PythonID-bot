@@ -32,15 +32,13 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
-    "ruff>=0.15.17,<0.16",
+    "ruff>=0.15.17",
 ]
 
 [tool.ruff]
-# Pin the rule set explicitly so a ruff upgrade can't silently widen it.
-# Ruff 0.16 changed its default selection from ~59 to ~413 rules, which
-# reflagged long-standing code; the project intentionally lints only the
-# pycodestyle errors and pyflakes set below.
-target-version = "py311"
+# Freeze the lint rule set explicitly. Ruff 0.16 widened its defaults from
+# ~59 to ~413 rules, which reflagged 154 long-standing findings.
+# The project intentionally lints the pycodestyle-errors and pyflakes set.
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]

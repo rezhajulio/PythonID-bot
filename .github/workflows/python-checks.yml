@@ -16,20 +16,25 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.15"
-        allow-prereleases: true
+        python-version: "3.11"
 
     - name: Install uv
       run: pip install --upgrade pip uv
 
     - name: Install dependencies
+      env:
+        UV_PYTHON: "3.11"
       run: uv sync --dev
 
     - name: Lint with ruff
+      env:
+        UV_PYTHON: "3.11"
       run: |
         uv run ruff check . --statistics
 
     - name: Type-check with mypy
+      env:
+        UV_PYTHON: "3.11"
       run: |
         uv run mypy src/bot/ tests/
 
@@ -67,9 +72,13 @@ jobs:
 
     - name: Install dependencies
       if: steps.python-files.outputs.changed == 'true'
+      env:
+        UV_PYTHON: ${{ matrix.python-version }}
       run: uv sync --dev
 
     - name: Test with pytest
       if: steps.python-files.outputs.changed == 'true'
+      env:
+        UV_PYTHON: ${{ matrix.python-version }}
       run: |
         uv run pytest
