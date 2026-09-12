@@ -9,6 +9,12 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Lint and type-check on the floor of requires-python. UV_PYTHON is set
+    # explicitly because `uv sync` resolves its interpreter from
+    # .python-version, which would otherwise override actions/setup-python.
+    env:
+      UV_PYTHON: "3.11"
+      UV_PYTHON_DOWNLOADS: never
 
     steps:
     - uses: actions/checkout@v4
@@ -22,19 +28,13 @@ jobs:
       run: pip install --upgrade pip uv
 
     - name: Install dependencies
-      env:
-        UV_PYTHON: "3.11"
       run: uv sync --dev
 
     - name: Lint with ruff
-      env:
-        UV_PYTHON: "3.11"
       run: |
         uv run ruff check . --statistics
 
     - name: Type-check with mypy
-      env:
-        UV_PYTHON: "3.11"
       run: |
         uv run mypy src/bot/ tests/
 
@@ -44,6 +44,13 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    # UV_PYTHON must track the matrix entry: `uv sync` reads .python-version,
+    # so without it every job would resolve to the same interpreter.
+    # Downloads are disabled so a missing interpreter fails loudly rather
+    # than silently fetching a different one.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+      UV_PYTHON_DOWNLOADS: never
 
     steps:
     - uses: actions/checkout@v4
@@ -72,13 +79,9 @@ jobs:
 
     - name: Install dependencies
       if: steps.python-files.outputs.changed == 'true'
-      env:
-        UV_PYTHON: ${{ matrix.python-version }}
       run: uv sync --dev
 
     - name: Test with pytest
       if: steps.python-files.outputs.changed == 'true'
-      env:
-        UV_PYTHON: ${{ matrix.python-version }}
       run: |
         uv run pytest
