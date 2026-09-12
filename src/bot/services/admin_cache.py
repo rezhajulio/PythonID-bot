@@ -15,8 +15,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from telegram.error import NetworkError, TimedOut
+from pydantic import ValidationError
+from telegram.error import TelegramError
 
+from bot.config import get_settings
 from bot.group_config import get_group_registry
 from bot.services.telegram_utils import TelegramAdminFetchError, fetch_group_admin_ids
 
@@ -25,9 +27,40 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CACHE_FILE_PATH = Path("data/admin_cache.json")
+CACHE_FILE_PATH: Path | None = None
+"""Test/override hook. When None the path is derived from settings at call time."""
 
-FETCH_ERRORS = (TelegramAdminFetchError, NetworkError, TimedOut)
+
+def _cache_file_path() -> Path:
+    """Resolve the admin cache path, preferring the configured database directory.
+
+    Resolved per call rather than at import, so importing this module never
+    requires a fully populated environment and so a DATABASE_PATH change is
+    honoured. Tests override ``CACHE_FILE_PATH``.
+    """
+    if CACHE_FILE_PATH is not None:
+        return CACHE_FILE_PATH
+    try:
+        database_path = get_settings().database_path
+    except ValidationError:
+        # Settings unavailable (e.g. imported by tooling without env vars).
+        logger.debug("Settings unavailable; using default admin cache path")
+        return Path("data/admin_cache.json")
+
+    # An in-memory database has no directory, and a bare filename would put the
+    # cache in the working directory; both keep the conventional data/ location.
+    if database_path == ":memory:":
+        return Path("data/admin_cache.json")
+    parent = Path(database_path).parent
+    if parent == Path("."):
+        return Path("data/admin_cache.json")
+    return parent / "admin_cache.json"
+
+
+# Network/API errors the fetch path can recover from by falling back to cache.
+# TelegramError covers all PTB errors (TimedOut, NetworkError, RetryAfter, ...)
+# while still letting programming errors propagate.
+FETCH_ERRORS = (TelegramAdminFetchError, TelegramError)
 
 
 def _load_admin_cache() -> dict[int, list[int]]:
@@ -36,10 +69,11 @@ def _load_admin_cache() -> dict[int, list[int]]:
     A single bad entry is dropped rather than discarding the whole file, so a
     partially corrupt cache still yields the rosters that are readable.
     """
-    if not CACHE_FILE_PATH.exists():
+    path = _cache_file_path()
+    if not path.exists():
         return {}
     try:
-        with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError) as e:
         logger.error(f"Failed to load admin cache from disk: {e}", exc_info=True)
@@ -64,11 +98,12 @@ def _load_admin_cache() -> dict[int, list[int]]:
 
 def _save_admin_cache(cache: dict[int, list[int]]) -> None:
     try:
-        CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = CACHE_FILE_PATH.with_suffix(".tmp")
+        path = _cache_file_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(".tmp")
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(cache, f)
-        temp_path.replace(CACHE_FILE_PATH)
+        temp_path.replace(path)
     except OSError as e:
         logger.error(f"Failed to save admin cache to disk: {e}", exc_info=True)
 
@@ -116,9 +151,10 @@ async def _sync_admin_ids(
                 group_admin_ids[group_id] = ids
                 fetched_any = True
             else:
+                # Only recoverable errors reach this branch; programming
+                # errors propagate out of _fetch_single with their traceback.
                 logger.error(
-                    f"Failed to fetch admin IDs for group {group_id}: {error}",
-                    exc_info=error,
+                    f"Failed to fetch admin IDs for group {group_id}: {error}"
                 )
                 group_admin_ids[group_id] = old_cache.get(group_id, [])
 

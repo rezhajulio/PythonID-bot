@@ -6,6 +6,7 @@ from the new location and behave correctly.
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -300,6 +301,29 @@ class TestDiskCache:
 
         assert json.loads(target.read_text()) == {"-1001": [999]}
 
+    async def test_refresh_with_empty_registry_preserves_disk_cache(self, tmp_path):
+        """No registered groups must not truncate the saved roster."""
+        from bot.services import admin_cache
+        from bot.services.admin_cache import refresh_admin_ids
+
+        target = tmp_path / "admin_cache.json"
+        target.write_text('{"-1001": [999]}')
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {}
+
+        with (
+            patch.object(admin_cache, "CACHE_FILE_PATH", target),
+            patch(
+                "bot.services.admin_cache.get_group_registry",
+                return_value=GroupRegistry(),
+            ),
+        ):
+            await refresh_admin_ids(mock_context)
+
+        assert json.loads(target.read_text()) == {"-1001": [999]}
+
     async def test_preload_seeds_from_disk_when_bot_data_empty(self, tmp_path):
         """The disk cache is the fallback when bot_data has nothing yet."""
         from bot.services import admin_cache
@@ -326,6 +350,117 @@ class TestDiskCache:
         # Seeded from disk, and the seeded admin stays visible to admin_ids.
         assert mock_context.bot_data["group_admin_ids"][-1001] == [777]
         assert mock_context.bot_data["admin_ids"] == [777]
+
+
+class TestCachePathDerivation:
+    """The cache lives beside the configured database, not in a fixed spot."""
+
+    def test_follows_configured_database_directory(self, tmp_path, monkeypatch):
+        from bot.config import get_settings
+        from bot.services import admin_cache
+
+        db_path = tmp_path / "sub" / "bot.db"
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("DATABASE_PATH", str(db_path))
+        monkeypatch.setattr(admin_cache, "CACHE_FILE_PATH", None)
+        get_settings.cache_clear()
+        try:
+            assert admin_cache._cache_file_path() == tmp_path / "sub" / "admin_cache.json"
+        finally:
+            get_settings.cache_clear()
+
+    def test_in_memory_database_uses_default_data_dir(self, monkeypatch):
+        from bot.config import get_settings
+        from bot.services import admin_cache
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("DATABASE_PATH", ":memory:")
+        monkeypatch.setattr(admin_cache, "CACHE_FILE_PATH", None)
+        get_settings.cache_clear()
+        try:
+            assert admin_cache._cache_file_path() == Path("data/admin_cache.json")
+        finally:
+            get_settings.cache_clear()
+
+    def test_bare_filename_does_not_write_to_cwd(self, monkeypatch):
+        from bot.config import get_settings
+        from bot.services import admin_cache
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+        monkeypatch.setenv("GROUP_ID", "-100999")
+        monkeypatch.setenv("WARNING_TOPIC_ID", "1")
+        monkeypatch.setenv("DATABASE_PATH", "bot.db")
+        monkeypatch.setattr(admin_cache, "CACHE_FILE_PATH", None)
+        get_settings.cache_clear()
+        try:
+            assert admin_cache._cache_file_path() == Path("data/admin_cache.json")
+        finally:
+            get_settings.cache_clear()
+
+    def test_missing_settings_falls_back_to_default(self, monkeypatch):
+        from bot.config import get_settings
+        from bot.services import admin_cache
+
+        for var in ("TELEGRAM_BOT_TOKEN", "GROUP_ID", "WARNING_TOPIC_ID"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(admin_cache, "CACHE_FILE_PATH", None)
+        get_settings.cache_clear()
+        try:
+            assert admin_cache._cache_file_path() == Path("data/admin_cache.json")
+        finally:
+            get_settings.cache_clear()
+
+
+class TestFetchErrorHandling:
+    """Only recoverable errors degrade to cache; programming errors propagate."""
+
+    async def test_recoverable_error_falls_back_to_cache(self):
+        from telegram.error import TimedOut
+
+        from bot.services.admin_cache import refresh_admin_ids
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {"group_admin_ids": {-1001: [999]}, "admin_ids": [999]}
+
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch(
+                "bot.services.admin_cache.fetch_group_admin_ids",
+                side_effect=TimedOut("timeout"),
+            ),
+        ):
+            await refresh_admin_ids(mock_context)
+
+        assert mock_context.bot_data["group_admin_ids"][-1001] == [999]
+
+    async def test_programming_error_is_not_swallowed(self):
+        """A TypeError must surface, not masquerade as a failed fetch."""
+        from bot.services.admin_cache import refresh_admin_ids
+
+        registry = GroupRegistry()
+        registry.register(GroupConfig(group_id=-1001, warning_topic_id=1))
+
+        mock_context = MagicMock()
+        mock_context.bot = AsyncMock()
+        mock_context.bot_data = {}
+
+        with (
+            patch("bot.services.admin_cache.get_group_registry", return_value=registry),
+            patch(
+                "bot.services.admin_cache.fetch_group_admin_ids",
+                side_effect=TypeError("bug in fetch path"),
+            ),
+        ):
+            with pytest.raises(TypeError):
+                await refresh_admin_ids(mock_context)
 
 
 class TestConcurrentFetch:
