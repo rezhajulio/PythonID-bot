@@ -53,7 +53,8 @@ def _remove_trusted_cache(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> N
 def _format_person(full_name: str, user_id: int) -> str:
     """Return a markdown-safe display for a stored person."""
     if full_name:
-        return escape_markdown(full_name, version=1)
+        escaped_name = escape_markdown(full_name, version=1)
+        return escaped_name.replace("[", r"\[").replace("]", r"\]")
     return f"User {user_id}"
 
 

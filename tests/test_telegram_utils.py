@@ -262,6 +262,21 @@ class TestGetUserMentionById:
         mock_mention_markdown.assert_called_once_with(123456, "John Doe", version=1)
         assert result == "[John Doe](tg://user?id=123456)"
 
+    def test_get_user_mention_by_id_square_brackets_in_name(self):
+        """Regression: names like 'Romado [1376015]' must not break Markdown links."""
+        result = get_user_mention_by_id(999, "Romado [1376015]")
+        # Square brackets must be escaped to prevent broken Markdown link syntax
+        assert r"\[" in result
+        assert r"\]" in result
+        # Must still be a valid tg://user mention link
+        assert "tg://user?id=999" in result
+
+    def test_get_user_mention_by_id_underscores_in_name(self):
+        """Names with underscores must be escaped in Markdown v1."""
+        result = get_user_mention_by_id(888, "test_user_name")
+        assert r"\_" in result
+        assert "tg://user?id=888" in result
+
 
 class TestUnrestrictUser:
     async def test_unrestrict_user_basic(self, mock_bot):

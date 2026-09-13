@@ -11,6 +11,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from bot.database.models import (
@@ -51,10 +52,14 @@ class DatabaseService:
 
         self._engine = create_engine(f"sqlite:///{database_path}")
 
-        with self._engine.connect() as conn:
-            conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
-            conn.exec_driver_sql("PRAGMA synchronous=NORMAL;")
-        logger.info("SQLite WAL mode enabled")
+        @event.listens_for(self._engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+
+        logger.info("SQLite WAL mode enabled (via connect event listener)")
 
         SQLModel.metadata.create_all(self._engine)
 
@@ -172,6 +177,8 @@ class DatabaseService:
         Raises:
             ValueError: If no active warning record exists.
         """
+        from sqlalchemy import update as sql_update
+
         with Session(self._engine) as session:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
@@ -182,10 +189,21 @@ class DatabaseService:
             record = session.exec(statement).first()
 
             if record:
-                record.message_count += 1
-                record.last_message_at = datetime.now(UTC)
-                session.add(record)
+                now = datetime.now(UTC)
+
+                # Atomic update - increment directly in SQL
+                update_stmt = (
+                    sql_update(UserWarning)
+                    .where(UserWarning.id == record.id)
+                    .values(
+                        message_count=UserWarning.message_count + 1,
+                        last_message_at=now,
+                    )
+                )
+                session.exec(update_stmt)
                 session.commit()
+
+                # Refresh to get updated values
                 session.refresh(record)
                 logger.info(
                     f"Incremented message count for user_id={user_id}, group_id={group_id}, kind={warning_kind}, new_count={record.message_count}"
