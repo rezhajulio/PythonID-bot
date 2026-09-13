@@ -44,7 +44,7 @@ def is_guest_bot_whitelisted(message: Message, whitelist: list[str]) -> bool:
 
 async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Delete unapproved guest bot messages and progressively restrict their caller."""
-    message = update.message
+    message = update.message or update.edited_message
     if message is None:
         return
 

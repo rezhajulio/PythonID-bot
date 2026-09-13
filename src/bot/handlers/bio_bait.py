@@ -332,10 +332,11 @@ async def _enforce_bio_bait_restriction(
     detection_reason: str,
 ) -> None:
     """Delete, restrict, notify for confirmed bio bait spam. Caller raises ApplicationHandlerStop."""
+    message = update.message or update.edited_message
     user_mention = get_user_mention(user)
 
     try:
-        await update.message.delete()
+        await message.delete()
         logger.info(f"Deleted bio bait spam from user_id={user.id}")
     except Exception:
         logger.error(f"Failed to delete bio bait spam: user_id={user.id}", exc_info=True)
@@ -396,7 +397,8 @@ async def handle_bio_bait_spam(
         update: Telegram update containing the message.
         context: Bot context with helper methods.
     """
-    if not update.message or not update.message.from_user:
+    message = update.message or update.edited_message
+    if not message or not message.from_user:
         return
 
     group_config = get_group_config_for_update(update)
@@ -406,14 +408,14 @@ async def handle_bio_bait_spam(
     if not group_config.bio_bait_enabled:
         return
 
-    user = update.message.from_user
+    user = message.from_user
     if user.is_bot:
         return
 
     if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
-    text = update.message.text or update.message.caption or ""
+    text = message.text or message.caption or ""
 
     detection_reason: str | None = None
     user_bio: str | None = None

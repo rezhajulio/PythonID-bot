@@ -95,7 +95,8 @@ async def handle_duplicate_spam(
     count of similar messages within the time window reaches the threshold,
     deletes the message and restricts the user.
     """
-    if not update.message or not update.message.from_user:
+    message = update.message or update.edited_message
+    if not message or not message.from_user:
         return
 
     group_config = get_group_config_for_update(update)
@@ -105,14 +106,14 @@ async def handle_duplicate_spam(
     if not group_config.duplicate_spam_enabled:
         return
 
-    user = update.message.from_user
+    user = message.from_user
     if user.is_bot:
         return
 
     if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
-    text = update.message.text or update.message.caption
+    text = message.text or message.caption
     if not text:
         return
 
@@ -132,7 +133,7 @@ async def handle_duplicate_spam(
     current_message = RecentMessage(
         timestamp=now,
         normalized_text=normalized,
-        message_id=update.message.message_id,
+        message_id=message.message_id,
     )
     dq.append(current_message)
 

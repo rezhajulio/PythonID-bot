@@ -247,12 +247,10 @@ class TestExtractUrls:
     def test_extracts_url_entity(self):
         """Test extracting URL from URL entity."""
         msg = MagicMock(spec=Message)
-        msg.text = "Check https://github.com/repo"
-        msg.caption = None
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.URL
-        entity.offset = 6
-        entity.length = 23
+        msg.parse_entities.return_value = {entity: "https://github.com/repo"}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = [entity]
         msg.caption_entities = None
 
@@ -262,11 +260,11 @@ class TestExtractUrls:
     def test_extracts_text_link(self):
         """Test extracting URL from TEXT_LINK entity."""
         msg = MagicMock(spec=Message)
-        msg.text = "Click here"
-        msg.caption = None
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.TEXT_LINK
         entity.url = "https://example.com"
+        msg.parse_entities.return_value = {}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = [entity]
         msg.caption_entities = None
 
@@ -276,8 +274,8 @@ class TestExtractUrls:
     def test_returns_empty_for_no_urls(self):
         """Test that empty list is returned when no URLs."""
         msg = MagicMock(spec=Message)
-        msg.text = "Hello world"
-        msg.caption = None
+        msg.parse_entities.return_value = {}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = None
         msg.caption_entities = None
 
@@ -291,12 +289,10 @@ class TestHasNonWhitelistedLink:
     def test_whitelisted_url_returns_false(self):
         """Test that whitelisted URLs don't trigger violation."""
         msg = MagicMock(spec=Message)
-        msg.text = "Check https://github.com/repo"
-        msg.caption = None
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.URL
-        entity.offset = 6
-        entity.length = 23
+        msg.parse_entities.return_value = {entity: "https://github.com/repo"}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = [entity]
         msg.caption_entities = None
 
@@ -305,12 +301,10 @@ class TestHasNonWhitelistedLink:
     def test_non_whitelisted_url_returns_true(self):
         """Test that non-whitelisted URLs trigger violation."""
         msg = MagicMock(spec=Message)
-        msg.text = "Check https://spam-site.com/scam"
-        msg.caption = None
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.URL
-        entity.offset = 6
-        entity.length = 27
+        msg.parse_entities.return_value = {entity: "https://spam-site.com/scam"}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = [entity]
         msg.caption_entities = None
 
@@ -319,8 +313,8 @@ class TestHasNonWhitelistedLink:
     def test_no_urls_returns_false(self):
         """Test that messages without URLs return False."""
         msg = MagicMock(spec=Message)
-        msg.text = "Hello world"
-        msg.caption = None
+        msg.parse_entities.return_value = {}
+        msg.parse_caption_entities.return_value = {}
         msg.entities = None
         msg.caption_entities = None
 
@@ -566,10 +560,9 @@ class TestHandleNewUserSpam:
         """Test that messages with non-whitelisted links are deleted."""
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.URL
-        entity.offset = 6
-        entity.length = 27
+        mock_update.message.parse_entities.return_value = {entity: "https://spam-site.com/scam"}
+        mock_update.message.parse_caption_entities.return_value = {}
         mock_update.message.entities = [entity]
-        mock_update.message.text = "Check https://spam-site.com/scam"
 
         mock_record = MagicMock()
         mock_record.joined_at = datetime.now(UTC)
@@ -597,10 +590,9 @@ class TestHandleNewUserSpam:
         """Test that messages with whitelisted links are allowed."""
         entity = MagicMock(spec=MessageEntity)
         entity.type = MessageEntity.URL
-        entity.offset = 6
-        entity.length = 23
+        mock_update.message.parse_entities.return_value = {entity: "https://github.com/repo"}
+        mock_update.message.parse_caption_entities.return_value = {}
         mock_update.message.entities = [entity]
-        mock_update.message.text = "Check https://github.com/repo"
 
         mock_record = MagicMock()
         mock_record.joined_at = datetime.now(UTC)

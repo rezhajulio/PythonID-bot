@@ -116,13 +116,16 @@ def extract_urls(message: Message) -> list[str]:
         list[str]: List of URLs found in the message.
     """
     urls = []
-    entities = list(message.entities or []) + list(message.caption_entities or [])
-    text = message.text or message.caption or ""
+    
+    for entity, text in message.parse_entities([MessageEntity.URL]).items():
+        urls.append(text)
+        
+    for entity, text in message.parse_caption_entities([MessageEntity.URL]).items():
+        urls.append(text)
 
+    entities = list(message.entities or []) + list(message.caption_entities or [])
     for entity in entities:
-        if entity.type == MessageEntity.URL:
-            urls.append(text[entity.offset : entity.offset + entity.length])
-        elif entity.type == MessageEntity.TEXT_LINK and entity.url:
+        if entity.type == MessageEntity.TEXT_LINK and entity.url:
             urls.append(entity.url)
 
     return urls
@@ -232,21 +235,22 @@ async def _handle_group_spam(
         template_restricted: Notification template when user is restricted.
         template_no_restrict: Notification template when user is not restricted.
     """
-    if not update.message or not update.message.from_user:
+    message = update.message or update.edited_message
+    if not message or not message.from_user:
         return
 
     group_config = get_group_config_for_update(update)
     if group_config is None:
         return
 
-    user = update.message.from_user
+    user = message.from_user
     if user.is_bot:
         return
 
     if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
-    msg = update.message
+    msg = message
     if not detector(msg):
         return
 
@@ -356,7 +360,10 @@ def _should_skip_new_user_spam_check(update, context, group_config) -> bool:
     """Check if new user spam handler should skip this message."""
     if group_config is None:
         return True
-    user = update.message.from_user
+    message = update.message or update.edited_message
+    if not message or not message.from_user:
+        return True
+    user = message.from_user
     if user.is_bot:
         return True
     return bool(is_user_admin_or_trusted(context, group_config.group_id, user.id))
@@ -379,11 +386,12 @@ async def handle_new_user_spam(
         update: Telegram update containing the message.
         context: Bot context with helper methods.
     """
-    if not update.message or not update.message.from_user:
+    message = update.message or update.edited_message
+    if not message or not message.from_user:
         return
 
     group_config = get_group_config_for_update(update)
-    user = update.message.from_user
+    user = message.from_user
 
     if _should_skip_new_user_spam_check(update, context, group_config):
         return
@@ -408,7 +416,7 @@ async def handle_new_user_spam(
         logger.info(f"Probation expired for user_id={user.id}, cleared record")
         return
 
-    msg = update.message
+    msg = message
     user_mention = get_user_mention(user)
 
     # Check for violations (forwarded message or non-whitelisted link or external reply or media)

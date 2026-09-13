@@ -152,14 +152,12 @@ class TestFormatPerson:
         # Hand-pick a name with special chars
         special = "Test_User*name`with[special]chars"
         result = _format_person(special, uid)
-        # After escape_markdown, *, _, `, [, ] are escaped.
-        # The function is idempotent under repeated escape.
+        # After escape_markdown + bracket escaping, *, _, `, [, ] are escaped.
         from telegram.helpers import escape_markdown
 
-        once = escape_markdown(special, version=1)
-        twice = escape_markdown(once, version=1)
-        # MarkdownV1 escaping is idempotent (PTB escapes the escape too).
-        assert result == once or result == twice
+        expected = escape_markdown(special, version=1)
+        expected = expected.replace("[", r"\[").replace("]", r"\]")
+        assert result == expected
 
 
 # is_url_whitelisted ---------------------------------------------------------

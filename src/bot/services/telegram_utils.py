@@ -7,6 +7,7 @@ Telegram's API across different handlers and services.
 
 import asyncio
 import logging
+import posixpath
 from datetime import timedelta
 from urllib.parse import urlparse
 
@@ -60,7 +61,11 @@ def get_user_mention_by_id(
     if username:
         escaped = escape_markdown(username.lstrip("@"), version=1)
         return f"@{escaped}"
-    return mention_markdown(user_id, user_full_name, version=1)
+    
+    escaped_name = escape_markdown(user_full_name, version=1)
+    escaped_name = escaped_name.replace("[", r"\[").replace("]", r"\]")
+    
+    return mention_markdown(user_id, escaped_name, version=1)
 
 async def get_user_status(
     bot: Bot,
@@ -177,13 +182,16 @@ def is_url_whitelisted(url: str) -> bool:
             url = 'https://' + url
 
         parsed = urlparse(url)
-        hostname = parsed.netloc.lower()
+        if parsed.username or parsed.password:
+            return False
 
-        if ':' in hostname:
-            hostname = hostname.rsplit(':', 1)[0]
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        hostname = hostname.lower()
 
         if hostname in {"t.me", "telegram.me"}:
-            path = parsed.path
+            path = posixpath.normpath(parsed.path)
             if not path or path == "/":
                 return False
             parts = path.strip("/").split("/")
@@ -453,20 +461,22 @@ async def require_admin_dm_target(
     if not update.message or not update.message.from_user:
         return None
 
-    if update.effective_chat and update.effective_chat.type != "private":
-        await update.message.reply_text(
-            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
-        )
-        return None
-
     admin_user_id = update.message.from_user.id
     admin_ids = context.bot_data.get("admin_ids", [])
 
     if admin_user_id not in admin_ids:
+        if update.effective_chat and update.effective_chat.type != "private":
+            return None
         await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
         logger.warning(
             f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
             f"attempted to use {command_label}"
+        )
+        return None
+
+    if update.effective_chat and update.effective_chat.type != "private":
+        await update.message.reply_text(
+            "❌ Perintah ini hanya bisa digunakan di chat pribadi dengan bot."
         )
         return None
 
