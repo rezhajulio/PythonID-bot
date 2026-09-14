@@ -209,6 +209,7 @@ class TestHandleGuestBotMessage:
         mock_update.message.delete.assert_awaited_once()
         db.get_or_create_user_warning.assert_not_called()
         db.increment_message_count.assert_not_called()
+        db.mark_user_restricted.assert_not_called()
 
     async def test_ignores_edited_message(self, mock_update, mock_context, mock_group_config):
         """Regression: an edit of an already-handled guest message must not
