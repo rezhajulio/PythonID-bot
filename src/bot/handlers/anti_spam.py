@@ -389,6 +389,10 @@ async def handle_new_user_spam(
     message = update.message or update.edited_message
     if not message or not message.from_user:
         return
+    if update.edited_message is not None:
+        # Editing an already-checked message must not re-count a probation
+        # violation; the original delivery already handled it.
+        return
 
     group_config = get_group_config_for_update(update)
     user = message.from_user

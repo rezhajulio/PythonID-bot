@@ -76,10 +76,19 @@ async def auto_restrict_expired_warnings(context: ContextTypes.DEFAULT_TYPE) -> 
                 logger.info(f"Checking status for user_id={warning.user_id}")
                 user_status = await get_user_status(bot, group_config.group_id, warning.user_id)
 
-                if user_status in (ChatMemberStatus.BANNED, ChatMemberStatus.LEFT):
+                if user_status == ChatMemberStatus.BANNED:
                     db.delete_user_warnings(warning.user_id, warning.group_id)
                     logger.info(
-                        f"Skipped auto-restriction for user {warning.user_id} - user departed (group_id={group_config.group_id})"
+                        f"Skipped auto-restriction for user {warning.user_id} - user banned (group_id={group_config.group_id})"
+                    )
+                    continue
+
+                if user_status == ChatMemberStatus.LEFT:
+                    # LEFT is reversible: keep the warning so a user cannot
+                    # reset their auto-restriction clock by leaving and
+                    # rejoining before the next sweep.
+                    logger.info(
+                        f"Skipped auto-restriction for user {warning.user_id} - user left (group_id={group_config.group_id})"
                     )
                     continue
 

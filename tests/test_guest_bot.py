@@ -37,6 +37,7 @@ def mock_update(mock_user):
     message.guest_bot_caller_chat = None
     message.delete = AsyncMock()
     update = MagicMock()
+    update.edited_message = None
     update.message = message
     return update
 
@@ -206,6 +207,21 @@ class TestHandleGuestBotMessage:
         ):
             await handle_guest_bot_message(mock_update, mock_context)
         mock_update.message.delete.assert_awaited_once()
+        db.get_or_create_user_warning.assert_not_called()
+        db.increment_message_count.assert_not_called()
+
+    async def test_ignores_edited_message(self, mock_update, mock_context, mock_group_config):
+        """Regression: an edit of an already-handled guest message must not
+        re-delete it or count a second strike against the caller."""
+        mock_update.edited_message = mock_update.message
+        mock_update.message = None
+        db = MagicMock()
+        with (
+            patch("bot.handlers.guest_bot.get_group_config_for_update", return_value=mock_group_config),
+            patch("bot.handlers.guest_bot.get_database", return_value=db),
+        ):
+            await handle_guest_bot_message(mock_update, mock_context)
+        assert mock_update.message is None
         db.get_or_create_user_warning.assert_not_called()
         db.increment_message_count.assert_not_called()
         db.mark_user_restricted.assert_not_called()

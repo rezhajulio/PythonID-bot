@@ -141,6 +141,7 @@ class TestHandleDuplicateSpam:
     @pytest.fixture
     def mock_update(self):
         update = MagicMock()
+        update.edited_message = None
         update.message = MagicMock(spec=Message)
         update.message.from_user = MagicMock(spec=User)
         update.message.from_user.id = 42
@@ -167,12 +168,14 @@ class TestHandleDuplicateSpam:
     async def test_skips_no_message(self, mock_context, group_config):
         update = MagicMock()
         update.message = None
+        update.edited_message = None
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(update, mock_context)
 
     async def test_skips_no_user(self, mock_context, group_config):
         update = MagicMock()
         update.message = MagicMock(spec=Message)
+        update.edited_message = None
         update.message.from_user = None
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(update, mock_context)
@@ -409,6 +412,18 @@ class TestHandleDuplicateSpam:
             chat_id=-100, message_id=100
         )
 
+    async def test_ignores_edited_message(self, mock_update, mock_context, group_config):
+        """Regression: an edit of a message already seen must not add a second
+        deque entry and trip the duplicate-message threshold on its own."""
+        mock_update.edited_message = mock_update.message
+        mock_update.message = None
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        assert mock_context.bot_data.get(RECENT_MESSAGES_KEY, {}) == {}
+        mock_context.bot.delete_message.assert_not_called()
+
 
 class TestRecentMessagesCacheEviction:
     """Tests for the in-memory cache eviction logic."""
@@ -428,6 +443,7 @@ class TestRecentMessagesCacheEviction:
     @pytest.fixture
     def mock_update(self):
         update = MagicMock()
+        update.edited_message = None
         update.message.from_user.id = 42
         update.message.from_user.is_bot = False
         update.message.text = "Barangkali di sini ada yang sedang mencari kerja"
