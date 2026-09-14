@@ -148,16 +148,12 @@ class TestFormatPerson:
     @given(name_st, user_id_st)
     @settings(max_examples=200)
     def test_markdown_special_chars_escaped(self, name: str, uid: int) -> None:
-        """Names with MarkdownV1 special chars are escaped (idempotent)."""
+        """Names with MarkdownV1 special chars are escaped correctly (not double-escaped)."""
         # Hand-pick a name with special chars
         special = "Test_User*name`with[special]chars"
         result = _format_person(special, uid)
-        # After escape_markdown + bracket escaping, *, _, `, [, ] are escaped.
-        from telegram.helpers import escape_markdown
-
-        expected = escape_markdown(special, version=1)
-        expected = expected.replace("[", r"\[").replace("]", r"\]")
-        assert result == expected
+        # escape_markdown(version=1) escapes _*`[ but not ]; only ] needs adding.
+        assert result == r"Test\_User\*name\`with\[special\]chars"
 
 
 # is_url_whitelisted ---------------------------------------------------------

@@ -47,6 +47,10 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
     message = update.message or update.edited_message
     if message is None:
         return
+    if update.edited_message is not None:
+        # An edit re-delivers the same guest message; the original delivery
+        # already deleted it and counted the caller's strike.
+        return
 
     group_config = get_group_config_for_update(update)
     if group_config is None or not is_guest_bot_message(message):

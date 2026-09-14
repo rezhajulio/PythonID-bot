@@ -98,6 +98,10 @@ async def handle_duplicate_spam(
     message = update.message or update.edited_message
     if not message or not message.from_user:
         return
+    if update.edited_message is not None:
+        # An edit re-delivers the same message_id; counting it again would
+        # let an unrelated typo fix trip the duplicate-message threshold.
+        return
 
     group_config = get_group_config_for_update(update)
     if group_config is None:

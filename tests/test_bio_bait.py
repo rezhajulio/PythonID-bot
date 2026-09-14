@@ -311,12 +311,14 @@ class TestHandleBioBaitSpam:
     async def test_skips_no_message(self, mock_context, group_config):
         update = MagicMock()
         update.message = None
+        update.edited_message = None
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
             await handle_bio_bait_spam(update, mock_context)
 
     async def test_skips_no_user(self, mock_context, group_config):
         update = MagicMock()
         update.message = MagicMock(spec=Message)
+        update.edited_message = None
         update.message.from_user = None
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
             await handle_bio_bait_spam(update, mock_context)

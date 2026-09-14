@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import event
+from sqlalchemy import update as sql_update
 from sqlmodel import Session, SQLModel, create_engine, delete, select
 
 from bot.database.models import (
@@ -59,9 +60,8 @@ class DatabaseService:
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.close()
 
-        logger.info("SQLite WAL mode enabled (via connect event listener)")
-
         SQLModel.metadata.create_all(self._engine)
+        logger.info("SQLite WAL mode enabled (via connect event listener)")
 
         # Migrate existing tables: add new columns if missing
         self._migrate_trusted_users()
@@ -177,8 +177,6 @@ class DatabaseService:
         Raises:
             ValueError: If no active warning record exists.
         """
-        from sqlalchemy import update as sql_update
-
         with Session(self._engine) as session:
             statement = select(UserWarning).where(
                 UserWarning.user_id == user_id,
@@ -853,8 +851,6 @@ class DatabaseService:
         Raises:
             ValueError: If no probation record exists.
         """
-        from sqlalchemy import update as sql_update
-        
         with Session(self._engine) as session:
             # First check if record exists
             select_stmt = select(NewUserProbation).where(

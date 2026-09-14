@@ -80,6 +80,12 @@ def test_telegram_path_traversal_bypass():
     assert not is_url_whitelisted("https://t.me/pythonid/../../scam_group")
     assert not is_url_whitelisted("https://t.me/juaragcp/../scam")
     assert not is_url_whitelisted("https://t.me/pythonid/./../../evil")
+    # Reverse direction: erasing a non-whitelisted segment must not promote
+    # a whitelisted one that only appears after the traversal.
+    assert not is_url_whitelisted("https://t.me/scam_group/../pythonid")
+    assert not is_url_whitelisted("https://t.me/freemoney/../juaragcp")
+    assert not is_url_whitelisted("https://t.me/../pythonid")
+    assert not is_url_whitelisted("https://t.me/a/b/../../pythonid")
 
 
 def test_domain_whitelist_github():
@@ -295,140 +301,132 @@ def test_has_story_without_story():
 
 
 # Tests for extract_urls
+def _make_message(text=None, caption=None, entities=None, caption_entities=None):
+    """Build a real telegram.Message so UTF-16 offsets and entity filtering
+    are exercised for real, instead of stubbing parse_entities/parse_caption_entities."""
+    from datetime import UTC, datetime
+
+    from telegram import Chat
+
+    return Message(
+        message_id=1,
+        date=datetime.now(UTC),
+        chat=Chat(id=1, type="private"),
+        text=text,
+        caption=caption,
+        entities=entities,
+        caption_entities=caption_entities,
+    )
+
+
 def test_extract_urls_with_url_entities():
     """Test extract_urls extracts inline URLs."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.parse_entities.return_value = {entity: "https://github.com/"}
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity]
-    message.caption_entities = None
-    assert extract_urls(message) == ["https://github.com/"]
+    url = "https://github.com/"
+    message = _make_message(
+        text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+    )
+    assert extract_urls(message) == [url]
 
 
 def test_extract_urls_with_text_link_entities():
     """Test extract_urls extracts TEXT_LINK URLs."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.TEXT_LINK
-    entity.url = "https://github.com/user/repo"
-    message.parse_entities.return_value = {}
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity]
-    message.caption_entities = None
-    message.text = "Click here"
-    message.caption = None
+    message = _make_message(
+        text="Click here",
+        entities=[
+            MessageEntity(
+                type=MessageEntity.TEXT_LINK,
+                offset=0,
+                length=10,
+                url="https://github.com/user/repo",
+            )
+        ],
+    )
     assert extract_urls(message) == ["https://github.com/user/repo"]
 
 
 def test_extract_urls_from_caption():
     """Test extract_urls extracts URLs from caption entities."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.parse_entities.return_value = {}
-    message.parse_caption_entities.return_value = {entity: "github.com/"}
-    message.entities = None
-    message.caption_entities = [entity]
-    assert extract_urls(message) == ["github.com/"]
+    caption = "github.com/"
+    message = _make_message(
+        caption=caption,
+        caption_entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(caption))],
+    )
+    assert extract_urls(message) == [caption]
 
 
 def test_extract_urls_mixed_entities():
-    """Test extract_urls with mixed URL and non-URL entities."""
-    message = MagicMock(spec=Message)
-    url_entity = MagicMock(spec=MessageEntity)
-    url_entity.type = MessageEntity.URL
-    bold_entity = MagicMock(spec=MessageEntity)
-    bold_entity.type = MessageEntity.BOLD
-    message.parse_entities.return_value = {url_entity: "https://github.com/"}
-    message.parse_caption_entities.return_value = {}
-    message.entities = [url_entity, bold_entity]
-    message.caption_entities = None
-    assert extract_urls(message) == ["https://github.com/"]
+    """Test extract_urls with mixed URL and non-URL entities; the BOLD
+    entity must be excluded by the [MessageEntity.URL] filter, not just
+    happen to be absent from a stubbed return value."""
+    url = "https://github.com/"
+    text = f"{url} bold"
+    message = _make_message(
+        text=text,
+        entities=[
+            MessageEntity(type=MessageEntity.URL, offset=0, length=len(url)),
+            MessageEntity(type=MessageEntity.BOLD, offset=len(url) + 1, length=4),
+        ],
+    )
+    assert extract_urls(message) == [url]
 
 
 def test_extract_urls_no_entities():
     """Test extract_urls returns empty list for messages without URLs."""
-    message = MagicMock(spec=Message)
-    message.parse_entities.return_value = {}
-    message.parse_caption_entities.return_value = {}
-    message.entities = None
-    message.caption_entities = None
-    message.text = "No URLs here"
-    message.caption = None
+    message = _make_message(text="No URLs here")
     assert extract_urls(message) == []
 
 
 def test_extract_urls_multiple_urls():
-    """Test extract_urls extracts multiple URLs."""
-    message = MagicMock(spec=Message)
-    entity1 = MagicMock(spec=MessageEntity)
-    entity1.type = MessageEntity.URL
-    entity2 = MagicMock(spec=MessageEntity)
-    entity2.type = MessageEntity.URL
-    message.parse_entities.return_value = {
-        entity1: "https://github.com/",
-        entity2: "https://google.com/",
-    }
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity1, entity2]
-    message.caption_entities = None
+    """Test extract_urls extracts multiple URLs, sliced from real offsets."""
+    url1, url2 = "https://github.com/", "https://google.com/"
+    text = f"{url1} {url2}"
+    message = _make_message(
+        text=text,
+        entities=[
+            MessageEntity(type=MessageEntity.URL, offset=0, length=len(url1)),
+            MessageEntity(type=MessageEntity.URL, offset=len(url1) + 1, length=len(url2)),
+        ],
+    )
     urls = extract_urls(message)
     assert len(urls) == 2
-    assert "https://github.com/" in urls
-    assert "https://google.com/" in urls
+    assert url1 in urls
+    assert url2 in urls
 
 
 # Tests for has_non_whitelisted_link
 def test_has_non_whitelisted_link_with_whitelisted():
     """Test has_non_whitelisted_link returns False for whitelisted URLs."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.parse_entities.return_value = {entity: "https://github.com/"}
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity]
-    message.caption_entities = None
+    url = "https://github.com/"
+    message = _make_message(
+        text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+    )
     assert not has_non_whitelisted_link(message)
 
 
 def test_has_non_whitelisted_link_with_non_whitelisted():
     """Test has_non_whitelisted_link returns True for non-whitelisted URLs."""
-    message = MagicMock(spec=Message)
-    entity = MagicMock(spec=MessageEntity)
-    entity.type = MessageEntity.URL
-    message.parse_entities.return_value = {entity: "https://malicious-site.com/"}
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity]
-    message.caption_entities = None
+    url = "https://malicious-site.com/"
+    message = _make_message(
+        text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+    )
     assert has_non_whitelisted_link(message)
 
 
 def test_has_non_whitelisted_link_mixed_urls():
     """Test has_non_whitelisted_link with mix of whitelisted and non-whitelisted."""
-    message = MagicMock(spec=Message)
-    entity1 = MagicMock(spec=MessageEntity)
-    entity1.type = MessageEntity.URL
-    entity2 = MagicMock(spec=MessageEntity)
-    entity2.type = MessageEntity.URL
-    message.parse_entities.return_value = {
-        entity1: "https://github.com/",
-        entity2: "https://malicious-site.com/",
-    }
-    message.parse_caption_entities.return_value = {}
-    message.entities = [entity1, entity2]
-    message.caption_entities = None
+    url1, url2 = "https://github.com/", "https://malicious-site.com/"
+    text = f"{url1} {url2}"
+    message = _make_message(
+        text=text,
+        entities=[
+            MessageEntity(type=MessageEntity.URL, offset=0, length=len(url1)),
+            MessageEntity(type=MessageEntity.URL, offset=len(url1) + 1, length=len(url2)),
+        ],
+    )
     assert has_non_whitelisted_link(message)
 
 
 def test_has_non_whitelisted_link_no_urls():
     """Test has_non_whitelisted_link returns False for messages without URLs."""
-    message = MagicMock(spec=Message)
-    message.parse_entities.return_value = {}
-    message.parse_caption_entities.return_value = {}
-    message.entities = None
-    message.caption_entities = None
-    message.text = "No URLs here"
-    message.caption = None
+    message = _make_message(text="No URLs here")
     assert not has_non_whitelisted_link(message)

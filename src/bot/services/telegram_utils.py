@@ -7,7 +7,6 @@ Telegram's API across different handlers and services.
 
 import asyncio
 import logging
-import posixpath
 from datetime import timedelta
 from urllib.parse import urlparse
 
@@ -61,10 +60,10 @@ def get_user_mention_by_id(
     if username:
         escaped = escape_markdown(username.lstrip("@"), version=1)
         return f"@{escaped}"
-    
-    escaped_name = escape_markdown(user_full_name, version=1)
-    escaped_name = escaped_name.replace("[", r"\[").replace("]", r"\]")
-    
+
+    # escape_markdown(version=1) already escapes `[`; only `]` still needs it.
+    escaped_name = escape_markdown(user_full_name, version=1).replace("]", r"\]")
+
     return mention_markdown(user_id, escaped_name, version=1)
 
 async def get_user_status(
@@ -191,11 +190,11 @@ def is_url_whitelisted(url: str) -> bool:
         hostname = hostname.lower()
 
         if hostname in {"t.me", "telegram.me"}:
-            path = posixpath.normpath(parsed.path)
+            path = parsed.path
             if not path or path == "/":
                 return False
-            parts = path.strip("/").split("/")
-            if not parts:
+            parts = [p for p in path.strip("/").split("/") if p]
+            if not parts or any(p in {".", ".."} for p in parts):
                 return False
             first_segment = parts[0].lower()
             return first_segment in WHITELISTED_TELEGRAM_PATHS
@@ -465,13 +464,13 @@ async def require_admin_dm_target(
     admin_ids = context.bot_data.get("admin_ids", [])
 
     if admin_user_id not in admin_ids:
-        if update.effective_chat and update.effective_chat.type != "private":
-            return None
-        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
         logger.warning(
             f"Non-admin user {admin_user_id} ({update.message.from_user.full_name}) "
             f"attempted to use {command_label}"
         )
+        if update.effective_chat and update.effective_chat.type != "private":
+            return None
+        await update.message.reply_text("❌ Kamu tidak memiliki izin untuk menggunakan perintah ini.")
         return None
 
     if update.effective_chat and update.effective_chat.type != "private":

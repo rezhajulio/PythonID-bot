@@ -244,40 +244,44 @@ class TestUrlWhitelist:
 class TestExtractUrls:
     """Tests for URL extraction."""
 
+    def _make_message(self, text=None, caption=None, entities=None, caption_entities=None):
+        return Message(
+            message_id=1,
+            date=datetime.now(UTC),
+            chat=Chat(id=1, type="private"),
+            text=text,
+            caption=caption,
+            entities=entities,
+            caption_entities=caption_entities,
+        )
+
     def test_extracts_url_entity(self):
-        """Test extracting URL from URL entity."""
-        msg = MagicMock(spec=Message)
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.URL
-        msg.parse_entities.return_value = {entity: "https://github.com/repo"}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = [entity]
-        msg.caption_entities = None
+        """Test extracting URL from URL entity, sliced from real UTF-16 offsets."""
+        url = "https://github.com/repo"
+        msg = self._make_message(
+            text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+        )
 
         urls = extract_urls(msg)
         assert "https://github.com/repo" in urls
 
     def test_extracts_text_link(self):
         """Test extracting URL from TEXT_LINK entity."""
-        msg = MagicMock(spec=Message)
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.TEXT_LINK
-        entity.url = "https://example.com"
-        msg.parse_entities.return_value = {}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = [entity]
-        msg.caption_entities = None
+        msg = self._make_message(
+            text="Click here",
+            entities=[
+                MessageEntity(
+                    type=MessageEntity.TEXT_LINK, offset=0, length=10, url="https://example.com"
+                )
+            ],
+        )
 
         urls = extract_urls(msg)
         assert "https://example.com" in urls
 
     def test_returns_empty_for_no_urls(self):
         """Test that empty list is returned when no URLs."""
-        msg = MagicMock(spec=Message)
-        msg.parse_entities.return_value = {}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = None
-        msg.caption_entities = None
+        msg = self._make_message(text="Hello world")
 
         urls = extract_urls(msg)
         assert urls == []
@@ -286,37 +290,36 @@ class TestExtractUrls:
 class TestHasNonWhitelistedLink:
     """Tests for has_non_whitelisted_link function."""
 
+    def _make_message(self, text=None, entities=None):
+        return Message(
+            message_id=1,
+            date=datetime.now(UTC),
+            chat=Chat(id=1, type="private"),
+            text=text,
+            entities=entities,
+        )
+
     def test_whitelisted_url_returns_false(self):
         """Test that whitelisted URLs don't trigger violation."""
-        msg = MagicMock(spec=Message)
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.URL
-        msg.parse_entities.return_value = {entity: "https://github.com/repo"}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = [entity]
-        msg.caption_entities = None
+        url = "https://github.com/repo"
+        msg = self._make_message(
+            text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+        )
 
         assert has_non_whitelisted_link(msg) is False
 
     def test_non_whitelisted_url_returns_true(self):
         """Test that non-whitelisted URLs trigger violation."""
-        msg = MagicMock(spec=Message)
-        entity = MagicMock(spec=MessageEntity)
-        entity.type = MessageEntity.URL
-        msg.parse_entities.return_value = {entity: "https://spam-site.com/scam"}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = [entity]
-        msg.caption_entities = None
+        url = "https://spam-site.com/scam"
+        msg = self._make_message(
+            text=url, entities=[MessageEntity(type=MessageEntity.URL, offset=0, length=len(url))]
+        )
 
         assert has_non_whitelisted_link(msg) is True
 
     def test_no_urls_returns_false(self):
         """Test that messages without URLs return False."""
-        msg = MagicMock(spec=Message)
-        msg.parse_entities.return_value = {}
-        msg.parse_caption_entities.return_value = {}
-        msg.entities = None
-        msg.caption_entities = None
+        msg = self._make_message(text="Hello world")
 
         assert has_non_whitelisted_link(msg) is False
 
@@ -328,6 +331,7 @@ class TestHandleNewUserSpam:
     def mock_update(self):
         """Create a mock update with a message."""
         update = MagicMock()
+        update.edited_message = None
         update.message = MagicMock(spec=Message)
         update.message.from_user = MagicMock(spec=User)
         update.message.from_user.id = 12345
@@ -924,17 +928,17 @@ class TestHandleNewUserSpam:
 
     @pytest.mark.asyncio
     async def test_ignores_update_without_message(self, mock_context):
-        """Test that update without message is ignored."""
         mock_update = MagicMock()
         mock_update.message = None
+        mock_update.edited_message = None
 
         await handle_new_user_spam(mock_update, mock_context)
 
     @pytest.mark.asyncio
     async def test_ignores_message_without_from_user(self, mock_context):
-        """Test that message without from_user is ignored."""
         mock_update = MagicMock()
         mock_update.message = MagicMock(spec=Message)
+        mock_update.edited_message = None
         mock_update.message.from_user = None
 
         await handle_new_user_spam(mock_update, mock_context)
@@ -1023,6 +1027,24 @@ class TestHandleNewUserSpam:
                 await handle_new_user_spam(mock_update, mock_context)
 
         mock_update.message.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ignores_edited_message(self, mock_update, mock_context, group_config):
+        """Regression: editing a violating message must not re-count a
+        probation violation already counted on the original delivery."""
+        mock_update.message.forward_origin = MagicMock()  # would otherwise violate
+        mock_update.edited_message = mock_update.message
+        mock_update.message = None
+
+        mock_db = MagicMock()
+        with (
+            patch("bot.handlers.anti_spam.get_group_config_for_update", return_value=group_config),
+            patch("bot.handlers.anti_spam.get_database", return_value=mock_db),
+        ):
+            await handle_new_user_spam(mock_update, mock_context)
+
+        mock_db.get_new_user_probation.assert_not_called()
+        mock_db.increment_new_user_violation.assert_not_called()
 
 
 class TestHasNonWhitelistedInlineKeyboardUrls:
@@ -1297,6 +1319,7 @@ class TestHandleInlineKeyboardSpam:
         """Test that update without message is ignored."""
         mock_update = MagicMock()
         mock_update.message = None
+        mock_update.edited_message = None
 
         await handle_inline_keyboard_spam(mock_update, mock_context)
 
@@ -1546,6 +1569,7 @@ class TestHandleContactSpam:
         """Test that update without message is ignored."""
         mock_update = MagicMock()
         mock_update.message = None
+        mock_update.edited_message = None
 
         await handle_contact_spam(mock_update, mock_context)
 
