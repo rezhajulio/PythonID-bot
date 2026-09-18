@@ -143,14 +143,10 @@ async def verify_user_in_group(
         return VERIFY_SUCCESS_WITH_UNRESTRICT_MESSAGE.format(
             user_id=target_user_id, group_id=group_id
         )
-    return VERIFY_SUCCESS_MESSAGE.format(
-        user_id=target_user_id, group_id=group_id
-    )
+    return VERIFY_SUCCESS_MESSAGE.format(user_id=target_user_id, group_id=group_id)
 
 
-async def unverify_user(
-    db: DatabaseService, target_user_id: int
-) -> str:
+async def unverify_user(db: DatabaseService, target_user_id: int) -> str:
     """
     Remove a user from the photo verification whitelist.
 
@@ -194,9 +190,7 @@ async def unrestrict_user_in_group(
                 )
             await unrestrict_user(bot, group_id, target_user_id)
             db.mark_all_bot_restrictions_unrestricted(target_user_id, group_id)
-        logger.info(
-            f"Admin unrestricting user {target_user_id} in group {group_id}"
-        )
+        logger.info(f"Admin unrestricting user {target_user_id} in group {group_id}")
         return UNRESTRICT_SUCCESS_MESSAGE.format(
             user_id=target_user_id, group_id=group_id
         )
@@ -242,7 +236,12 @@ async def handle_verify_command(
         if len(admin_group_ids) == 1:
             registry = get_group_registry()
             message = await verify_user_in_group(
-                context.bot, db, registry, target_user_id, admin_user_id, admin_group_ids[0]
+                context.bot,
+                db,
+                registry,
+                target_user_id,
+                admin_user_id,
+                admin_group_ids[0],
             )
             verified = True
         else:
@@ -361,7 +360,7 @@ async def handle_verify_callback(
             f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist."
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan internal.")
         logger.error(f"Error during verify callback: {e}", exc_info=True)
 
 
@@ -406,7 +405,7 @@ async def handle_unverify_callback(
             f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist."
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan internal.")
         logger.error(f"Error during unverify callback: {e}", exc_info=True)
 
 
@@ -450,5 +449,5 @@ async def handle_unrestrict_callback(
             f"Admin {admin_user_id} unrestricting user {target_user_id} in group {group_id} via callback"
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan internal.")
         logger.error(f"Error during unrestrict callback: {e}", exc_info=True)

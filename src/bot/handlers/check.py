@@ -71,7 +71,14 @@ async def _build_profile_status(
     is_whitelisted = db.is_user_photo_whitelisted(user_id)
     is_trusted = db.is_user_trusted(user_id) is True
 
-    return user_mention, "✅" if result.has_profile_photo else "❌", result.has_profile_photo, result.has_username, is_whitelisted, is_trusted
+    return (
+        user_mention,
+        "✅" if result.has_profile_photo else "❌",
+        result.has_profile_photo,
+        result.has_username,
+        is_whitelisted,
+        is_trusted,
+    )
 
 
 def _build_group_selector_keyboard(
@@ -167,12 +174,25 @@ async def _show_check_result(
     If the admin is admin in only one group, shows actions directly.
     If admin in multiple groups, shows a group selector first.
     """
-    admin_user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id  # type: ignore[union-attr]
-    reply_func = update.message.reply_text if update.message else update.callback_query.edit_message_text  # type: ignore[union-attr]
+    admin_user_id = (
+        update.message.from_user.id
+        if update.message
+        else update.callback_query.from_user.id
+    )  # type: ignore[union-attr]
+    reply_func = (
+        update.message.reply_text
+        if update.message
+        else update.callback_query.edit_message_text
+    )  # type: ignore[union-attr]
 
-    user_mention, photo_status, has_photo, has_username, is_whitelisted, is_trusted = (
-        await _build_profile_status(context.bot, target_user_id, user_name)
-    )
+    (
+        user_mention,
+        photo_status,
+        has_photo,
+        has_username,
+        is_whitelisted,
+        is_trusted,
+    ) = await _build_profile_status(context.bot, target_user_id, user_name)
     username_status = "✅" if has_username else "❌"
     is_complete = has_photo and has_username
 
@@ -190,7 +210,11 @@ async def _show_check_result(
         if not has_username:
             missing_code += "u"
 
-        action_prompt = ADMIN_CHECK_ACTION_COMPLETE if is_complete else ADMIN_CHECK_ACTION_INCOMPLETE
+        action_prompt = (
+            ADMIN_CHECK_ACTION_COMPLETE
+            if is_complete
+            else ADMIN_CHECK_ACTION_INCOMPLETE
+        )
         message = ADMIN_CHECK_PROMPT.format(
             user_mention=user_mention,
             user_id=target_user_id,
@@ -199,7 +223,12 @@ async def _show_check_result(
             action_prompt=action_prompt,
         )
         keyboard = _build_action_keyboard(
-            group_id, target_user_id, is_complete, is_whitelisted, is_trusted, missing_code
+            group_id,
+            target_user_id,
+            is_complete,
+            is_whitelisted,
+            is_trusted,
+            missing_code,
         )
         await reply_func(message, reply_markup=keyboard, parse_mode="Markdown")
     else:
@@ -248,7 +277,9 @@ async def handle_check_command(
         await update.message.reply_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout checking user {target_user_id}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal memeriksa user: {e}")
+        await update.message.reply_text(
+            "❌ Gagal memeriksa user karena kesalahan internal."
+        )
         logger.error(f"Error checking user {target_user_id}: {e}", exc_info=True)
 
 
@@ -287,7 +318,9 @@ async def handle_check_forwarded_message(
         await update.message.reply_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout checking forwarded user {user_id}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal memeriksa user: {e}")
+        await update.message.reply_text(
+            "❌ Gagal memeriksa user karena kesalahan internal."
+        )
         logger.error(f"Error checking forwarded user {user_id}: {e}", exc_info=True)
 
 
@@ -322,9 +355,14 @@ async def handle_check_group_callback(
         chat = await context.bot.get_chat(target_user_id)
         user_name = chat.full_name or f"User {target_user_id}"
 
-        user_mention, photo_status, has_photo, has_username, is_whitelisted, is_trusted = (
-            await _build_profile_status(context.bot, target_user_id, user_name)
-        )
+        (
+            user_mention,
+            photo_status,
+            has_photo,
+            has_username,
+            is_whitelisted,
+            is_trusted,
+        ) = await _build_profile_status(context.bot, target_user_id, user_name)
         username_status = "✅" if has_username else "❌"
         is_complete = has_photo and has_username
 
@@ -334,7 +372,11 @@ async def handle_check_group_callback(
         if not has_username:
             missing_code += "u"
 
-        action_prompt = ADMIN_CHECK_ACTION_COMPLETE if is_complete else ADMIN_CHECK_ACTION_INCOMPLETE
+        action_prompt = (
+            ADMIN_CHECK_ACTION_COMPLETE
+            if is_complete
+            else ADMIN_CHECK_ACTION_INCOMPLETE
+        )
         message = ADMIN_CHECK_PROMPT.format(
             user_mention=user_mention,
             user_id=target_user_id,
@@ -343,11 +385,20 @@ async def handle_check_group_callback(
             action_prompt=action_prompt,
         )
         keyboard = _build_action_keyboard(
-            group_id, target_user_id, is_complete, is_whitelisted, is_trusted, missing_code
+            group_id,
+            target_user_id,
+            is_complete,
+            is_whitelisted,
+            is_trusted,
+            missing_code,
         )
-        await query.edit_message_text(message, reply_markup=keyboard, parse_mode="Markdown")
+        await query.edit_message_text(
+            message, reply_markup=keyboard, parse_mode="Markdown"
+        )
     except Exception as e:
-        await query.edit_message_text(f"❌ Gagal memeriksa user: {e}")
+        await query.edit_message_text(
+            "❌ Gagal memeriksa user karena kesalahan internal."
+        )
         logger.error(f"Error in check group callback: {e}", exc_info=True)
 
 
@@ -394,7 +445,9 @@ async def handle_warn_callback(
         missing_items.append("foto profil publik")
     if "u" in missing_code:
         missing_items.append("username")
-    missing_text = MISSING_ITEMS_SEPARATOR.join(missing_items) if missing_items else "profil"
+    missing_text = (
+        MISSING_ITEMS_SEPARATOR.join(missing_items) if missing_items else "profil"
+    )
 
     registry = get_group_registry()
     group_config = registry.get(group_id)
@@ -433,5 +486,9 @@ async def handle_warn_callback(
         await query.edit_message_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout sending warning to user {target_user_id}")
     except Exception as e:
-        await query.edit_message_text(f"❌ Gagal mengirim peringatan: {e}")
-        logger.error(f"Error sending warning to user {target_user_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            "❌ Gagal mengirim peringatan karena kesalahan internal."
+        )
+        logger.error(
+            f"Error sending warning to user {target_user_id}: {e}", exc_info=True
+        )
