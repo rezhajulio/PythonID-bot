@@ -70,13 +70,15 @@ def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # ty
     """Register bio bait spam handler (group=4).
 
     Callback wrapped with ``guard_plugin("bio_bait_spam")``. Shares group=4
-    and filter shape with ``duplicate_spam``; ``block=False`` so both get a
-    chance to run instead of the first match swallowing the update.
+    with ``duplicate_spam``; within a group PTB runs at most one handler, and
+    per MANIFEST_ORDER ``duplicate_spam`` registers first, so this handler
+    only receives group messages that duplicate_spam's broader filter rejects.
+    Blocking registration so its ``ApplicationHandlerStop`` stops downstream
+    groups after enforcement.
     """
     handler: BaseHandler = MessageHandler(
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
-        block=False,
     )
     return _register_spam(application, handler, 4, "bio_bait_spam_handler")
 
@@ -105,14 +107,13 @@ def register_new_user_spam(application: Application) -> list[BaseHandler]:  # ty
 def register_duplicate_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register duplicate message spam handler (group=4).
 
-    Callback wrapped with ``guard_plugin("duplicate_spam")``. Registered
-    before ``bio_bait_spam`` in the same group with the same filter shape;
-    ``block=False`` so PTB still checks the next handler in group=4 instead
-    of stopping after this one matches.
+    Callback wrapped with ``guard_plugin("duplicate_spam")``. Blocking
+    registration so the ``ApplicationHandlerStop`` raised after enforcement
+    actually stops downstream handler groups (PTB does not support
+    ``ApplicationHandlerStop`` from non-blocking handlers).
     """
     handler: BaseHandler = MessageHandler(
         filters.ChatType.GROUPS & ~filters.COMMAND,
         guard_plugin("duplicate_spam")(handle_duplicate_spam),
-        block=False,
     )
     return _register_spam(application, handler, 4, "duplicate_spam_handler")

@@ -151,6 +151,10 @@ class TestHandleDuplicateSpam:
         update.message.text = "Barangkali di sini ada yang sedang mencari kerja bisa menghubungi saya"
         update.message.caption = None
         update.message.message_id = 100
+        update.message.parse_entities.return_value = {}
+        update.message.parse_caption_entities.return_value = {}
+        update.message.entities = []
+        update.message.caption_entities = []
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100
         return update
@@ -257,6 +261,48 @@ class TestHandleDuplicateSpam:
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(mock_update, mock_context)
         mock_update.message.delete.assert_not_called()
+
+    async def test_short_text_skip_logged_once_per_window(self, mock_update, mock_context, group_config):
+        mock_update.message.text = "ok"
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            with patch("bot.handlers.duplicate_spam.logger") as mock_logger:
+                await handle_duplicate_spam(mock_update, mock_context)
+                await handle_duplicate_spam(mock_update, mock_context)
+                await handle_duplicate_spam(mock_update, mock_context)
+        assert mock_logger.info.call_count == 1
+
+    async def test_short_non_whitelisted_link_triggers_detection(
+        self, mock_update, mock_context, group_config
+    ):
+        """Bare t.me links normalize below min_length but must still be counted."""
+        link = "t.me/spamchannel"
+        mock_update.message.text = link
+        mock_update.message.parse_entities.return_value = {MagicMock(): link}
+        now = datetime.now(UTC)
+        existing_dq = deque([
+            RecentMessage(timestamp=now, normalized_text=normalize_text(link), message_id=99),
+        ])
+        mock_context.bot_data[RECENT_MESSAGES_KEY] = {(-100, 42): existing_dq}
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_duplicate_spam(mock_update, mock_context)
+
+        assert mock_context.bot.delete_message.call_count == 2
+        mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_short_whitelisted_link_still_skipped(
+        self, mock_update, mock_context, group_config
+    ):
+        link = "https://github.com"
+        mock_update.message.text = link
+        mock_update.message.parse_entities.return_value = {MagicMock(): link}
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            await handle_duplicate_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_first_message_no_action(self, mock_update, mock_context, group_config):
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):

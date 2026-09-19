@@ -28,6 +28,7 @@ from bot.constants import (
     RESTRICTED_PERMISSIONS,
 )
 from bot.group_config import GroupConfig, get_group_config_for_update
+from bot.handlers.anti_spam import has_non_whitelisted_link
 from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 RECENT_MESSAGES_KEY = "duplicate_spam_recent"
 RECENT_MESSAGES_MAX_SIZE = 2000
 _RECENT_LAST_TOUCH_KEY = "duplicate_spam_recent_last_touch"
+_MINLEN_SKIP_LOG_KEY = "duplicate_spam_minlen_last_logged"
 
 
 @dataclass
@@ -85,6 +87,29 @@ def _prune_old_messages(
         dq.popleft()
 
 
+def _log_short_message_skip(
+    context: ContextTypes.DEFAULT_TYPE, group_config: GroupConfig, user_id: int,
+    normalized_len: int,
+) -> None:
+    """Log a short-message skip, rate-limited to once per window per (group, user)."""
+    key = (group_config.group_id, user_id)
+    now = datetime.now(UTC)
+    last_logged: dict[tuple[int, int], datetime] = context.bot_data.setdefault(
+        _MINLEN_SKIP_LOG_KEY, {}
+    )
+    last = last_logged.get(key)
+    if last is not None and (
+        now - last
+    ).total_seconds() < group_config.duplicate_spam_window_seconds:
+        return
+    last_logged[key] = now
+    logger.info(
+        f"Duplicate spam skip: text below min_length "
+        f"(normalized_len={normalized_len}, min_length={group_config.duplicate_spam_min_length}), "
+        f"user_id={user_id}, group_id={group_config.group_id}"
+    )
+
+
 async def handle_duplicate_spam(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -122,7 +147,9 @@ async def handle_duplicate_spam(
         return
 
     normalized = normalize_text(text)
-    if len(normalized) < group_config.duplicate_spam_min_length:
+    min_length = group_config.duplicate_spam_min_length
+    if len(normalized) < min_length and not has_non_whitelisted_link(message):
+        _log_short_message_skip(context, group_config, user.id, len(normalized))
         return
 
     now = datetime.now(UTC)
