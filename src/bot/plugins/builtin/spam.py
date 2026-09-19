@@ -67,20 +67,19 @@ def register_guest_bot_block(application: Application) -> list[BaseHandler]:  # 
     return _register_spam(application, handler, 0, "guest_bot_block_handler")
 
 def register_bio_bait_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
-    """Register bio bait spam handler (group=4).
+    """Register bio bait spam handler (group=5).
 
-    Callback wrapped with ``guard_plugin("bio_bait_spam")``. Shares group=4
-    with ``duplicate_spam``; within a group PTB runs at most one handler, and
-    per MANIFEST_ORDER ``duplicate_spam`` registers first, so this handler
-    only receives group messages that duplicate_spam's broader filter rejects.
-    Blocking registration so its ``ApplicationHandlerStop`` stops downstream
-    groups after enforcement.
+    Callback wrapped with ``guard_plugin("bio_bait_spam")``. Must NOT share
+    a group number with ``duplicate_spam`` (group=4): PTB runs at most one
+    handler per group (first match wins), so sharing a group would make this
+    handler unreachable. Blocking registration so its
+    ``ApplicationHandlerStop`` stops downstream groups after enforcement.
     """
     handler: BaseHandler = MessageHandler(
         BIO_BAIT_FILTER,
         guard_plugin("bio_bait_spam")(handle_bio_bait_spam),
     )
-    return _register_spam(application, handler, 4, "bio_bait_spam_handler")
+    return _register_spam(application, handler, 5, "bio_bait_spam_handler")
 
 def register_contact_spam(application: Application) -> list[BaseHandler]:  # type: ignore[type-arg]
     """Register contact spam handler (group=2).

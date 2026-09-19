@@ -101,16 +101,18 @@ class TestMarkUserRestricted:
 
         assert record.is_restricted is True
 
-    def test_raises_error_if_no_record(self, db_service):
-        with pytest.raises(ValueError):
-            db_service.mark_user_restricted(user_id=999, group_id=-100999)
+    def test_returns_none_if_no_record(self, db_service):
+        """Round-trip: no active record → None, never a raised error."""
+        result = db_service.mark_user_restricted(user_id=999, group_id=-100999)
+        assert result is None
 
-    def test_raises_error_if_already_restricted(self, db_service):
+    def test_returns_none_if_already_restricted(self, db_service):
         db_service.get_or_create_user_warning(user_id=123, group_id=-100999)
-        db_service.mark_user_restricted(user_id=123, group_id=-100999)
+        record = db_service.mark_user_restricted(user_id=123, group_id=-100999)
 
-        with pytest.raises(ValueError):
-            db_service.mark_user_restricted(user_id=123, group_id=-100999)
+        assert record.is_restricted is True
+        second = db_service.mark_user_restricted(user_id=123, group_id=-100999)
+        assert second is None
 
     def test_sets_restricted_by_bot_flag(self, db_service):
         db_service.get_or_create_user_warning(user_id=123, group_id=-100999)

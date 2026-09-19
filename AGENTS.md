@@ -152,9 +152,9 @@ group=0   # commands (including warn_command), callbacks, captcha, dm, guest_bot
 group=1   # inline_keyboard_spam: Catches inline keyboard URL spam
 group=2   # contact_spam: Blocks contact card sharing
 group=3   # new_user_spam: Probation enforcement (links/forwards)
-group=4   # duplicate_spam + bio_bait_spam: Repeated messages / bio-bait detection
-group=5   # profile_monitor: Runs LAST, profile compliance check
-group=6   # JobQueue only (not a handler group): auto_restrict_job, refresh_admin_ids_job
+group=4   # duplicate_spam: Repeated message/text/media detection
+group=5   # bio_bait_spam: Bio-bait detection (own group — sharing group 4 with duplicate_spam made it unreachable)
+group=6   # profile_monitor: Runs LAST, profile compliance check (JobQueue jobs also tagged group=6 but are not PTB handler groups)
 ```
 
 ### Plugin Gating (`guard_plugin`)
@@ -317,7 +317,8 @@ if user.id not in admin_ids:
 ## Notes
 
 - Registration order for all 28 built-in plugins lives in `MANIFEST_ORDER` (`plugins/definitions.py`), not scattered across `main.py`
-- `duplicate_spam` and `bio_bait_spam` both run at `group=4`; `auto_restrict_job` / `refresh_admin_ids_job` run as JobQueue jobs tagged `group=6` (not a PTB handler group)
+- `duplicate_spam` runs at `group=4` and `bio_bait_spam` at `group=5` — never share a group number between same-filter handlers (PTB runs at most one handler per group, first match wins); `auto_restrict_job` / `refresh_admin_ids_job` run as JobQueue jobs tagged `group=6` (not a PTB handler group)
+- `duplicate_spam` also covers media-only messages (photo, sticker, video, animation, document, audio, voice, video_note) via Telegram's `file_unique_id`, compared by exact match — never through the fuzzy text-similarity path; the `min_length` gate does not apply to media keys; short texts carrying a non-whitelisted URL bypass the `min_length` gate
 - Topic guard runs at `group=-1` to intercept unauthorized messages BEFORE other handlers
 - Topic guard handles both messages and edited messages, raises `ApplicationHandlerStop` to block downstream handlers
 - JobQueue auto-restriction job runs every 5 minutes (first run after 5 min delay)

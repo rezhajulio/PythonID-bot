@@ -24,7 +24,10 @@ from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
 from bot.services.bot_info import BotInfoCache
 from bot.services.restriction_lock import restriction_lock
-from bot.services.telegram_utils import get_user_mention
+from bot.services.telegram_utils import (
+    get_user_mention,
+    restrict_chat_member_with_retry,
+)
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -68,7 +71,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Check if user has complete profile (photo + username)
-    result = await check_user_profile(context.bot, user)
+    try:
+        result = await check_user_profile(context.bot, user)
+    except Exception as e:
+        # Fail-open but loud: a transient API error must not warn or restrict
+        # the user, and the message is not counted as a violation.
+        logger.warning(
+            f"Profile check failed for user {user.id} ({user.full_name}), "
+            f"skipping profile compliance check: {e}",
+            exc_info=True,
+        )
+        return
 
     # User has complete profile — clear any stale active warnings
     if result.is_complete:
@@ -168,11 +181,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         f"record no longer active (group_id={group_config.group_id})"
                     )
                     return
-                await context.bot.restrict_chat_member(
+                ok = await restrict_chat_member_with_retry(
+                    context.bot,
                     chat_id=group_config.group_id,
                     user_id=user.id,
                     permissions=RESTRICTED_PERMISSIONS,
                 )
+                if not ok:
+                    logger.error(
+                        f"Gave up restricting user {user.id} after RetryAfter — "
+                        f"warning record left active so the next message retries "
+                        f"(group_id={group_config.group_id})"
+                    )
+                    return
                 logger.info(
                     f"Restriction applied: user_id={user.id}, user={user.full_name}, group_id={group_config.group_id}"
                 )

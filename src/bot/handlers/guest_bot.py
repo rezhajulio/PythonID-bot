@@ -14,7 +14,11 @@ from bot.constants import (
 from bot.database.service import get_database
 from bot.group_config import get_group_config_for_update
 from bot.services.restriction_lock import restriction_lock
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
+from bot.services.telegram_utils import (
+    get_user_mention,
+    is_user_admin_or_trusted,
+    restrict_chat_member_with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,16 +91,20 @@ async def handle_guest_bot_message(update: Update, context: ContextTypes.DEFAULT
                 if fresh.message_count < group_config.warning_threshold:
                     should_stop = True
                 else:
+                    ok = False
                     try:
-                        await context.bot.restrict_chat_member(
+                        ok = await restrict_chat_member_with_retry(
+                            context.bot,
                             chat_id=group_config.group_id,
                             user_id=caller.id,
                             permissions=RESTRICTED_PERMISSIONS,
                         )
-                        db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
-                        final_count = fresh.message_count
                     except TelegramError as e:
                         logger.error("Failed to restrict guest bot caller %s: %s", caller.id, e, exc_info=True)
+                    if ok:
+                        db.mark_user_restricted(caller.id, group_config.group_id, warning_kind="guest_bot")
+                        final_count = fresh.message_count
+                    else:
                         # Do not increment on failure: count stays pinned at
                         # threshold so the next guest message retries the
                         # restriction instead of drifting past it forever.

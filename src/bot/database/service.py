@@ -214,7 +214,7 @@ class DatabaseService:
 
     def mark_user_restricted(
         self, user_id: int, group_id: int, warning_kind: str = "profile"
-    ) -> UserWarning:
+    ) -> UserWarning | None:
         """
         Mark user as restricted after reaching threshold.
 
@@ -227,10 +227,9 @@ class DatabaseService:
             warning_kind: Discriminator for the warning source.
 
         Returns:
-            UserWarning: Updated warning record.
-
-        Raises:
-            ValueError: If no active warning record exists.
+            UserWarning: Updated warning record, or None if no active
+            warning record exists (e.g. deleted concurrently while the
+            caller was restricting the user on Telegram).
         """
         with Session(self._engine) as session:
             statement = select(UserWarning).where(
@@ -253,9 +252,13 @@ class DatabaseService:
                 )
                 return record
 
-            raise ValueError(
-                f"No warning record found for user {user_id} in group {group_id} (kind={warning_kind})"
+            logger.error(
+                f"mark_user_restricted: no active warning record for "
+                f"user_id={user_id}, group_id={group_id}, kind={warning_kind} — "
+                f"the user may be Telegram-restricted without a DB record "
+                f"(record deleted concurrently)"
             )
+            return None
 
     def is_user_restricted_by_bot(
         self, user_id: int, group_id: int, warning_kind: str = "profile"

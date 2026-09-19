@@ -34,7 +34,11 @@ from bot.database.models import CaptchaData
 from bot.database.service import DatabaseService, get_database
 from bot.group_config import GroupConfig, get_group_config_for_update, get_group_registry
 from bot.services.restriction_lock import restriction_lock
-from bot.services.telegram_utils import get_user_mention, unrestrict_user
+from bot.services.telegram_utils import (
+    get_user_mention,
+    restrict_chat_member_with_retry,
+    unrestrict_user,
+)
 from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
@@ -75,11 +79,15 @@ async def _initiate_captcha_challenge(
     user_mention = get_user_mention(user)
 
     try:
-        await context.bot.restrict_chat_member(
+        ok = await restrict_chat_member_with_retry(
+            context.bot,
             chat_id=chat_id,
             user_id=user_id,
             permissions=RESTRICTED_PERMISSIONS,
         )
+        if not ok:
+            logger.error(f"Gave up restricting new member {user_id} after RetryAfter")
+            return
         logger.info(f"Restricted new member {user_id} ({user.full_name}) for captcha")
     except Exception as e:
         logger.error(f"Failed to restrict new member {user_id}: {e}")

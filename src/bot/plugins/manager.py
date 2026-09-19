@@ -6,7 +6,7 @@ calls them in canonical order via ``register_all()``.
 
 Handler groups: topic_guard (-1), commands/captcha/dm (0),
 inline_keyboard_spam (1), contact_spam (2), new_user_spam (3),
-duplicate_spam (4), bio_bait_spam (4), profile_monitor (5), jobs (6).
+duplicate_spam (4), bio_bait_spam (5), profile_monitor (6), jobs (6).
 
 Usage inside ``main.py``::
 

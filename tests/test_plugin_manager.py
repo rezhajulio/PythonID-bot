@@ -194,10 +194,11 @@ class TestManifestOrder:
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["topic_guard"]["handler_group"] == -1
 
-    def test_manifest_order_bio_bait_spam_in_group_four(self):
-        """bio_bait_spam entry has handler_group=4 (runs before profile_monitor)."""
+    def test_manifest_order_bio_bait_spam_in_group_five(self):
+        """bio_bait_spam entry has handler_group=5 (own group, after duplicate_spam
+        at group=4 — sharing group 4 would make it unreachable, see reviews)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["bio_bait_spam"]["handler_group"] == 4
+        assert defs["bio_bait_spam"]["handler_group"] == 5
 
     def test_manifest_order_contact_spam_in_group_two(self):
         """contact_spam entry has handler_group=2 (matches pre-refactor main.py)."""
@@ -214,10 +215,10 @@ class TestManifestOrder:
         defs = {d["name"]: d for d in get_plugin_definitions()}
         assert defs["duplicate_spam"]["handler_group"] == 4
 
-    def test_manifest_order_profile_monitor_in_group_five(self):
-        """profile_monitor entry has handler_group=5 (matches pre-refactor main.py)."""
+    def test_manifest_order_profile_monitor_in_group_six(self):
+        """profile_monitor entry has handler_group=6 (runs last among handlers)."""
         defs = {d["name"]: d for d in get_plugin_definitions()}
-        assert defs["profile_monitor"]["handler_group"] == 5
+        assert defs["profile_monitor"]["handler_group"] == 6
 
 class TestManifestOrderConsistency:
     """MANIFEST_ORDER must be sorted by handler_group."""
@@ -658,6 +659,86 @@ class TestComputeEffectivePluginMapEdgeCases:
         result = compute_effective_plugin_map({}, [1, 2, 3])
         assert result == {}
 
+class TestRegisteredGroupsMatchDefinitions:
+    """Registrars must register handlers at the group declared in definitions.py.
+
+    Regression guard for group-number drift: registrars hardcode the group in
+    ``application.add_handler(handler, group=N)``, and if that N drifts from
+    the manifest's ``handler_group`` the manifest order guarantees break down
+    (bio_bait_spam once shared group 4 with duplicate_spam and never ran).
+    """
+
+    def test_registered_handler_groups_match_definitions(self):
+        from bot.plugins.builtin import (
+            captcha as captcha_mod,
+            commands,
+            dm as dm_mod,
+            profile_monitor as pm_mod,
+            spam as spam_mod,
+            status as status_mod,
+            topic_guard as tg_mod,
+        )
+        from bot.plugins.manager import _REGISTRY
+
+        # Registrars that add message handlers; job plugins register
+        # JobQueue jobs instead and are covered by their own tests.
+        handler_registrars = {
+            "topic_guard": tg_mod.register_topic_guard,
+            "verify": commands.register_verify,
+            "unverify": commands.register_unverify,
+            "check": commands.register_check,
+            "trust": commands.register_trust,
+            "untrust": commands.register_untrust,
+            "trusted_list": commands.register_trusted_list,
+            "check_forwarded_message": commands.register_check_forwarded_message,
+            "check_group_callback": commands.register_check_group_callback,
+            "verify_callback": commands.register_verify_callback,
+            "unverify_callback": commands.register_unverify_callback,
+            "warn_callback": commands.register_warn_callback,
+            "trust_callback": commands.register_trust_callback,
+            "untrust_callback": commands.register_untrust_callback,
+            "unrestrict_callback": commands.register_unrestrict_callback,
+            "warn_command": commands.register_warn_command,
+            "captcha": captcha_mod.register_captcha,
+            "dm": dm_mod.register_dm,
+            "status": status_mod.register_status,
+            "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
+            "guest_bot_block": spam_mod.register_guest_bot_block,
+            "contact_spam": spam_mod.register_contact_spam,
+            "new_user_spam": spam_mod.register_new_user_spam,
+            "duplicate_spam": spam_mod.register_duplicate_spam,
+            "bio_bait_spam": spam_mod.register_bio_bait_spam,
+            "profile_monitor": pm_mod.register_profile_monitor,
+        }
+
+        defs_by_name = {d["name"]: d for d in get_plugin_definitions()}
+        assert set(handler_registrars) | {"auto_restrict_job", "refresh_admin_ids_job"} == set(MANIFEST_ORDER)
+        assert set(handler_registrars) == set(_REGISTRY) - {"auto_restrict_job", "refresh_admin_ids_job"}
+
+        app = MagicMock()
+
+        # PTB's add_handler defaults to group 0 when the arg is omitted.
+        for name, registrar in handler_registrars.items():
+            app.add_handler.reset_mock()
+            registrar(app)
+            groups = [
+                c.kwargs.get("group", c.args[1] if len(c.args) > 1 else 0)
+                for c in app.add_handler.call_args_list
+            ]
+            assert groups, f"{name}: registrar added no handlers"
+            assert all(
+                g == defs_by_name[name]["handler_group"] for g in groups
+            ), (
+                f"{name}: registered at groups={groups}, "
+                f"definitions say {defs_by_name[name]['handler_group']}"
+            )
+
+        # The registrar map above must cover every non-job plugin.
+        for name in MANIFEST_ORDER:
+            if name not in ("auto_restrict_job", "refresh_admin_ids_job"):
+                assert name in handler_registrars, f"{name} missing from handler registrars"
+
+
 class TestHandlerGroupsMatchPreRefactor:
     """Each pre-refactor handler group must match original main.py values.
 
@@ -668,7 +749,8 @@ class TestHandlerGroupsMatchPreRefactor:
     - contact_spam: 2
     - new_user_spam: 3
     - duplicate_spam: 4
-    - profile_monitor: 5
+    - bio_bait_spam: 5 (moved from 4 — sharing group 4 made it unreachable)
+    - profile_monitor: 6 (moved from 5; still runs last among handlers)
     """
 
     def test_topic_guard_group_negative_one(self):
@@ -726,11 +808,11 @@ class TestHandlerGroupsMatchPreRefactor:
         defs_by_name = {d["name"]: d for d in defs}
         assert defs_by_name["duplicate_spam"]["handler_group"] == 4
 
-    def test_profile_monitor_group_five(self):
-        """profile_monitor must be in group 5 (was shifted to 6)."""
+    def test_profile_monitor_group_six(self):
+        """profile_monitor must be in group 6 (runs last among handlers)."""
         defs = get_plugin_definitions()
         defs_by_name = {d["name"]: d for d in defs}
-        assert defs_by_name["profile_monitor"]["handler_group"] == 5
+        assert defs_by_name["profile_monitor"]["handler_group"] == 6
 
     def test_bio_bait_spam_not_in_group_two(self):
         """bio_bait_spam must NOT use group 2 (that was contact_spam's original group)."""

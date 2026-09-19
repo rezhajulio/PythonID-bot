@@ -327,14 +327,14 @@ class TestRefactoredBuiltinModules:
         assert hasattr(spam, "register_duplicate_spam")
         assert callable(spam.register_duplicate_spam)
 
-    def test_duplicate_spam_and_bio_bait_spam_share_group_and_filter_shape(self):
-        """duplicate_spam and bio_bait_spam sit in group=4 with the same filter shape.
+    def test_duplicate_spam_and_bio_bait_spam_do_not_share_a_group(self):
+        """duplicate_spam (group=4) and bio_bait_spam (group=5) must not share a group.
 
-        Regression guard for the collision this test class is named after: both
-        handlers match on ChatType.GROUPS & ~COMMAND. Within a group PTB runs at
-        most one handler (first match per registration order wins, regardless of
-        block), and duplicate_spam registers first per MANIFEST_ORDER. Both must
-        be registered blocking so their ApplicationHandlerStop stops downstream
+        Regression guard for the reachability bug this test guards against: both
+        handlers match on ChatType.GROUPS & ~COMMAND, so if they shared a group
+        number PTB would run only the first-registered one (duplicate_spam, per
+        MANIFEST_ORDER) and bio_bait_spam would never fire. Both must also be
+        registered blocking so their ApplicationHandlerStop stops downstream
         groups after enforcement — PTB swallows ApplicationHandlerStop raised
         from non-blocking handlers.
         """
@@ -345,6 +345,10 @@ class TestRefactoredBuiltinModules:
 
         dup_handlers = spam.register_duplicate_spam(app)
         bait_handlers = spam.register_bio_bait_spam(app)
+
+        dup_group = app.add_handler.call_args_list[0].kwargs["group"]
+        bait_group = app.add_handler.call_args_list[1].kwargs["group"]
+        assert dup_group != bait_group
 
         # Blocking = not explicitly non-blocking; PTB's default is the
         # DEFAULT_TRUE sentinel, not the literal True.

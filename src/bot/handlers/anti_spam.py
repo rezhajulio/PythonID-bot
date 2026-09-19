@@ -29,6 +29,7 @@ from bot.services.telegram_utils import (
     get_user_mention,
     is_url_whitelisted,
     is_user_admin_or_trusted,
+    restrict_chat_member_with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -272,13 +273,18 @@ async def _handle_group_spam(
     restricted = False
     if should_restrict(group_config):
         try:
-            await context.bot.restrict_chat_member(
+            restricted = await restrict_chat_member_with_retry(
+                context.bot,
                 chat_id=group_config.group_id,
                 user_id=user.id,
                 permissions=RESTRICTED_PERMISSIONS,
             )
-            restricted = True
-            logger.info(f"Restricted user_id={user.id} for {label}")
+            if restricted:
+                logger.info(f"Restricted user_id={user.id} for {label}")
+            else:
+                logger.error(
+                    f"Gave up restricting user_id={user.id} for {label} after RetryAfter"
+                )
         except Exception:
             logger.error(
                 f"Failed to restrict user for {label}: user_id={user.id}",
@@ -479,34 +485,48 @@ async def handle_new_user_spam(
 
     # 4. Threshold reached: restrict user and notify
     if record.violation_count >= group_config.new_user_violation_threshold:
+        restricted = False
         try:
-            await context.bot.restrict_chat_member(
+            restricted = await restrict_chat_member_with_retry(
+                context.bot,
                 chat_id=group_config.group_id,
                 user_id=user.id,
                 permissions=RESTRICTED_PERMISSIONS,
             )
-            logger.info(
-                f"Restricted user_id={user.id} after {record.violation_count} "
-                f"probation violations"
-            )
-
-            # Send restriction notification to warning topic
-            restriction_text = NEW_USER_SPAM_RESTRICTION.format(
-                user_mention=user_mention,
-                violation_count=record.violation_count,
-                rules_link=group_config.rules_link,
-            )
-            await context.bot.send_message(
-                chat_id=group_config.group_id,
-                message_thread_id=group_config.warning_topic_id,
-                text=restriction_text,
-                parse_mode="Markdown",
-            )
-            logger.info(f"Sent restriction notification for user_id={user.id}")
+            if restricted:
+                logger.info(
+                    f"Restricted user_id={user.id} after {record.violation_count} "
+                    f"probation violations"
+                )
+            else:
+                logger.error(
+                    f"Gave up restricting user_id={user.id} after RetryAfter"
+                )
         except Exception:
             logger.error(
                 f"Failed to restrict user: user_id={user.id}",
                 exc_info=True,
             )
+
+        if restricted:
+            try:
+                # Send restriction notification to warning topic
+                restriction_text = NEW_USER_SPAM_RESTRICTION.format(
+                    user_mention=user_mention,
+                    violation_count=record.violation_count,
+                    rules_link=group_config.rules_link,
+                )
+                await context.bot.send_message(
+                    chat_id=group_config.group_id,
+                    message_thread_id=group_config.warning_topic_id,
+                    text=restriction_text,
+                    parse_mode="Markdown",
+                )
+                logger.info(f"Sent restriction notification for user_id={user.id}")
+            except Exception:
+                logger.error(
+                    f"Failed to send restriction notification: user_id={user.id}",
+                    exc_info=True,
+                )
 
     raise ApplicationHandlerStop

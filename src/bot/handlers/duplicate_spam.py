@@ -32,7 +32,11 @@ from bot.constants import (
 )
 from bot.group_config import GroupConfig, get_group_config_for_update
 from bot.handlers.anti_spam import has_non_whitelisted_link
-from bot.services.telegram_utils import get_user_mention, is_user_admin_or_trusted
+from bot.services.telegram_utils import (
+    get_user_mention,
+    is_user_admin_or_trusted,
+    restrict_chat_member_with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -264,13 +268,18 @@ async def _enforce_restriction(
     """Restrict the user and send notification to warning topic."""
     restricted = False
     try:
-        await context.bot.restrict_chat_member(
+        restricted = await restrict_chat_member_with_retry(
+            context.bot,
             chat_id=group_config.group_id,
             user_id=user.id,
             permissions=RESTRICTED_PERMISSIONS,
         )
-        restricted = True
-        logger.info(f"Restricted user_id={user.id} for duplicate spam")
+        if restricted:
+            logger.info(f"Restricted user_id={user.id} for duplicate spam")
+        else:
+            logger.error(
+                f"Gave up restricting user_id={user.id} for duplicate spam after RetryAfter"
+            )
     except Exception:
         logger.error(
             f"Failed to restrict user for duplicate spam: user_id={user.id}",
