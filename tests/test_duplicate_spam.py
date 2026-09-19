@@ -155,6 +155,14 @@ class TestHandleDuplicateSpam:
         update.message.parse_caption_entities.return_value = {}
         update.message.entities = []
         update.message.caption_entities = []
+        update.message.sticker = None
+        update.message.video = None
+        update.message.animation = None
+        update.message.document = None
+        update.message.audio = None
+        update.message.voice = None
+        update.message.video_note = None
+        update.message.photo = ()
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100
         return update
@@ -254,6 +262,67 @@ class TestHandleDuplicateSpam:
         mock_update.message.caption = None
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
             await handle_duplicate_spam(mock_update, mock_context)
+        mock_update.message.delete.assert_not_called()
+
+    async def test_identical_stickers_trigger_restriction(self, mock_update, mock_context, group_config):
+        """Media-only messages are compared by file_unique_id, not min_length."""
+        mock_update.message.text = None
+        sticker = MagicMock()
+        sticker.file_unique_id = "AgADA7X0stickerid"
+        mock_update.message.sticker = sticker
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            with patch("bot.handlers.duplicate_spam.get_user_mention", return_value="@testuser"):
+                await handle_duplicate_spam(mock_update, mock_context)
+                mock_update.message.message_id = 101
+                with pytest.raises(ApplicationHandlerStop):
+                    await handle_duplicate_spam(mock_update, mock_context)
+
+        assert mock_context.bot.delete_message.call_count == 2
+        mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_different_stickers_not_counted(self, mock_update, mock_context, group_config):
+        mock_update.message.text = None
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            for i in range(3):
+                sticker = MagicMock()
+                sticker.file_unique_id = f"AgADA7X0stickerid{i}"
+                mock_update.message.sticker = sticker
+                mock_update.message.message_id = 100 + i
+                await handle_duplicate_spam(mock_update, mock_context)
+
+        mock_update.message.delete.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
+
+    async def test_identical_photos_trigger_restriction(self, mock_update, mock_context, group_config):
+        mock_update.message.text = None
+        size = MagicMock()
+        size.file_unique_id = "AgADA7X0photoid"
+        mock_update.message.photo = (size,)
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            with patch("bot.handlers.duplicate_spam.get_user_mention", return_value="@testuser"):
+                await handle_duplicate_spam(mock_update, mock_context)
+                mock_update.message.message_id = 101
+                with pytest.raises(ApplicationHandlerStop):
+                    await handle_duplicate_spam(mock_update, mock_context)
+
+        assert mock_context.bot.delete_message.call_count == 2
+        mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_media_and_text_keys_never_match(self, mock_update, mock_context, group_config):
+        """A media key must never be 'similar' to a text message's normalized text."""
+        sticker = MagicMock()
+        sticker.file_unique_id = "x" * 30
+        mock_update.message.sticker = sticker
+        mock_update.message.text = None
+
+        with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):
+            await handle_duplicate_spam(mock_update, mock_context)
+            mock_update.message.sticker = None
+            mock_update.message.text = "x" * 30
+            await handle_duplicate_spam(mock_update, mock_context)
+
         mock_update.message.delete.assert_not_called()
 
     async def test_skips_short_text(self, mock_update, mock_context, group_config):

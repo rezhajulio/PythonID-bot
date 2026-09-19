@@ -2,8 +2,11 @@
 Duplicate message spam detection handler.
 
 This module detects users who spam by repeatedly posting the same or
-very similar messages within a short time window. When the threshold
-is reached, duplicate messages are deleted and the user is restricted.
+very similar messages within a short time window. Text messages are
+compared after normalization; media-only messages (photos, stickers,
+videos, documents, ...) are compared by Telegram's file_unique_id.
+When the threshold is reached, duplicate messages are deleted and the
+user is restricted.
 
 Uses an in-memory rolling window per (group_id, user_id) to track
 recent messages. No database state is needed — restrictions applied
@@ -19,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
 
-from telegram import Update
+from telegram import Message, Update
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from bot.constants import (
@@ -47,6 +50,7 @@ class RecentMessage:
     normalized_text: str
     message_id: int
     delete_attempted: bool = False
+    is_media: bool = False
 
 
 def normalize_text(text: str) -> str:
@@ -68,6 +72,27 @@ def is_similar(a: str, b: str, threshold: float = 0.95) -> bool:
     if a == b:
         return True
     return SequenceMatcher(None, a, b).ratio() >= threshold
+
+
+def _media_file_unique_id(message: Message) -> str | None:
+    """
+    Return a stable comparison key for a media-only message.
+
+    Telegram's ``file_unique_id`` is the same for identical files, so
+    re-sent photos, stickers, videos, and documents produce the same key.
+    Returns None for messages without text-capable media (contacts and
+    locations have their own spam handlers; polls and dice are not spam
+    vectors).
+    """
+    for attr in (
+        "sticker", "video", "animation", "document", "audio", "voice", "video_note",
+    ):
+        media = getattr(message, attr)
+        if media is not None:
+            return f"{attr}:{media.file_unique_id}"
+    if message.photo:
+        return f"photo:{message.photo[-1].file_unique_id}"
+    return None
 
 
 def _get_recent_messages(
@@ -143,28 +168,42 @@ async def handle_duplicate_spam(
         return
 
     text = message.text or message.caption
-    if not text:
-        return
-
-    normalized = normalize_text(text)
-    min_length = group_config.duplicate_spam_min_length
-    if len(normalized) < min_length and not has_non_whitelisted_link(message):
-        _log_short_message_skip(context, group_config, user.id, len(normalized))
-        return
+    is_media = False
+    if text:
+        normalized = normalize_text(text)
+        min_length = group_config.duplicate_spam_min_length
+        if len(normalized) < min_length and not has_non_whitelisted_link(message):
+            _log_short_message_skip(context, group_config, user.id, len(normalized))
+            return
+    else:
+        media_key = _media_file_unique_id(message)
+        if media_key is None:
+            return
+        normalized = media_key
+        is_media = True
 
     now = datetime.now(UTC)
     dq = _get_recent_messages(context, group_config.group_id, user.id)
     _prune_old_messages(dq, group_config.duplicate_spam_window_seconds, now)
 
+    # Media entries compare by exact file_unique_id only — the IDs of
+    # different stickers share long prefixes, so the fuzzy text path
+    # would false-positive. Media and text keys never match each other.
     similar_messages = [
         m for m in dq
-        if is_similar(normalized, m.normalized_text, group_config.duplicate_spam_similarity)
+        if m.is_media == is_media and (
+            m.normalized_text == normalized if is_media
+            else is_similar(
+                normalized, m.normalized_text, group_config.duplicate_spam_similarity
+            )
+        )
     ]
 
     current_message = RecentMessage(
         timestamp=now,
         normalized_text=normalized,
         message_id=message.message_id,
+        is_media=is_media,
     )
     dq.append(current_message)
 
