@@ -248,7 +248,7 @@ async def handle_check_command(
         await update.message.reply_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout checking user {target_user_id}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal memeriksa user: {e}")
+        await update.message.reply_text("❌ Gagal memeriksa user. Terjadi kesalahan internal.")
         logger.error(f"Error checking user {target_user_id}: {e}", exc_info=True)
 
 
@@ -287,7 +287,7 @@ async def handle_check_forwarded_message(
         await update.message.reply_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout checking forwarded user {user_id}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal memeriksa user: {e}")
+        await update.message.reply_text("❌ Gagal memeriksa user. Terjadi kesalahan internal.")
         logger.error(f"Error checking forwarded user {user_id}: {e}", exc_info=True)
 
 
@@ -347,7 +347,7 @@ async def handle_check_group_callback(
         )
         await query.edit_message_text(message, reply_markup=keyboard, parse_mode="Markdown")
     except Exception as e:
-        await query.edit_message_text(f"❌ Gagal memeriksa user: {e}")
+        await query.edit_message_text("❌ Gagal memeriksa user. Terjadi kesalahan internal.")
         logger.error(f"Error in check group callback: {e}", exc_info=True)
 
 
@@ -433,5 +433,5 @@ async def handle_warn_callback(
         await query.edit_message_text("⏳ Request timeout. Silakan coba lagi.")
         logger.warning(f"Timeout sending warning to user {target_user_id}")
     except Exception as e:
-        await query.edit_message_text(f"❌ Gagal mengirim peringatan: {e}")
+        await query.edit_message_text("❌ Gagal mengirim peringatan. Terjadi kesalahan internal.")
         logger.error(f"Error sending warning to user {target_user_id}: {e}", exc_info=True)
