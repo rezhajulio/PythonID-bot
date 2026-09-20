@@ -55,9 +55,9 @@ def circuit_allows(
 ) -> bool:
     """Return True if a request may go out.
 
-    An open breaker allows one probe after the cooldown elapses (the
-    half-open state); the probe's outcome either closes the breaker or
-    re-opens it.
+    An open breaker stops blocking once the cooldown elapses; a
+    successful request then closes the breaker, a failed one re-opens
+    it (``opened_at`` is only cleared by a success).
     """
     if state.opened_at is None:
         return True
@@ -106,7 +106,9 @@ _client: httpx.AsyncClient | None = None
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS)
+        # No httpx-level timeout: asyncio.wait_for in classify_text is the
+        # single timeout knob (settings.classifier_timeout_seconds).
+        _client = httpx.AsyncClient(timeout=None)
     return _client
 
 
