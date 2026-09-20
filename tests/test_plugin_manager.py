@@ -151,6 +151,7 @@ class TestManifestOrder:
             "dm",
             "status",
             "guest_bot_block",
+            "ai_spam_callback",
             "inline_keyboard_spam",
             "contact_spam",
             "new_user_spam",
@@ -159,6 +160,7 @@ class TestManifestOrder:
             "profile_monitor",
             "auto_restrict_job",
             "refresh_admin_ids_job",
+            "ai_spam_monitor",
         )
 
     def test_manifest_order_is_tuple_of_strings(self):
@@ -181,9 +183,10 @@ class TestManifestOrder:
         """topic_guard is first (group=-1 runs before all others)."""
         assert MANIFEST_ORDER[0] == "topic_guard"
 
-    def test_manifest_order_last_is_refresh_admin_ids_job(self):
-        """refresh_admin_ids_job is last (final registration in main.py)."""
-        assert MANIFEST_ORDER[-1] == "refresh_admin_ids_job"
+    def test_manifest_order_last_is_ai_spam_monitor(self):
+        """ai_spam_monitor is last (highest handler group, registered last)."""
+        assert MANIFEST_ORDER[-1] == "ai_spam_monitor"
+        assert MANIFEST_ORDER[-2] == "refresh_admin_ids_job"
 
     def test_manifest_order_no_duplicates(self):
         """No duplicate names in MANIFEST_ORDER."""
@@ -670,6 +673,7 @@ class TestRegisteredGroupsMatchDefinitions:
 
     def test_registered_handler_groups_match_definitions(self):
         from bot.plugins.builtin import (
+            ai_monitor as ai_mod,
             captcha as captcha_mod,
             commands,
             dm as dm_mod,
@@ -709,11 +713,20 @@ class TestRegisteredGroupsMatchDefinitions:
             "duplicate_spam": spam_mod.register_duplicate_spam,
             "bio_bait_spam": spam_mod.register_bio_bait_spam,
             "profile_monitor": pm_mod.register_profile_monitor,
+            "ai_spam_monitor": ai_mod.register_ai_spam_monitor,
+            "ai_spam_callback": ai_mod.register_ai_spam_callback,
         }
 
         defs_by_name = {d["name"]: d for d in get_plugin_definitions()}
-        assert set(handler_registrars) | {"auto_restrict_job", "refresh_admin_ids_job"} == set(MANIFEST_ORDER)
-        assert set(handler_registrars) == set(_REGISTRY) - {"auto_restrict_job", "refresh_admin_ids_job"}
+        assert (
+            set(handler_registrars)
+            | {"auto_restrict_job", "refresh_admin_ids_job"}
+            == set(MANIFEST_ORDER)
+        )
+        assert set(handler_registrars) == set(_REGISTRY) - {
+            "auto_restrict_job",
+            "refresh_admin_ids_job",
+        }
 
         app = MagicMock()
 

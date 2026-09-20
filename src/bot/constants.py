@@ -438,6 +438,50 @@ BIO_BAIT_MONITOR_ALERT = (
     "Profile Bio:\n{profile_bio}"
 )
 
+# --- AI spam monitor (classifier.dev) ---
+
+AI_SPAM_LABELS: tuple[str, ...] = ("spam", "not spam")
+
+# Static criteria passed to the classifier as `instructions`. Text-only:
+# profile metadata is never sent to the API.
+AI_SPAM_INSTRUCTIONS = (
+    "Spam berarti promosi atau iklan tanpa diminta, ajakan DM berbayar, "
+    "jasa ilegal (misal jasa pencarian data orang), atau link promo "
+    "mencurigakan. Pengumuman acara komunitas, diskusi teknis, tanya jawab, "
+    "dan obrolan sehari-hari BUKAN spam."
+)
+
+# Alert sent to ai_spam_alert_chat_id when a high-confidence spam message
+# is detected. Sent without parse_mode to preserve raw message content.
+AI_SPAM_ALERT = (
+    "[AI SPAM MONITOR]\n"
+    "Grup ID: {group_id}\n"
+    "Pengirim: {user_mention} (ID: {user_id})\n"
+    "Keyakinan: {confidence} ({model})\n"
+    "Profil: {profile_status}\n"
+    "Pesan:\n{message_text}"
+)
+
+# Appended to the alert after an admin presses an action button.
+AI_SPAM_ALERT_HANDLED = "\n\n✔ Ditangani oleh {admin_mention}: {action}"
+
+# Inline keyboard labels for the AI spam alert actions.
+AI_SPAM_BUTTON_DELETE = "🗑 Hapus pesan"
+AI_SPAM_BUTTON_DELETE_RESTRICT = "🔇 Hapus + batasi"
+AI_SPAM_BUTTON_DELETE_BAN = "🔨 Hapus + ban"
+AI_SPAM_BUTTON_DISMISS = "👌 Abaikan"
+
+# Callback answers / alert edit texts.
+AI_SPAM_ACTION_LABELS = {
+    "del": "hapus pesan",
+    "delres": "hapus + batasi",
+    "delban": "hapus + ban",
+    "dismiss": "abaikan",
+}
+AI_SPAM_CB_NOT_ADMIN = "Khusus admin grup tersebut."
+AI_SPAM_CB_ACTION_FAILED = "❌ Gagal: {detail}"
+AI_SPAM_CB_MESSAGE_GONE = "(pesan sudah tidak ada)"
+
 # Whitelisted URL domains for new user probation
 # These domains are allowed even during probation period
 # Matches exact domain or subdomains (e.g., "github.com" matches "www.github.com")

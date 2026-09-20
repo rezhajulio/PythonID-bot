@@ -44,6 +44,7 @@ class GroupConfig(BaseModel):
     bio_bait_enabled: bool = True
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
+    ai_spam_alert_chat_id: int | None = None
     guest_bot_whitelist: list[str] = []
     moderation_topic_id: int | None = None
     plugins: dict[str, bool] | None = None
