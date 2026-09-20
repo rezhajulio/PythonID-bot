@@ -25,10 +25,10 @@ WIB = classifier_client._WIB
 
 
 @pytest.fixture(autouse=True)
-def reset_state():
+async def reset_state():
     classifier_client.reset_shared_state()
     yield
-    classifier_client.reset_shared_state()
+    await classifier_client.close_client()
 
 
 def make_response(status_code: int = 200, payload: dict | None = None) -> MagicMock:
@@ -182,6 +182,21 @@ class TestTrySpendBudget:
         assert classifier_client.try_spend_budget(2) is True
         assert classifier_client.daily_budget_exhausted(2) is True
         assert classifier_client.daily_budget_exhausted(3) is False
+
+
+class TestCloseClient:
+    """Tests for the shared-client shutdown hook."""
+
+    async def test_close_releases_client(self):
+        classifier_client._get_client()
+        assert classifier_client._client is not None
+        await classifier_client.close_client()
+        assert classifier_client._client is None
+
+    async def test_close_is_noop_without_client(self):
+        assert classifier_client._client is None
+        await classifier_client.close_client()
+        assert classifier_client._client is None
 
 
 class TestClassifyText:

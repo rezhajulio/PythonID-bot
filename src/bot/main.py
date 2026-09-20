@@ -18,6 +18,7 @@ from bot.database.service import get_database, init_database
 from bot.group_config import get_group_registry, init_group_registry
 from bot.plugins.manager import PluginManager
 from bot.services.admin_cache import preload_admin_ids
+from bot.services.classifier_client import close_client
 
 
 def configure_logging() -> None:
@@ -109,6 +110,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
     logger.error("Unhandled exception:", exc_info=context.error)
 
+async def post_shutdown(application: Application) -> None:  # type: ignore[type-arg]
+    """Release shared resources after the bot stops polling."""
+    await close_client()
+    logger.info("post_shutdown: classifier HTTP client closed")
+
+
 async def post_init(application: Application) -> None:  # type: ignore[type-arg]
     """
     Post-initialization callback to fetch and cache group admin IDs.
@@ -173,8 +180,14 @@ def main() -> None:
     init_database(settings.database_path)
     logger.info(f"Database initialized at {settings.database_path}")
 
-    # Build the bot application with the token and post_init callback
-    application = Application.builder().token(settings.telegram_bot_token).post_init(post_init).build()
+    # Build the bot application with the token and lifecycle callbacks
+    application = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
     application.add_error_handler(error_handler)
     logger.info("Application built successfully")
 

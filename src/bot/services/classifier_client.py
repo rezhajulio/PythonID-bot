@@ -117,6 +117,14 @@ def get_circuit_state() -> CircuitState:
     return _circuit
 
 
+async def close_client() -> None:
+    """Close the shared HTTP client and release its connection pool."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
+
+
 def reset_shared_state() -> None:
     """Reset breaker and budget to defaults (for tests)."""
     global _client
