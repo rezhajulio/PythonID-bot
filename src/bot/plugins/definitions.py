@@ -36,6 +36,7 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "dm", "handler_group": 0, "description": "Direct message unrestriction flow"},
     {"name": "status", "handler_group": 0, "description": "Admin /status command"},
     {"name": "guest_bot_block", "handler_group": 0, "description": "Block non-whitelisted guest bot messages"},
+    {"name": "ai_spam_callback", "handler_group": 0, "description": "Admin action buttons on AI spam monitor alerts"},
     {"name": "inline_keyboard_spam", "handler_group": 1, "description": "Block inline keyboard URL spam"},
     {"name": "contact_spam", "handler_group": 2, "description": "Block contact card sharing"},
     {"name": "new_user_spam", "handler_group": 3, "description": "Probation enforcement for new users"},
@@ -44,6 +45,7 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "profile_monitor", "handler_group": 6, "description": "Profile compliance monitoring"},
     {"name": "auto_restrict_job", "handler_group": 6, "description": "Periodic auto-restriction job (every 5 min)"},
     {"name": "refresh_admin_ids_job", "handler_group": 6, "description": "Periodic admin cache refresh job (every 10 min)"},
+    {"name": "ai_spam_monitor", "handler_group": 7, "description": "classifier.dev spam monitoring with admin-chat action buttons (last defense)"},
 ]
 
 # Single source of truth: canonical set of all known plugin names.

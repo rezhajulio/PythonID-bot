@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     bio_bait_enabled: bool = True
     bio_bait_monitor_only: bool = False
     bio_bait_alert_chat_id: int | None = None
+    ai_spam_alert_chat_id: int | None = None
+    classifier_timeout_seconds: float = 5.0
+    classifier_cooldown_seconds: float = 600.0
+    ai_spam_alert_threshold: float = 0.9
+    ai_spam_daily_budget: int = 15_000
     moderation_topic_id: int | None = None
     guest_bot_whitelist: Annotated[list[str], NoDecode] = []
     groups_config_path: str = "groups.json"

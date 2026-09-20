@@ -19,6 +19,7 @@
     "bio_bait_enabled": true,
     "bio_bait_monitor_only": false,
     "bio_bait_alert_chat_id": null,
+    "ai_spam_alert_chat_id": null,
     "moderation_topic_id": null,
     "guest_bot_whitelist": [],
     "plugins": {
@@ -47,6 +48,7 @@
     "bio_bait_enabled": true,
     "bio_bait_monitor_only": false,
     "bio_bait_alert_chat_id": null,
+    "ai_spam_alert_chat_id": null,
     "moderation_topic_id": null,
     "guest_bot_whitelist": ["somebot"],
     "plugins": {

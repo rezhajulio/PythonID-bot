@@ -25,6 +25,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from bot.plugins.builtin import ai_monitor as ai_mod
 from bot.plugins.builtin import captcha as captcha_mod
 from bot.plugins.builtin import commands
 from bot.plugins.builtin import dm as dm_mod
@@ -81,6 +82,9 @@ _REGISTRY: dict[str, Registrar] = {
     "duplicate_spam": spam_mod.register_duplicate_spam,
     # profile_monitor
     "profile_monitor": pm_mod.register_profile_monitor,
+    # ai_spam_monitor (last defense)
+    "ai_spam_monitor": ai_mod.register_ai_spam_monitor,
+    "ai_spam_callback": ai_mod.register_ai_spam_callback,
     # jobs
     "auto_restrict_job": jobs_mod.register_auto_restrict_job,
     "refresh_admin_ids_job": jobs_mod.register_refresh_admin_ids_job,
