@@ -28,7 +28,6 @@ from bot.constants import (
     AI_SPAM_BUTTON_DELETE_BAN,
     AI_SPAM_BUTTON_DELETE_RESTRICT,
     AI_SPAM_BUTTON_DISMISS,
-    AI_SPAM_CB_ACTION_FAILED,
     AI_SPAM_CB_MESSAGE_GONE,
     AI_SPAM_CB_NOT_ADMIN,
     AI_SPAM_INSTRUCTIONS,
@@ -37,17 +36,13 @@ from bot.constants import (
 )
 from bot.group_config import get_group_registry
 from bot.services.classifier_client import (
-    DEFAULT_COOLDOWN_SECONDS,
     DEFAULT_DAILY_BUDGET,
-    CircuitState,
     breaker_is_open,
-    circuit_allows,
     classify_text,
     daily_budget_exhausted,
     try_spend_budget,
 )
 from bot.services.telegram_utils import (
-    get_user_mention,
     is_user_admin_in_group,
     is_user_admin_or_trusted,
     restrict_chat_member_with_retry,
@@ -62,7 +57,6 @@ AI_SPAM_CALLBACK_PATTERN = r"^aispam:(del|delres|delban|dismiss):-?\d+:\d+:\d+$"
 AI_SPAM_MIN_LENGTH = 20
 AI_SPAM_ALERT_MESSAGE_MAX_LEN = 500
 
-CIRCUIT_KEY = "ai_spam_circuit"
 ALERTS_KEY = "ai_spam_alerts"
 ALERTS_MAX_SIZE = 500
 
@@ -96,8 +90,13 @@ def truncate_alert_text(text: str, max_length: int = AI_SPAM_ALERT_MESSAGE_MAX_L
     return text[:max_length].rstrip() + "…"
 
 
-def _get_circuit(context: ContextTypes.DEFAULT_TYPE) -> CircuitState:
-    return context.bot_data.setdefault(CIRCUIT_KEY, CircuitState())
+def plain_mention(user: User) -> str:
+    """Plain-text mention for alerts sent without parse_mode.
+
+    ``get_user_mention`` returns Markdown, which would render literally
+    in a plain-text alert; the alert already shows the numeric ID.
+    """
+    return f"@{user.username}" if user.username else user.full_name
 
 
 def _already_alerted(context: ContextTypes.DEFAULT_TYPE, key: tuple[int, int]) -> bool:
@@ -147,13 +146,8 @@ async def _classify_and_alert(
     from being hammered.
     """
     settings = get_settings()
-    circuit = _get_circuit(context)
-    if not circuit_allows(
-        circuit,
-        time.monotonic(),
-        cooldown_seconds=getattr(
-            settings, "classifier_cooldown_seconds", DEFAULT_COOLDOWN_SECONDS
-        ),
+    if breaker_is_open(
+        time.monotonic(), cooldown_seconds=settings.classifier_cooldown_seconds
     ):
         logger.debug("ai_spam_monitor: circuit open, skipping classification")
         return
@@ -200,7 +194,7 @@ async def _classify_and_alert(
     profile_status = await _fetch_profile_status(context, user)
     alert_text = AI_SPAM_ALERT.format(
         group_id=group_id,
-        user_mention=get_user_mention(user),
+        user_mention=plain_mention(user),
         user_id=user.id,
         confidence=confidence_display,
         model=result.model or "classifier.dev",
@@ -236,7 +230,9 @@ async def handle_ai_spam_monitor(
         return
     if daily_budget_exhausted(get_settings().ai_spam_daily_budget):
         return
-    if breaker_is_open(time.monotonic()):
+    if breaker_is_open(
+        time.monotonic(), cooldown_seconds=get_settings().classifier_cooldown_seconds
+    ):
         return
 
     # Application.create_task keeps a strong reference and logs exceptions.
@@ -311,7 +307,7 @@ async def handle_ai_spam_action(
             detail_parts.append("ban gagal")
 
     handled_text = AI_SPAM_ALERT_HANDLED.format(
-        admin_mention=get_user_mention(admin),
+        admin_mention=plain_mention(admin),
         action=action_label + (f" ({'; '.join(detail_parts)})" if detail_parts else ""),
     )
     try:
@@ -320,10 +316,6 @@ async def handle_ai_spam_action(
         )
     except Exception:
         logger.warning("ai_spam_monitor: failed to mark alert handled", exc_info=True)
-        await query.answer(
-            AI_SPAM_CB_ACTION_FAILED.format(detail="tidak bisa memperbarui alert"),
-            show_alert=True,
-        )
 
 
 def get_handlers() -> list[MessageHandler | CallbackQueryHandler]:

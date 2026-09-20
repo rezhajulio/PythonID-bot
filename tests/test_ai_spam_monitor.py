@@ -1,5 +1,6 @@
 """Tests for the AI spam monitor handler (classifier.dev, monitor-only)."""
 
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,17 +15,24 @@ from bot.handlers.ai_spam_monitor import (
     ACTION_DELETE_RESTRICT,
     ACTION_DISMISS,
     ALERTS_KEY,
-    CIRCUIT_KEY,
     handle_ai_spam_action,
     handle_ai_spam_monitor,
     truncate_alert_text,
 )
-from bot.services.classifier_client import ClassificationResult, CircuitState
+from bot.services import classifier_client
+from bot.services.classifier_client import ClassificationResult, circuit_on_failure
 from bot.services.user_checker import ProfileCheckResult
 
 GROUP_ID = -100
 ALERT_CHAT_ID = -999
 LONG_TEXT = "Jasa pencarian data orang, harga murah, minat chat privat ya kak"
+
+
+@pytest.fixture(autouse=True)
+def reset_classifier_state():
+    classifier_client.reset_shared_state()
+    yield
+    classifier_client.reset_shared_state()
 
 
 def make_settings(**overrides) -> MagicMock:
@@ -188,9 +196,7 @@ class TestClassifyAndAlert:
 
     @pytest.fixture
     def context(self) -> MagicMock:
-        context = make_context()
-        context.bot_data[CIRCUIT_KEY] = CircuitState()
-        return context
+        return make_context()
 
     async def alert_on(
         self,
@@ -223,10 +229,37 @@ class TestClassifyAndAlert:
         kwargs = context.bot.send_message.await_args.kwargs
         assert kwargs["chat_id"] == ALERT_CHAT_ID
         assert "[AI SPAM MONITOR]" in kwargs["text"]
+        assert "@testuser" in kwargs["text"]
         assert "97%" in kwargs["text"]
         assert "jev-1.13.0" in kwargs["text"]
         assert "foto profil publik" in kwargs["text"]
         assert kwargs["reply_markup"] is not None
+
+    async def test_alert_mention_plain_without_username(self, context):
+        update = make_update()
+        update.effective_user.username = None
+        update.effective_user.full_name = "Test User"
+        with (
+            patch("bot.handlers.ai_spam_monitor.classify_text", new=AsyncMock(return_value=make_spam_result())),
+            patch("bot.handlers.ai_spam_monitor.get_settings", return_value=make_settings()),
+            patch("bot.handlers.ai_spam_monitor.get_group_registry") as mock_registry,
+            patch(
+                "bot.handlers.ai_spam_monitor.check_user_profile",
+                new=AsyncMock(return_value=ProfileCheckResult(True, True)),
+            ),
+        ):
+            mock_registry.return_value.get.return_value = make_group_config()
+            await ai_spam_monitor._classify_and_alert(
+                context,
+                group_id=GROUP_ID,
+                user=update.effective_user,
+                message_id=100,
+                message_text=LONG_TEXT,
+            )
+        text = context.bot.send_message.await_args.kwargs["text"]
+        assert "Test User (ID: 42)" in text
+        assert "tg://user" not in text
+        assert "\\_" not in text
 
     async def test_no_alert_below_threshold(self, context):
         await self.alert_on(context, result=make_spam_result(confidence=0.5))
@@ -266,11 +299,9 @@ class TestClassifyAndAlert:
         context.bot.send_message.assert_not_awaited()
 
     async def test_skips_when_circuit_open(self, context):
-        import time as _time
-
-        context.bot_data[CIRCUIT_KEY] = CircuitState(
-            consecutive_failures=3, opened_at=_time.monotonic()
-        )
+        state = classifier_client.get_circuit_state()
+        for _ in range(3):
+            circuit_on_failure(state, now=time.monotonic())
         with (
             patch("bot.handlers.ai_spam_monitor.classify_text", new=AsyncMock()) as mock_classify,
             patch("bot.handlers.ai_spam_monitor.get_settings", return_value=make_settings()),
@@ -501,19 +532,14 @@ class TestHandleAiSpamAction:
         text = update.callback_query.edit_message_text.await_args.args[0]
         assert "pembatasan gagal" in text
 
-    async def test_edit_failure_answers_with_error(self):
+    async def test_edit_failure_logged_not_raised(self):
         context = make_context()
         update = make_callback_update(ACTION_DELETE)
         update.callback_query.edit_message_text = AsyncMock(
             side_effect=BadRequest("cannot edit")
         )
         await handle_ai_spam_action(update, context)
-        update.callback_query.answer.assert_awaited_with(
-            ai_spam_monitor.AI_SPAM_CB_ACTION_FAILED.format(
-                detail="tidak bisa memperbarui alert"
-            ),
-            show_alert=True,
-        )
+        update.callback_query.answer.assert_awaited_once()
 
 
 class TestGetHandlers:
