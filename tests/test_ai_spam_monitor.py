@@ -29,10 +29,10 @@ LONG_TEXT = "Jasa pencarian data orang, harga murah, minat chat privat ya kak"
 
 
 @pytest.fixture(autouse=True)
-def reset_classifier_state():
+async def reset_classifier_state():
     classifier_client.reset_shared_state()
     yield
-    classifier_client.reset_shared_state()
+    await classifier_client.close_client()
 
 
 def make_settings(**overrides) -> MagicMock:
