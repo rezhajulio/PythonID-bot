@@ -354,7 +354,7 @@ class TestHandleCheckCommand:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "Gagal memeriksa" in call_args.args[0]
+        assert "Terjadi kesalahan" in call_args.args[0]
 
     async def test_check_command_timeout(self, mock_update, mock_context):
         """Handles TimedOut error gracefully."""
@@ -494,7 +494,7 @@ class TestHandleCheckForwardedMessage:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args
-        assert "Gagal memeriksa" in call_args.args[0]
+        assert "Terjadi kesalahan" in call_args.args[0]
 
     async def test_check_forwarded_timeout(self, mock_update, mock_context):
         """Handles TimedOut error gracefully."""
@@ -754,7 +754,7 @@ class TestHandleWarnCallback:
 
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "Gagal mengirim" in call_args.args[0]
+        assert "Terjadi kesalahan" in call_args.args[0]
 
     async def test_warn_callback_timeout(
         self, mock_context, mock_settings, mock_registry
@@ -772,6 +772,7 @@ class TestHandleWarnCallback:
 
         mock_chat = MagicMock()
         mock_chat.full_name = "Test User"
+        mock_chat.username = "testuser"
         mock_context.bot.get_chat.return_value = mock_chat
         mock_context.bot.send_message.side_effect = TimedOut()
 
@@ -785,7 +786,7 @@ class TestHandleWarnCallback:
 
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "Gagal mengirim" in call_args.args[0]
+        assert "⏳ Request timeout. Silakan coba lagi." in call_args.args[0]
 
     async def test_warn_callback_get_chat_timeout(
         self, mock_context, mock_settings, mock_registry
@@ -845,4 +846,4 @@ class TestHandleWarnCallback:
 
         query.edit_message_text.assert_called_once()
         call_args = query.edit_message_text.call_args
-        assert "Gagal mengirim peringatan" in call_args.args[0]
+        assert "Terjadi kesalahan" in call_args.args[0]

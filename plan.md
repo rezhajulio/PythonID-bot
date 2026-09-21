@@ -1,0 +1,3 @@
+1. **Fix error messages to not leak exception details.** Currently, raw exception strings (`{e}`) are being exposed to users in telegram bots via `reply_text` and `edit_message_text` in `src/bot/handlers/check.py` and `src/bot/handlers/verify.py`. I will replace these with generic error messages like "❌ Terjadi kesalahan saat memproses permintaan." (An error occurred while processing the request) and leave the exception logging (which already uses `logger.error(..., exc_info=True)`).
+2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
+3. Submit the change.

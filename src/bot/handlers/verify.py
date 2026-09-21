@@ -361,7 +361,7 @@ async def handle_verify_callback(
             f"ℹ️ User dengan ID {target_user_id} sudah ada di whitelist."
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan saat memproses permintaan.")
         logger.error(f"Error during verify callback: {e}", exc_info=True)
 
 
@@ -406,7 +406,7 @@ async def handle_unverify_callback(
             f"ℹ️ User dengan ID {target_user_id} tidak ada di whitelist."
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan saat memproses permintaan.")
         logger.error(f"Error during unverify callback: {e}", exc_info=True)
 
 
@@ -450,5 +450,5 @@ async def handle_unrestrict_callback(
             f"Admin {admin_user_id} unrestricting user {target_user_id} in group {group_id} via callback"
         )
     except Exception as e:
-        await query.edit_message_text(f"❌ Terjadi kesalahan: {e}")
+        await query.edit_message_text("❌ Terjadi kesalahan saat memproses permintaan.")
         logger.error(f"Error during unrestrict callback: {e}", exc_info=True)
