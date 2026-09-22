@@ -1,5 +1,6 @@
 """Tests for the AI spam monitor handler (classifier.dev, monitor-only)."""
 
+import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -278,9 +279,23 @@ class TestClassifyAndAlert:
         await self.alert_on(context, alert_chat_id=None)
         context.bot.send_message.assert_not_awaited()
 
-    async def test_no_alert_when_classification_fails(self, context):
-        await self.alert_on(context, result=None)
+    async def test_no_alert_when_classification_fails(self, context, caplog):
+        with caplog.at_level(logging.INFO):
+            await self.alert_on(context, result=None)
         context.bot.send_message.assert_not_awaited()
+        assert "classification failed for user_id=" in caplog.text
+        assert "username=@testuser" in caplog.text
+        assert "name='Test User'" in caplog.text
+        assert f"text={LONG_TEXT!r}" in caplog.text
+
+    async def test_logs_classification_outcome_with_message_and_user_info(self, context, caplog):
+        with caplog.at_level(logging.INFO):
+            await self.alert_on(context, result=make_spam_result())
+        assert "ai_spam_monitor: group=" in caplog.text
+        assert "username=@testuser" in caplog.text
+        assert "name='Test User'" in caplog.text
+        assert "label=spam" in caplog.text
+        assert f"text={LONG_TEXT!r}" in caplog.text
 
     async def test_no_alert_without_registry_group(self, context):
         with (
