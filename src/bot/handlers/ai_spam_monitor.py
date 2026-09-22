@@ -166,7 +166,8 @@ async def _classify_and_alert(
     if result is None:
         logger.info(
             f"ai_spam_monitor: classification failed for user_id={user.id} "
-            f"in group={group_id}"
+            f"username=@{user.username} name={user.full_name!r} "
+            f"group={group_id} message_id={message_id} text={message_text!r}"
         )
         return
 
@@ -175,8 +176,10 @@ async def _classify_and_alert(
     )
     logger.info(
         f"ai_spam_monitor: group={group_id} user_id={user.id} "
-        f"label={result.label} confidence={confidence_display} "
-        f"model={result.model} message_id={message_id}"
+        f"username=@{user.username} name={user.full_name!r} "
+        f"message_id={message_id} label={result.label} "
+        f"confidence={confidence_display} model={result.model} "
+        f"text={message_text!r}"
     )
 
     if result.label != "spam":
