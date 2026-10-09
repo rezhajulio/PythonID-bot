@@ -17,6 +17,7 @@ from bot.handlers.ai_spam_monitor import (
     ACTION_DELETE_RESTRICT,
     ACTION_DISMISS,
     ALERTS_KEY,
+    ai_spam_filter,
     flagged_aspects,
     handle_ai_spam_action,
     handle_ai_spam_monitor,
@@ -102,10 +103,12 @@ def make_update(
     user_id: int = 42,
     is_bot: bool = False,
     message_id: int = 100,
+    caption: str | None = None,
 ) -> MagicMock:
     update = MagicMock()
     message = MagicMock()
     message.text = text
+    message.caption = caption
     message.message_id = message_id
     chat = MagicMock()
     chat.id = GROUP_ID
@@ -170,9 +173,23 @@ class TestHandleAiSpamMonitor:
         context.create_task.assert_not_called()
 
     @patch("bot.handlers.ai_spam_monitor.get_settings")
-    async def test_skips_media_message(self, mock_settings, context):
+    async def test_skips_media_message_without_caption(self, mock_settings, context):
         mock_settings.return_value = make_settings()
-        update = make_update(text=None)
+        update = make_update(text=None, caption=None)
+        await handle_ai_spam_monitor(update, context)
+        context.create_task.assert_not_called()
+
+    @patch("bot.handlers.ai_spam_monitor.get_settings")
+    async def test_spawns_task_for_caption_message(self, mock_settings, context):
+        mock_settings.return_value = make_settings()
+        update = make_update(text=None, caption=LONG_TEXT)
+        await handle_ai_spam_monitor(update, context)
+        context.create_task.assert_called_once()
+
+    @patch("bot.handlers.ai_spam_monitor.get_settings")
+    async def test_skips_short_caption(self, mock_settings, context):
+        mock_settings.return_value = make_settings()
+        update = make_update(text=None, caption="ok siap")
         await handle_ai_spam_monitor(update, context)
         context.create_task.assert_not_called()
 
@@ -220,6 +237,22 @@ class TestHandleAiSpamMonitor:
         update = make_update()
         await handle_ai_spam_monitor(update, context)
         context.create_task.assert_not_called()
+
+
+class TestAiSpamFilter:
+    """Tests for the group-7 filter: text or caption, never commands."""
+
+    def test_matches_text_message(self):
+        assert ai_spam_filter(make_update(text=LONG_TEXT)) is True
+
+    def test_matches_caption_message(self):
+        assert ai_spam_filter(make_update(text=None, caption=LONG_TEXT)) is True
+
+    def test_rejects_media_without_caption(self):
+        assert ai_spam_filter(make_update(text=None, caption=None)) is False
+
+    def test_rejects_blank_text_and_caption(self):
+        assert ai_spam_filter(make_update(text="   ", caption="  ")) is False
 
 
 class TestClassifyAndAlert:

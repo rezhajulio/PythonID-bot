@@ -18,7 +18,7 @@ it is never sent to the classification API.
 import logging
 import time
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
 
 from bot.dispatch import (
     HandlerContext,
@@ -27,7 +27,6 @@ from bot.dispatch import (
     effective_chat,
     effective_message,
     effective_user,
-    has_text,
     is_command_message,
     is_group_chat,
 )
@@ -66,9 +65,17 @@ from bot.services.user_checker import check_user_profile
 
 logger = logging.getLogger(__name__)
 
+def _classifiable_text(message: Message) -> str:
+    """Return the text available for classification: body text or media caption."""
+    return message.text or message.caption or ""
+
+
 def ai_spam_filter(update: Update) -> bool:
-    """Match group text messages that are not commands."""
-    return is_group_chat(update) and has_text(update) and not is_command_message(update)
+    """Match group text/caption messages that are not commands."""
+    if not is_group_chat(update) or is_command_message(update):
+        return False
+    message = effective_message(update)
+    return message is not None and bool(_classifiable_text(message).strip())
 
 
 AI_SPAM_FILTER = ai_spam_filter
@@ -241,8 +248,16 @@ async def _classify_and_alert(
     group_config = _get_group_config(context, group_id)
     alert_chat_id = group_config.ai_spam_alert_chat_id if group_config else None
     if alert_chat_id is None:
+        logger.warning(
+            f"ai_spam_monitor: no alert chat configured for group={group_id}; "
+            f"dropping alert user_id={user.id} message_id={message_id} flags={flags_display}"
+        )
         return
     if _already_alerted(context, (group_id, message_id)):
+        logger.info(
+            f"ai_spam_monitor: alert already sent for group={group_id} "
+            f"message_id={message_id}; skipping duplicate"
+        )
         return
 
     profile_status = await _fetch_profile_status(context, user)
@@ -255,6 +270,10 @@ async def _classify_and_alert(
         profile_status=profile_status,
         message_text=truncate_alert_text(message_text),
     )
+    logger.info(
+        f"ai_spam_monitor: sending alert to chat_id={alert_chat_id} "
+        f"for group={group_id} user_id={user.id} message_id={message_id} flags={flags_display}"
+    )
     try:
         await context.bot.send_message(
             chat_id=alert_chat_id,
@@ -263,8 +282,14 @@ async def _classify_and_alert(
         )
     except Exception:
         logger.error(
-            f"ai_spam_monitor: failed to send alert for user_id={user.id}",
+            f"ai_spam_monitor: failed to send alert to chat_id={alert_chat_id} "
+            f"for user_id={user.id} message_id={message_id}",
             exc_info=True,
+        )
+    else:
+        logger.info(
+            f"ai_spam_monitor: alert sent to chat_id={alert_chat_id} "
+            f"for group={group_id} message_id={message_id}"
         )
 
 
@@ -274,9 +299,10 @@ async def handle_ai_spam_monitor(
     """Last-defense entry handler: spawn a background classification."""
     message = effective_message(update)
     user = effective_user(update)
-    if message is None or message.text is None or user is None or user.is_bot:
+    if message is None or user is None or user.is_bot:
         return
-    if len(message.text.strip()) < AI_SPAM_MIN_LENGTH:
+    classifiable = _classifiable_text(message)
+    if len(classifiable.strip()) < AI_SPAM_MIN_LENGTH:
         return
 
     chat = effective_chat(update)
@@ -299,7 +325,7 @@ async def handle_ai_spam_monitor(
             group_id=group_id,
             user=user,
             message_id=message.message_id,
-            message_text=message.text,
+            message_text=classifiable,
         ),
     )
 

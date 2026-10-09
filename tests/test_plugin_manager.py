@@ -151,6 +151,7 @@ class TestManifestOrder:
             "captcha",
             "dm",
             "status",
+            "testalert",
             "guest_bot_block",
             "ai_spam_callback",
             "inline_keyboard_spam",
@@ -685,6 +686,7 @@ class TestRegisteredGroupsMatchDefinitions:
             profile_monitor as pm_mod,
             spam as spam_mod,
             status as status_mod,
+            testalert as testalert_mod,
             topic_guard as tg_mod,
         )
         from bot.plugins.manager import _REGISTRY
@@ -711,6 +713,7 @@ class TestRegisteredGroupsMatchDefinitions:
             "captcha": captcha_mod.register_captcha,
             "dm": dm_mod.register_dm,
             "status": status_mod.register_status,
+            "testalert": testalert_mod.register_testalert,
             "inline_keyboard_spam": spam_mod.register_inline_keyboard_spam,
             "guest_bot_block": spam_mod.register_guest_bot_block,
             "contact_spam": spam_mod.register_contact_spam,

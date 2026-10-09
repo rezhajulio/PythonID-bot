@@ -36,6 +36,7 @@ _PLUGIN_DEFINITIONS: PluginManifest = [
     {"name": "captcha", "handler_group": 0, "description": "Captcha verification for new members"},
     {"name": "dm", "handler_group": 0, "description": "Direct message unrestriction flow"},
     {"name": "status", "handler_group": 0, "description": "Admin /status command"},
+    {"name": "testalert", "handler_group": 0, "description": "Admin /testalert DM command (AI-spam alert delivery test)"},
     {"name": "guest_bot_block", "handler_group": 0, "description": "Block non-whitelisted guest bot messages"},
     {"name": "ai_spam_callback", "handler_group": 0, "description": "Admin action buttons on AI spam monitor alerts"},
     {"name": "inline_keyboard_spam", "handler_group": 1, "description": "Block inline keyboard URL spam"},
