@@ -33,6 +33,7 @@ from bot.constants import (
 )
 from bot.group_config import GroupConfig, get_group_config_for_update
 from bot.handlers.anti_spam import has_non_whitelisted_link
+from bot.services.rich_message import extract_rich_text
 from bot.services.telegram_utils import (
     get_user_mention,
     is_user_admin_or_trusted,
@@ -172,7 +173,11 @@ async def handle_duplicate_spam(
     if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
-    text = message.text or message.caption
+    text = (
+        message.text
+        or message.caption
+        or extract_rich_text(getattr(message, "rich_message", None))
+    )
     is_media = False
     if text:
         normalized = normalize_text(text)

@@ -11,10 +11,13 @@ from aiogram.types import (
     Message,
     MessageEntity,
     PhotoSize,
+    RichBlockParagraph,
+    RichMessage,
     Sticker,
     Update,
     User,
 )
+
 
 from bot.dispatch import AppState, HandlerContext, StopPropagation
 
@@ -30,6 +33,22 @@ from bot.handlers.duplicate_spam import (
 )
 
 DEFAULT_SIMILARITY = 0.95
+
+
+def _make_rich_update(message_id, rich_text):
+    """Build a real aiogram Update carrying a text-only rich message."""
+    user = User(id=42, is_bot=False, first_name="Test", username="testuser")
+    chat = Chat(id=-100, type="group", title="Test")
+    msg = Message(
+        message_id=message_id,
+        date=datetime.now(UTC),
+        chat=chat,
+        from_user=user,
+        rich_message=RichMessage(
+            blocks=[RichBlockParagraph(text=rich_text)]
+        ),
+    )
+    return Update(update_id=message_id, message=msg)
 
 
 def _make_sticker(file_unique_id):
@@ -325,6 +344,50 @@ class TestHandleDuplicateSpam:
 
         assert mock_context.bot.delete_message.call_count == 2
         mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_identical_rich_text_triggers_restriction(
+        self, mock_context, group_config
+    ):
+        """Rich-only messages are tracked by their extracted rich text."""
+        rich_text = "Barangkali di sini ada yang sedang mencari kerja bisa menghubungi saya"
+        with patch(
+            "bot.handlers.duplicate_spam.get_group_config_for_update",
+            return_value=group_config,
+        ):
+            with patch(
+                "bot.handlers.duplicate_spam.get_user_mention", return_value="@testuser"
+            ):
+                await handle_duplicate_spam(
+                    _make_rich_update(100, rich_text), mock_context
+                )
+                with pytest.raises(StopPropagation):
+                    await handle_duplicate_spam(
+                        _make_rich_update(101, rich_text), mock_context
+                    )
+
+        assert mock_context.bot.delete_message.call_count == 2
+        mock_context.bot.restrict_chat_member.assert_called_once()
+
+    async def test_different_rich_text_not_counted(
+        self, mock_context, group_config
+    ):
+        with patch(
+            "bot.handlers.duplicate_spam.get_group_config_for_update",
+            return_value=group_config,
+        ):
+            for i, text in enumerate(
+                (
+                    "the quick brown fox jumps over the lazy dog today",
+                    "python packaging with uv is fast and reproducible",
+                    "jakarta traffic during rush hour is unbearable",
+                )
+            ):
+                await handle_duplicate_spam(
+                    _make_rich_update(100 + i, text), mock_context
+                )
+
+        mock_context.bot.delete_message.assert_not_called()
+        mock_context.bot.restrict_chat_member.assert_not_called()
 
     async def test_different_stickers_not_counted(self, mock_context, group_config):
         with patch("bot.handlers.duplicate_spam.get_group_config_for_update", return_value=group_config):

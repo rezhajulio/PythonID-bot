@@ -3,7 +3,12 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiogram.types import Message, User
+from aiogram.types import (
+    Message,
+    RichBlockParagraph,
+    RichMessage,
+    User,
+)
 
 from bot.dispatch import AppState, HandlerContext, StopPropagation
 
@@ -370,6 +375,17 @@ class TestHandleBioBaitSpam:
     async def test_uses_caption_when_no_text(self, mock_update, mock_context, group_config):
         mock_update.message.text = None
         mock_update.message.caption = "lihat bio aku"
+        with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
+            with pytest.raises(StopPropagation):
+                await handle_bio_bait_spam(mock_update, mock_context)
+        mock_update.message.delete.assert_called_once()
+
+    async def test_detects_bait_in_rich_text(self, mock_update, mock_context, group_config):
+        mock_update.message.text = None
+        mock_update.message.caption = None
+        mock_update.message.rich_message = RichMessage(
+            blocks=[RichBlockParagraph(text="cek bio aku dong")]
+        )
         with patch("bot.handlers.bio_bait.get_group_config_for_update", return_value=group_config):
             with pytest.raises(StopPropagation):
                 await handle_bio_bait_spam(mock_update, mock_context)

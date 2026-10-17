@@ -43,6 +43,7 @@ from bot.constants import (
     WHITELISTED_TELEGRAM_PATHS,
 )
 from bot.group_config import get_group_config_for_update
+from bot.services.rich_message import extract_rich_text
 from bot.services.telegram_utils import (
     get_user_mention,
     is_url_whitelisted,
@@ -425,7 +426,11 @@ async def handle_bio_bait_spam(
     if is_user_admin_or_trusted(context, group_config.group_id, user.id):
         return
 
-    text = message.text or message.caption or ""
+    text = (
+        message.text
+        or message.caption
+        or extract_rich_text(getattr(message, "rich_message", None))
+    )
 
     detection_reason: str | None = None
     user_bio: str | None = None

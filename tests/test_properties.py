@@ -9,6 +9,8 @@ To run just these tests: ``uv run pytest tests/test_properties.py -v``
 """
 
 
+from urllib.parse import urlparse
+
 import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
@@ -17,6 +19,7 @@ from bot.constants import format_hours_display, format_threshold_display
 from bot.handlers.ai_spam_monitor import flagged_aspects
 from bot.handlers.trust import _format_person, _format_person_with_username
 from bot.services.classifier_client import ClassificationResult
+from bot.services.rich_message import _url_shaped_candidates
 from bot.services.telegram_utils import is_url_whitelisted
 
 # Strategies -----------------------------------------------------------------
@@ -300,3 +303,30 @@ class TestFlaggedAspects:
 @given(st.integers(min_value=0, max_value=1000))
 def test_sanity_integer_strategy(x: int) -> None:
     assert 0 <= x <= 1000
+
+
+class TestUrlShapedCandidates:
+    """Invariants for rich-block bare-URL detection."""
+
+    @given(st.text(max_size=200))
+    @settings(max_examples=200)
+    def test_no_http_means_no_candidates(self, text: str) -> None:
+        """Without an http(s) marker there is nothing URL-shaped."""
+        assume("http" not in text.lower())
+        assert _url_shaped_candidates(text) == []
+
+    @given(st.text(max_size=200))
+    @settings(max_examples=200)
+    def test_candidates_are_well_formed_urls(self, text: str) -> None:
+        """Every candidate has an http(s) scheme and a dotted hostname."""
+        for candidate in _url_shaped_candidates(text):
+            lowered = candidate.lower()
+            assert lowered.startswith(("http://", "https://"))
+            hostname = urlparse(candidate).hostname or ""
+            assert "." in hostname
+
+    @given(st.text(max_size=200))
+    @settings(max_examples=200)
+    def test_no_duplicates(self, text: str) -> None:
+        candidates = _url_shaped_candidates(text)
+        assert len(candidates) == len(set(candidates))
