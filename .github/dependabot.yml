@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Keep GitHub Actions (e.g. astral-sh/setup-uv) on their latest releases.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "Chore"

@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 LABEL maintainer="PythonID Bot"
 LABEL description="Telegram bot for group profile monitoring"

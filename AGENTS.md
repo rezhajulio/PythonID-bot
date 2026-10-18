@@ -324,10 +324,11 @@ if user.id not in context.state.admin_ids:
 ## CI/CD
 
 - **GitHub Actions**: `.github/workflows/python-checks.yml`
-- **Matrix**: Python 3.11, 3.12, 3.13, 3.14
+- **Matrix**: Python 3.11, 3.12, 3.13, 3.14, 3.15 (3.15 stable since the 3.15.0 final, 2026-10-09 — no `allow-prereleases` needed)
+- **uv**: installed via `astral-sh/setup-uv` (not `pip install uv`)
 - **Steps**: ruff → mypy → pytest (lint job always; test job runs when Python files changed)
 - **Mypy config**: Pragmatic, in `pyproject.toml [tool.mypy]`. Disables noisy error codes from aiogram / SQLModel / Pydantic v2 (`arg-type`, `attr-defined`, `index`, `union-attr`, `misc`, `return-value`, `call-arg`). New code should remain free of these errors
-- **Docker**: Multi-stage build with `uv`, non-root user, 512MB limit
+- **Docker**: Multi-stage build with `uv`, non-root user, 512MB limit. Base image is `python:3.15-slim`; bump `.python-version` together with the Dockerfile since `uv sync` resolves its interpreter from it
 
 ## Where to Look (Plugin System)
 
@@ -364,3 +365,4 @@ if user.id not in context.state.admin_ids:
 ## Policy
 
 - Never mention AI usage, code generation tools, or automated assistance in commit messages, PR descriptions, code comments, or documentation
+- PR titles and descriptions are written in English
