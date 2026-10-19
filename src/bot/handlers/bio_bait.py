@@ -23,6 +23,7 @@ import logging
 import re
 import unicodedata
 from time import monotonic
+from urllib.parse import urlparse
 
 from aiogram.types import Update
 
@@ -201,7 +202,27 @@ def is_bio_bait_spam(text: str) -> bool:
         return False
     return any(pattern.search(normalized) for pattern in BIO_BAIT_PATTERNS)
 
-def has_suspicious_bio_links(bio: str) -> bool:
+def _telegram_link_first_segment(url: str) -> str | None:
+    """
+    Extract the first path segment of a t.me/telegram.me URL, lowercased.
+
+    Args:
+        url: Matched Telegram URL, with or without scheme.
+
+    Returns:
+        The first path segment (e.g. "somechannel" for t.me/somechannel),
+        or None when the URL has no usable path.
+    """
+    candidate = url if url.startswith(("http://", "https://")) else "https://" + url
+    try:
+        path = urlparse(candidate).path
+    except Exception:
+        return None
+    parts = [p for p in path.strip("/").split("/") if p]
+    return parts[0].lower() if parts else None
+
+
+def has_suspicious_bio_links(bio: str, username: str | None = None) -> bool:
     """
     Check whether a user's bio text contains suspicious Telegram promo refs.
 
@@ -211,8 +232,12 @@ def has_suspicious_bio_links(bio: str) -> bool:
         - Two or more non-whitelisted bare @mentions.
         - A single non-whitelisted @mention combined with a promo hint word.
 
+    Links and @mentions that point at the bio owner's own username are
+    treated as self-references, not promo links (dynamic self-whitelist).
+
     Args:
         bio: Raw bio string from the user's profile.
+        username: The bio owner's Telegram username (without @), if known.
 
     Returns:
         bool: True if the bio is considered spammy.
@@ -222,17 +247,22 @@ def has_suspicious_bio_links(bio: str) -> bool:
 
     normalized = unicodedata.normalize("NFKC", bio)
     lowered = normalized.lower()
+    own_username = username.lower() if username else None
 
     if TELEGRAM_INVITE_LINK_RE.search(normalized):
         return True
 
     for match in TELEGRAM_LINK_RE.finditer(normalized):
-        if not is_url_whitelisted(match.group(1)):
+        url = match.group(1)
+        if own_username and _telegram_link_first_segment(url) == own_username:
+            continue
+        if not is_url_whitelisted(url):
             return True
 
     mention_count = sum(
         1 for m in TELEGRAM_USERNAME_RE.finditer(normalized)
         if m.group(1).lower() not in WHITELISTED_TELEGRAM_PATHS
+        and m.group(1).lower() != own_username
     )
     if mention_count >= 2:
         return True
@@ -438,7 +468,7 @@ async def handle_bio_bait_spam(
         detection_reason = "message_bait"
     else:
         user_bio = await get_cached_user_bio(context, user.id)
-        if user_bio and has_suspicious_bio_links(user_bio):
+        if user_bio and has_suspicious_bio_links(user_bio, username=user.username):
             detection_reason = "bio_links"
 
     if detection_reason is None:

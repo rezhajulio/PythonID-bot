@@ -183,6 +183,46 @@ class TestHasSuspiciousBioLinks:
         assert has_suspicious_bio_links("promo @scam_channel") is True
         assert has_suspicious_bio_links("join @scam_channel") is True
 
+    # --- Dynamic self-whitelist: links/@mentions pointing at the bio
+    # owner's own username are self-references, not promo links. ---
+
+    def test_own_tme_link_not_suspicious(self):
+        assert has_suspicious_bio_links("t.me/myusername", username="myusername") is False
+
+    def test_own_tme_link_with_scheme_not_suspicious(self):
+        assert has_suspicious_bio_links("https://t.me/myusername", username="myusername") is False
+
+    def test_own_telegram_me_link_not_suspicious(self):
+        assert has_suspicious_bio_links("telegram.me/myusername", username="myusername") is False
+
+    def test_own_bare_mention_not_suspicious(self):
+        assert has_suspicious_bio_links("@myusername", username="myusername") is False
+
+    def test_own_username_case_insensitive(self):
+        assert has_suspicious_bio_links("t.me/MyUserName", username="myusername") is False
+        assert has_suspicious_bio_links("@MYUSERNAME", username="myusername") is False
+
+    def test_own_link_plus_other_channel_still_suspicious(self):
+        bio = "t.me/myusername and t.me/somechannel"
+        assert has_suspicious_bio_links(bio, username="myusername") is True
+
+    def test_own_mention_excluded_from_count(self):
+        # Only one foreign mention left -> not enough without a promo hint.
+        assert has_suspicious_bio_links("@myusername @somechannel", username="myusername") is False
+        # Two foreign mentions -> still suspicious.
+        assert has_suspicious_bio_links("@myusername @chan_one @chan_two", username="myusername") is True
+
+    def test_own_mention_with_promo_hint_not_suspicious(self):
+        assert has_suspicious_bio_links("VIP @myusername", username="myusername") is False
+
+    def test_invite_link_still_suspicious_with_username(self):
+        # Private invite links can never be a self-reference.
+        assert has_suspicious_bio_links("t.me/+exampleinvitehash", username="myusername") is True
+
+    def test_none_username_keeps_old_behavior(self):
+        assert has_suspicious_bio_links("Join t.me/somerandomscamchannel", username=None) is True
+        assert has_suspicious_bio_links("@somerandomname", username=None) is False
+
 class TestUserBioCache:
     """Tests for get_cached_user_bio / clear_cached_user_bio."""
 
