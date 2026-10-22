@@ -202,16 +202,21 @@ def is_bio_bait_spam(text: str) -> bool:
         return False
     return any(pattern.search(normalized) for pattern in BIO_BAIT_PATTERNS)
 
-def _telegram_link_first_segment(url: str) -> str | None:
+def _telegram_profile_username(url: str) -> str | None:
     """
-    Extract the first path segment of a t.me/telegram.me URL, lowercased.
+    Extract the profile username from a t.me/telegram.me profile URL.
+
+    Returns the lowercased username (any leading "@" stripped) only when
+    the URL path is exactly that username — a bare profile link with no
+    subpath. Invite links, channel post links (t.me/<name>/<post-id>),
+    and anything else return None.
 
     Args:
         url: Matched Telegram URL, with or without scheme.
 
     Returns:
-        The first path segment (e.g. "somechannel" for t.me/somechannel),
-        or None when the URL has no usable path.
+        The profile username, or None when the URL is not a bare
+        profile link.
     """
     candidate = url if url.startswith(("http://", "https://")) else "https://" + url
     try:
@@ -219,7 +224,28 @@ def _telegram_link_first_segment(url: str) -> str | None:
     except Exception:
         return None
     parts = [p for p in path.strip("/").split("/") if p]
-    return parts[0].lower() if parts else None
+    if len(parts) != 1:
+        return None
+    return parts[0].lower().lstrip("@")
+
+
+# Characters that, immediately before a regex match, mean the match is
+# embedded inside a longer URL or token (e.g. "evil.com/t.me/user").
+_URL_EMBED_PRECEDING_CHARS = frozenset("._/-")
+
+
+def _is_standalone_match(text: str, start: int) -> bool:
+    """
+    Check whether a regex match at ``start`` stands on its own.
+
+    A match is embedded when the preceding character could be part of a
+    longer URL/hostname/token (alphanumeric or one of ``._/-``), e.g. the
+    ``t.me/user`` inside ``evil.com/t.me/user``.
+    """
+    if start == 0:
+        return True
+    prev = text[start - 1]
+    return not (prev.isalnum() or prev in _URL_EMBED_PRECEDING_CHARS)
 
 
 def has_suspicious_bio_links(bio: str, username: str | None = None) -> bool:
@@ -234,6 +260,10 @@ def has_suspicious_bio_links(bio: str, username: str | None = None) -> bool:
 
     Links and @mentions that point at the bio owner's own username are
     treated as self-references, not promo links (dynamic self-whitelist).
+    The link exemption is deliberately narrow: it applies only to a
+    standalone bare profile link (``t.me/<own-username>``, no subpath) —
+    a match embedded in a longer URL (``evil.com/t.me/<own-username>``)
+    or carrying a subpath does not qualify and is checked as usual.
 
     Args:
         bio: Raw bio string from the user's profile.
@@ -254,7 +284,11 @@ def has_suspicious_bio_links(bio: str, username: str | None = None) -> bool:
 
     for match in TELEGRAM_LINK_RE.finditer(normalized):
         url = match.group(1)
-        if own_username and _telegram_link_first_segment(url) == own_username:
+        if (
+            own_username
+            and _is_standalone_match(normalized, match.start())
+            and _telegram_profile_username(url) == own_username
+        ):
             continue
         if not is_url_whitelisted(url):
             return True

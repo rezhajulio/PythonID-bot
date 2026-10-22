@@ -223,6 +223,26 @@ class TestHasSuspiciousBioLinks:
         assert has_suspicious_bio_links("Join t.me/somerandomscamchannel", username=None) is True
         assert has_suspicious_bio_links("@somerandomname", username=None) is False
 
+    def test_own_at_prefixed_link_not_suspicious(self):
+        # Telegram also accepts https://t.me/@username as a profile URL.
+        assert has_suspicious_bio_links("https://t.me/@myusername", username="myusername") is False
+
+    def test_own_link_trailing_slash_not_suspicious(self):
+        assert has_suspicious_bio_links("t.me/myusername/", username="myusername") is False
+
+    def test_own_link_in_parens_not_suspicious(self):
+        assert has_suspicious_bio_links("(t.me/myusername)", username="myusername") is False
+
+    def test_embedded_self_link_still_suspicious(self):
+        # The self-whitelist must not cover a t.me/<own-username> match
+        # embedded inside a longer URL — it is not a standalone profile link.
+        assert has_suspicious_bio_links("evil.com/t.me/myusername", username="myusername") is True
+        assert has_suspicious_bio_links("https://evil.com/t.me/myusername", username="myusername") is True
+
+    def test_own_link_with_subpath_still_suspicious(self):
+        # Only the bare profile link is exempt; a subpath is checked as usual.
+        assert has_suspicious_bio_links("t.me/myusername/123", username="myusername") is True
+
 class TestUserBioCache:
     """Tests for get_cached_user_bio / clear_cached_user_bio."""
 
